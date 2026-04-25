@@ -449,8 +449,16 @@ function init() {
     const ballGeo = new THREE.SphereGeometry(0.35, 16, 16); ballGeo.scale(1, 1, 1.8);
     const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
     ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true; scene.add(ball);
-    const laces = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.35, 1.2), new THREE.MeshBasicMaterial({color:0xffffff}));
-    laces.position.y = 0.35; ball.add(laces);
+    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.35).
+    const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
+    const spineGeo = new THREE.BoxGeometry(0.025, 0.012, 0.42);
+    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.34; ball.add(spine);
+    const stitchGeo = new THREE.BoxGeometry(0.09, 0.018, 0.025);
+    for (let i = -2; i <= 2; i++) {
+        const stitch = new THREE.Mesh(stitchGeo, laceMat);
+        stitch.position.set(0, 0.345, i * 0.085);
+        ball.add(stitch);
+    }
 
     trajectoryLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffaa00, dashSize: 1, gapSize: 0.5, linewidth: 2 }));
     trajectoryLine.visible = false; scene.add(trajectoryLine);
@@ -621,19 +629,27 @@ class Player {
         if (this.currentMoveSpeed > 0.1 && GAME_STATE !== 'GETTING_UP') {
             let swingSpeed = (keys['ShiftLeft'] && this.currentMoveSpeed > this.baseSpeed) ? 25 : 18;
             let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0;
-            this.leftArm.rotation.x = swing;
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
-            if (isCarrying) { this.rightArm.rotation.copy(TUCKED_ARM_ROTATION); }
-            else            { this.rightArm.rotation.set(-swing, 0, 0); }
+            if (isCarrying) {
+                this.rightArm.rotation.copy(TUCKED_RIGHT_ARM_ROTATION);
+                this.leftArm.rotation.copy(TUCKED_LEFT_ARM_ROTATION);
+            } else {
+                this.leftArm.rotation.set(swing, 0, 0);
+                this.rightArm.rotation.set(-swing, 0, 0);
+            }
         } else if (GAME_STATE === 'GETTING_UP') {
             let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5;
-            this.leftArm.rotation.x = swing; this.rightArm.rotation.x = -swing;
+            this.leftArm.rotation.set(swing, 0, 0); this.rightArm.rotation.set(-swing, 0, 0);
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
         } else {
-            this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
             this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1); this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
-            if (isCarrying) { this.rightArm.rotation.copy(TUCKED_ARM_ROTATION); }
-            else            { this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1); }
+            if (isCarrying) {
+                this.rightArm.rotation.copy(TUCKED_RIGHT_ARM_ROTATION);
+                this.leftArm.rotation.copy(TUCKED_LEFT_ARM_ROTATION);
+            } else {
+                this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
+                this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1);
+            }
         }
     }
 
@@ -969,15 +985,14 @@ function onMouseDown(e) {
     }
 }
 
-// Pose of the ball relative to the carrier's right ARM (not body).
-// The arm pivots at the shoulder, so these are arm-local coords:
-//   x: sideways across the arm (negative = toward chest)
-//   y: down the arm from shoulder (negative = toward hand)
-//   z: forward of the arm
-const TUCKED_POSITION = new THREE.Vector3(-0.25, -0.7, 0.35);
-const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0); // align long axis with arm
-// Pose of the carrying arm itself while tucking — overrides the run-swing.
-const TUCKED_ARM_ROTATION = new THREE.Euler(-1.2, 0, 0.5);   // arm bent forward, hand inward
+// Two-hand "high-and-tight" carry. Ball is parented to rightArm; both arms
+// are locked into a wrap pose so they meet at chest center around the ball.
+//   TUCKED_POSITION: ball's pose in rightArm-local space (after rightArm rotates).
+//   TUCKED_RIGHT_ARM_ROTATION / TUCKED_LEFT_ARM_ROTATION: arm pose during carry.
+const TUCKED_POSITION = new THREE.Vector3(-0.55, -0.85, 0.05);
+const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);   // long axis runs left-to-right across chest
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-1.5, 0, 0.7);
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.5, 0, -0.7);
 
 function attachBallToCarrier(carrier) {
     carrier.rightArm.add(ball);
