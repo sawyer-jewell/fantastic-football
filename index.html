@@ -998,7 +998,7 @@ function onMouseDown(e) {
 const TUCKED_POSITION = new THREE.Vector3(0, 1.70, 0.45);
 const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
 const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.6, 0, 1.15);  // wraps tight: more forward + more inward
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.7, 0, -0.45); // half-bent forward + slightly across, helps secure
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.85, 0, -0.10); // mostly forward, slight inward — hand rests against ball's right side without crossing
 
 function attachBallToCarrier(carrier) {
     carrier.group.add(ball);
