@@ -100,27 +100,28 @@
 // ---- Per-tab pose state ----
 const DEFAULTS = {
     carrier: {
-        ballRadius: 0.28, ballLong: 1.80,
-        posX: 0.20, posY: 1.85, posZ: 0.30,
-        rotX: 1.5708, rotY: 0, rotZ: 0,
-        // "R" labels (lu*/ll* IDs) -> p.leftUpper/Lower (world -X) -> off-arm hangs at side
-        luX: 0, luY: 0, luZ: 0,
-        llX: 0.30, llY: 0, llZ: 0,
-        // "L" labels (ru*/rl* IDs) -> p.rightUpper/Lower (world +X) -> carry arm cradle pose
-        ruX: 0, ruY: 0, ruZ: 0.50,
-        rlX: 2.50, rlY: 0, rlZ: 0,
+        // Carrier cradle — values tuned in playground 2026-04-25.
+        ballRadius: 0.185, ballLong: 1.80,
+        posX: -0.36, posY: 1.74, posZ: 0.41,
+        rotX: 1.08, rotY: 0.25, rotZ: -0.58,
+        // "R" labels (lu*/ll* IDs) -> p.leftUpper/Lower (world -X arm)
+        luX: -0.66, luY: 0.41, luZ: 0.25,
+        llX: -1.08, llY: 1.04, llZ: 0.52,
+        // "L" labels (ru*/rl* IDs) -> p.rightUpper/Lower (world +X arm)
+        ruX: -0.79, ruY: -2.28, ruZ: 0.84,
+        rlX: -1.01, rlY: 0.3, rlZ: 0.18,
     },
     qb: {
-        // QB throwing-ready stance: ball cocked back near right ear, left arm forward for balance.
-        ballRadius: 0.28, ballLong: 1.80,
-        posX: 0.55, posY: 2.45, posZ: -0.10,
-        rotX: 0, rotY: 0, rotZ: -0.40,
-        // "R" labels -> p.leftUpper/Lower (world -X) -> off-hand extended forward for balance
-        luX: -1.20, luY: 0, luZ: 0.30,
-        llX: 1.20, llY: 0, llZ: 0,
-        // "L" labels -> p.rightUpper/Lower (world +X) -> throwing arm cocked
-        ruX: -1.30, ruY: 0, ruZ: -0.80,
-        rlX: 2.20, rlY: 0, rlZ: 0,
+        // QB throwing-ready stance — values tuned in playground 2026-04-25.
+        ballRadius: 0.185, ballLong: 1.80,
+        posX: -0.61, posY: 2.84, posZ: 0.32,
+        rotX: -0.23, rotY: 0, rotZ: -0.40,
+        // "R" labels -> p.leftUpper/Lower (world -X arm)
+        luX: -2.68, luY: -0.11, luZ: 0.04,
+        llX: -0.67, llY: 0, llZ: 0,
+        // "L" labels -> p.rightUpper/Lower (world +X arm)
+        ruX: -1.58, ruY: 0.11, ruZ: -0.67,
+        rlX: -0.36, rlY: 0, rlZ: 0,
     },
 };
 const state = { carrier: { ...DEFAULTS.carrier }, qb: { ...DEFAULTS.qb } };
