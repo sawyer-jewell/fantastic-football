@@ -177,10 +177,10 @@
         </div>
 
         <div id="playbook" class="hidden">
-            <div class="play-card" onclick="selectPlay('slant')">SLANTS</div>
-            <div class="play-card" onclick="selectPlay('verts')">FOUR VERTS</div>
-            <div class="play-card" onclick="selectPlay('curls')">CURLS</div>
-            <div class="play-card" onclick="selectPlay('posts')">POSTS</div>
+            <div class="play-card" onclick="selectPlay('slant')" onmouseenter="previewPlay('slant')" onmouseleave="clearRoutePreview()">SLANTS</div>
+            <div class="play-card" onclick="selectPlay('verts')" onmouseenter="previewPlay('verts')" onmouseleave="clearRoutePreview()">FOUR VERTS</div>
+            <div class="play-card" onclick="selectPlay('curls')" onmouseenter="previewPlay('curls')" onmouseleave="clearRoutePreview()">CURLS</div>
+            <div class="play-card" onclick="selectPlay('posts')" onmouseenter="previewPlay('posts')" onmouseleave="clearRoutePreview()">POSTS</div>
         </div>
 
         <div id="hud">
@@ -845,9 +845,25 @@ class Player {
                     if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } } 
                     else { dir.normalize(); this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed; }
                 } else {
-                    let lastTarget = this.route[this.route.length - 1]; let prevTarget = this.route.length > 1 ? this.route[this.route.length - 2] : new THREE.Vector3(this.group.position.x, 0, lineOfScrimmageZ);
-                    let dir = new THREE.Vector3().subVectors(lastTarget, prevTarget); dir.y = 0; if(dir.length() === 0) dir.z = -1; else dir.normalize();
-                    if (dir.z <= 0) { this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed; }
+                    // Route done. If we're in (or past) the end zone, wait for the throw — that's where the
+                    // play wants us. Otherwise drift to find space: move away from the nearest defender at
+                    // half-speed, simulating a "get open" scramble between zones.
+                    const inEndZone = this.group.position.z < -90;
+                    if (inEndZone) {
+                        this.currentMoveSpeed = 0;
+                    } else {
+                        let nearest = null, minD = Infinity;
+                        players.defense.forEach(d => { const dist = this.group.position.distanceTo(d.group.position); if (dist < minD) { minD = dist; nearest = d; } });
+                        if (nearest && minD < 12) {
+                            const away = new THREE.Vector3().subVectors(this.group.position, nearest.group.position); away.y = 0;
+                            if (away.length() > 0) away.normalize();
+                            this.group.position.addScaledVector(away, actualPlayerSpeed * 0.5 * dt);
+                            this.group.lookAt(this.group.position.clone().add(away));
+                            this.currentMoveSpeed = actualPlayerSpeed * 0.5;
+                        } else {
+                            this.currentMoveSpeed = 0;
+                        }
+                    }
                 }
             }
         } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
@@ -891,9 +907,35 @@ class Player {
         }
 
         if (this.isJumping) {
-            this.group.position.y += this.yVelocity * dt; this.yVelocity -= 30 * dt; 
+            this.group.position.y += this.yVelocity * dt; this.yVelocity -= 30 * dt;
             if (this.group.position.y <= 0) { this.group.position.y = 0; this.isJumping = false; }
         }
+
+        // Player-vs-player collision: push self out of any overlap with another player.
+        // Each player resolves their own collisions, so two overlapping players each
+        // contribute half a push and end up apart within a frame.
+        const PLAYER_RADIUS = 0.7;
+        const minDist = PLAYER_RADIUS * 2;
+        const all = players.offense.concat(players.defense);
+        for (let i = 0; i < all.length; i++) {
+            const other = all[i];
+            if (other === this) continue;
+            const dx = this.group.position.x - other.group.position.x;
+            const dz = this.group.position.z - other.group.position.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > 0 && d2 < minDist * minDist) {
+                const d = Math.sqrt(d2);
+                const push = (minDist - d) * 0.5;
+                this.group.position.x += (dx / d) * push;
+                this.group.position.z += (dz / d) * push;
+            }
+        }
+
+        // Field boundary: keep players inside the playable rectangle so deep routes
+        // don't run into the stadium walls. End zones run to z = -100; clamp slightly
+        // beyond so the carrier can still cross for a TD before being clamped back.
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -50, 50);
+        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -105, 105);
 
         this.animateLimbs(dt);
     }
@@ -1037,34 +1079,66 @@ function setupFormation() {
     GAME_STATE = 'PLAYBOOK';
 }
 
+// Build route waypoints for a play, ordered [wr1, wr2, slot, te] to match
+// players.offense[1..4]. Coordinates are absolute world positions.
+function getRoutesForPlay(playType, los) {
+    if (playType === 'slant') return [
+        [new THREE.Vector3(-15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
+        [new THREE.Vector3( 15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
+        [new THREE.Vector3( -8, 0, los -  8), new THREE.Vector3(5, 0, los - 20)],
+        [new THREE.Vector3(5.5, 0, los -  5), new THREE.Vector3(12, 0, los - 15)],
+    ];
+    if (playType === 'verts') return [
+        [new THREE.Vector3(-15, 0, los - 60)],
+        [new THREE.Vector3( 15, 0, los - 60)],
+        [new THREE.Vector3( -8, 0, los - 60)],
+        [new THREE.Vector3(5.5, 0, los - 60)],
+    ];
+    if (playType === 'curls') return [
+        [new THREE.Vector3(-15, 0, los - 20), new THREE.Vector3(-13, 0, los - 18)],
+        [new THREE.Vector3( 15, 0, los - 20), new THREE.Vector3( 13, 0, los - 18)],
+        [new THREE.Vector3( -8, 0, los - 12), new THREE.Vector3(-10, 0, los - 10)],
+        [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3(  2, 0, los -  8)],
+    ];
+    if (playType === 'posts') return [
+        [new THREE.Vector3(-15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
+        [new THREE.Vector3( 15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
+        [new THREE.Vector3( -8, 0, los - 10), new THREE.Vector3(-15, 0, los - 30)],
+        [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3( 15, 0, los - 30)],
+    ];
+    return [[], [], [], []];
+}
+
+function drawRouteLines(routes, color) {
+    while (routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+    const material = new THREE.LineBasicMaterial({ color: color || 0x00ff00, linewidth: 3 });
+    const receivers = [players.offense[1], players.offense[2], players.offense[3], players.offense[4]];
+    routes.forEach((route, i) => {
+        const p = receivers[i];
+        if (!p || !route || route.length === 0) return;
+        const pts = [new THREE.Vector3(p.group.position.x, 0.2, p.group.position.z)];
+        route.forEach(pt => pts.push(new THREE.Vector3(pt.x, 0.2, pt.z)));
+        routeLinesGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material));
+    });
+}
+
+// Hover-preview support: show the routes a play would run while the user
+// hovers over its play card, clear them on mouseleave (only in PLAYBOOK).
+function previewPlay(playType) {
+    if (GAME_STATE !== 'PLAYBOOK') return;
+    drawRouteLines(getRoutesForPlay(playType, lineOfScrimmageZ), 0x66ddff);
+}
+function clearRoutePreview() {
+    if (GAME_STATE !== 'PLAYBOOK') return;
+    while (routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+}
+
 function selectPlay(playType) {
     document.getElementById('playbook').classList.add('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     currentPlay = playType; let los = lineOfScrimmageZ;
-    let wr1 = players.offense[1]; let wr2 = players.offense[2]; let slot = players.offense[3]; let te = players.offense[4];
-
-    if (playType === 'slant') {
-        wr1.route = [new THREE.Vector3(-15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)]; wr2.route = [new THREE.Vector3(15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)];
-        slot.route = [new THREE.Vector3(-8, 0, los - 8), new THREE.Vector3(5, 0, los - 20)]; te.route = [new THREE.Vector3(5.5, 0, los - 5), new THREE.Vector3(12, 0, los - 15)];
-    } else if (playType === 'verts') {
-        wr1.route = [new THREE.Vector3(-15, 0, los - 60)]; wr2.route = [new THREE.Vector3(15, 0, los - 60)];
-        slot.route = [new THREE.Vector3(-8, 0, los - 60)]; te.route = [new THREE.Vector3(5.5, 0, los - 60)];
-    } else if (playType === 'curls') {
-        wr1.route = [new THREE.Vector3(-15, 0, los - 20), new THREE.Vector3(-13, 0, los - 18)]; wr2.route = [new THREE.Vector3(15, 0, los - 20), new THREE.Vector3(13, 0, los - 18)];
-        slot.route = [new THREE.Vector3(-8, 0, los - 12), new THREE.Vector3(-10, 0, los - 10)]; te.route = [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3(2, 0, los - 8)];
-    } else if (playType === 'posts') {
-        wr1.route = [new THREE.Vector3(-15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)]; wr2.route = [new THREE.Vector3(15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)];
-        slot.route = [new THREE.Vector3(-8, 0, los - 10), new THREE.Vector3(-15, 0, los - 30)]; te.route = [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3(15, 0, los - 30)];
-    }
-    
-    while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
-    const material = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
-    players.offense.forEach(p => {
-        if(p.route && p.route.length > 0) {
-            let pts = [new THREE.Vector3(p.group.position.x, 0.2, p.group.position.z)];
-            p.route.forEach(pt => pts.push(new THREE.Vector3(pt.x, 0.2, pt.z)));
-            routeLinesGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material));
-        }
-    });
+    const routes = getRoutesForPlay(playType, los);
+    [players.offense[1], players.offense[2], players.offense[3], players.offense[4]].forEach((p, i) => { p.route = routes[i] || []; });
+    drawRouteLines(routes, 0x00ff00);
 
     trajectoryLine.visible = true; landingMarker.visible = true; document.getElementById('hang-time-ui').classList.remove('hidden');
     document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = "UP/DOWN: POWER | SPACE: SNAP"; 
