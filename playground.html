@@ -7,22 +7,22 @@
     body { margin: 0; overflow: hidden; font-family: -apple-system, monospace; background: #1a1f2b; color: #eee; }
     canvas { display: block; }
     #panel {
-        position: fixed; top: 0; right: 0; width: 360px; height: 100vh;
+        position: fixed; top: 0; right: 0; width: 380px; height: 100vh;
         background: rgba(20, 25, 35, 0.92); padding: 12px 16px; overflow-y: auto;
         font-size: 12px; box-sizing: border-box; border-left: 2px solid #2a3142;
     }
-    #panel h2 { margin: 14px 0 6px; font-size: 13px; color: #ffcc00; border-bottom: 1px solid #333; padding-bottom: 4px; }
+    #panel h2 { margin: 14px 0 6px; font-size: 12px; color: #ffcc00; border-bottom: 1px solid #333; padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
     #panel h2:first-child { margin-top: 0; }
-    .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
-    .row label { width: 70px; color: #aaa; }
+    .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .row label { width: 56px; color: #aaa; font-size: 11px; }
     .row input[type=range] { flex: 1; }
-    .row .val { width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: #fff; }
-    .modes { display: flex; gap: 6px; margin: 8px 0 12px; }
-    .modes button { flex: 1; padding: 6px; background: #2a3142; color: #eee; border: 1px solid #444; cursor: pointer; font-family: inherit; font-size: 12px; }
+    .row .val { width: 50px; text-align: right; font-variant-numeric: tabular-nums; color: #fff; font-size: 11px; }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0 12px; }
+    .modes button { padding: 6px; background: #2a3142; color: #eee; border: 1px solid #444; cursor: pointer; font-family: inherit; font-size: 11px; }
     .modes button.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
     #copy-btn { width: 100%; padding: 8px; margin-top: 12px; background: #00aaff; color: #000; border: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: bold; }
     #copy-btn:hover { background: #33ccff; }
-    #copy-out { width: 100%; height: 110px; margin-top: 8px; background: #0d1018; color: #9cf; border: 1px solid #333; padding: 6px; font-family: ui-monospace, monospace; font-size: 11px; box-sizing: border-box; }
+    #copy-out { width: 100%; height: 130px; margin-top: 8px; background: #0d1018; color: #9cf; border: 1px solid #333; padding: 6px; font-family: ui-monospace, monospace; font-size: 10px; box-sizing: border-box; }
     #help { font-size: 11px; color: #888; margin-top: 12px; line-height: 1.5; border-top: 1px solid #333; padding-top: 8px; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
@@ -37,31 +37,42 @@
         <button data-mode="idle">Idle</button>
         <button data-mode="run">Run</button>
         <button data-mode="carry" class="active">Carry</button>
+        <button data-mode="runcarry">Run + Carry</button>
     </div>
 
     <h2>Ball geometry</h2>
     <div class="row"><label>radius</label><input type="range" id="ballRadius" min="0.15" max="0.5" step="0.005" value="0.28"><span class="val" id="ballRadiusV">0.28</span></div>
     <div class="row"><label>long scale</label><input type="range" id="ballLong" min="1" max="2.5" step="0.05" value="1.8"><span class="val" id="ballLongV">1.80</span></div>
 
-    <h2>TUCKED_POSITION (group-local)</h2>
-    <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01" value="-0.5"><span class="val" id="posXV">-0.50</span></div>
-    <div class="row"><label>y</label><input type="range" id="posY" min="0" max="3" step="0.01" value="2.30"><span class="val" id="posYV">2.30</span></div>
-    <div class="row"><label>z</label><input type="range" id="posZ" min="-1.5" max="1.5" step="0.01" value="0.15"><span class="val" id="posZV">0.15</span></div>
+    <h2>Ball position (group-local)</h2>
+    <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01" value="-0.2"><span class="val" id="posXV">-0.20</span></div>
+    <div class="row"><label>y</label><input type="range" id="posY" min="0" max="3" step="0.01" value="1.85"><span class="val" id="posYV">1.85</span></div>
+    <div class="row"><label>z</label><input type="range" id="posZ" min="-1.5" max="1.5" step="0.01" value="0.30"><span class="val" id="posZV">0.30</span></div>
 
-    <h2>TUCKED_EULER (radians)</h2>
+    <h2>Ball rotation (radians)</h2>
     <div class="row"><label>x</label><input type="range" id="rotX" min="-3.2" max="3.2" step="0.01" value="1.5708"><span class="val" id="rotXV">1.57</span></div>
     <div class="row"><label>y</label><input type="range" id="rotY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rotYV">0.00</span></div>
     <div class="row"><label>z</label><input type="range" id="rotZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rotZV">0.00</span></div>
 
-    <h2>LEFT arm rotation</h2>
-    <div class="row"><label>x</label><input type="range" id="laX" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="laXV">0.00</span></div>
-    <div class="row"><label>y</label><input type="range" id="laY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="laYV">0.00</span></div>
-    <div class="row"><label>z</label><input type="range" id="laZ" min="-3.2" max="3.2" step="0.01" value="3.1416"><span class="val" id="laZV">3.14</span></div>
+    <h2>L upper arm — shoulder</h2>
+    <div class="row"><label>x</label><input type="range" id="luX" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="luXV">0.00</span></div>
+    <div class="row"><label>y</label><input type="range" id="luY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="luYV">0.00</span></div>
+    <div class="row"><label>z</label><input type="range" id="luZ" min="-3.2" max="3.2" step="0.01" value="0.5"><span class="val" id="luZV">0.50</span></div>
 
-    <h2>RIGHT arm rotation</h2>
-    <div class="row"><label>x</label><input type="range" id="raX" min="-3.2" max="3.2" step="0.01" value="-0.85"><span class="val" id="raXV">-0.85</span></div>
-    <div class="row"><label>y</label><input type="range" id="raY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="raYV">0.00</span></div>
-    <div class="row"><label>z</label><input type="range" id="raZ" min="-3.2" max="3.2" step="0.01" value="-0.10"><span class="val" id="raZV">-0.10</span></div>
+    <h2>L lower arm — elbow</h2>
+    <div class="row"><label>x</label><input type="range" id="llX" min="-3.2" max="3.2" step="0.01" value="2.5"><span class="val" id="llXV">2.50</span></div>
+    <div class="row"><label>y</label><input type="range" id="llY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="llYV">0.00</span></div>
+    <div class="row"><label>z</label><input type="range" id="llZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="llZV">0.00</span></div>
+
+    <h2>R upper arm — shoulder</h2>
+    <div class="row"><label>x</label><input type="range" id="ruX" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruXV">0.00</span></div>
+    <div class="row"><label>y</label><input type="range" id="ruY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruYV">0.00</span></div>
+    <div class="row"><label>z</label><input type="range" id="ruZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruZV">0.00</span></div>
+
+    <h2>R lower arm — elbow</h2>
+    <div class="row"><label>x</label><input type="range" id="rlX" min="-3.2" max="3.2" step="0.01" value="0.3"><span class="val" id="rlXV">0.30</span></div>
+    <div class="row"><label>y</label><input type="range" id="rlY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rlYV">0.00</span></div>
+    <div class="row"><label>z</label><input type="range" id="rlZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rlZV">0.00</span></div>
 
     <button id="copy-btn">Copy values for index.html</button>
     <textarea id="copy-out" readonly></textarea>
@@ -69,8 +80,10 @@
     <div id="help">
         <strong>Controls:</strong><br>
         Drag = orbit camera · Scroll = zoom<br>
-        Mode: Idle / Run / Carry — sliders only affect Carry pose.<br>
-        Hit "Copy values" then paste into index.html constants.
+        <strong>Modes:</strong><br>
+        Idle / Run = animation only, sliders ignored.<br>
+        Carry = locks to slider pose.<br>
+        Run + Carry = legs run, off-arm pumps, carrying arm holds pose.
     </div>
 </div>
 
@@ -80,9 +93,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a3a55);
 scene.fog = new THREE.Fog(0x2a3a55, 12, 40);
 
-const camera = new THREE.PerspectiveCamera(45, (window.innerWidth - 360) / window.innerHeight, 0.1, 200);
+const PANEL_W = 380;
+const camera = new THREE.PerspectiveCamera(45, (window.innerWidth - PANEL_W) / window.innerHeight, 0.1, 200);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth - 360, window.innerHeight);
+renderer.setSize(window.innerWidth - PANEL_W, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
@@ -90,25 +104,25 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
 const dir = new THREE.DirectionalLight(0xffffff, 0.9);
 dir.position.set(5, 12, 6); dir.castShadow = true; scene.add(dir);
 
-// Ground grid
-const grid = new THREE.GridHelper(20, 20, 0x556677, 0x334455);
-scene.add(grid);
+const grid = new THREE.GridHelper(20, 20, 0x556677, 0x334455); scene.add(grid);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshLambertMaterial({ color: 0x2a5a34 }));
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; ground.receiveShadow = true; scene.add(ground);
 
-// ---- Player builder (mirrors index.html Player constructor visuals) ----
+// ---- Player builder ----
+// Each arm is now: shoulder pivot -> upper arm box -> elbow pivot -> lower arm box -> hand sphere.
+// Pivot groups (Object3D) hold the rotation; geometry boxes are translated so the pivot is at the joint.
 function buildPlayer() {
     const group = new THREE.Group();
-    const jMat = new THREE.MeshLambertMaterial({ color: 0x004c54 });   // Eagles green
+    const jMat = new THREE.MeshLambertMaterial({ color: 0x004c54 });
     const pMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const hMat = new THREE.MeshLambertMaterial({ color: 0x004c54 });
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xe0ac69 });
 
     const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.5), pMat);
-    pelvis.position.y = 1.0; pelvis.castShadow = true; group.add(pelvis);
+    pelvis.position.y = 1.0; group.add(pelvis);
 
     const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.55), jMat);
-    torso.position.y = 1.65; torso.castShadow = true; group.add(torso);
+    torso.position.y = 1.65; group.add(torso);
 
     const head = new THREE.Group();
     const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), hMat);
@@ -116,33 +130,45 @@ function buildPlayer() {
     visor.position.set(0, 0.1, 0.3); helmet.add(visor);
     head.add(helmet); head.position.y = 2.45; group.add(head);
 
-    const armGeo = new THREE.BoxGeometry(0.3, 1.0, 0.3); armGeo.translate(0, -0.4, 0);
-    const handGeo = new THREE.SphereGeometry(0.18, 12, 12);
-    const leftArm = new THREE.Mesh(armGeo, skinMat); leftArm.position.set(-0.6, 1.9, 0); group.add(leftArm);
-    const leftHand = new THREE.Mesh(handGeo, skinMat); leftHand.position.set(0, -0.92, 0); leftArm.add(leftHand);
-    const rightArm = new THREE.Mesh(armGeo, skinMat); rightArm.position.set(0.6, 1.9, 0); group.add(rightArm);
-    const rightHand = new THREE.Mesh(handGeo, skinMat); rightHand.position.set(0, -0.92, 0); rightArm.add(rightHand);
+    // Arm dimensions: total reach 0.92. Upper arm 0.46, lower arm 0.46, shoulder pivot at y=1.9.
+    const upperLen = 0.46, lowerLen = 0.46, armW = 0.28;
+    const upperGeo = new THREE.BoxGeometry(armW, upperLen, armW); upperGeo.translate(0, -upperLen / 2, 0);
+    const lowerGeo = new THREE.BoxGeometry(armW * 0.95, lowerLen, armW * 0.95); lowerGeo.translate(0, -lowerLen / 2, 0);
+    const handGeo = new THREE.SphereGeometry(0.16, 12, 12);
+
+    function makeArm(side) {
+        const sx = (side === 'left' ? -1 : 1) * 0.6;
+        const upperPivot = new THREE.Object3D();
+        upperPivot.position.set(sx, 1.9, 0); group.add(upperPivot);
+        const upper = new THREE.Mesh(upperGeo, skinMat); upperPivot.add(upper);
+
+        const lowerPivot = new THREE.Object3D();
+        lowerPivot.position.set(0, -upperLen, 0); upperPivot.add(lowerPivot); // elbow
+        const lower = new THREE.Mesh(lowerGeo, skinMat); lowerPivot.add(lower);
+
+        const hand = new THREE.Mesh(handGeo, skinMat); hand.position.set(0, -lowerLen, 0); lowerPivot.add(hand);
+
+        return { upper: upperPivot, lower: lowerPivot, hand };
+    }
+    const left = makeArm('left'), right = makeArm('right');
 
     const legGeo = new THREE.BoxGeometry(0.35, 1.1, 0.35); legGeo.translate(0, -0.45, 0);
-    const leftLeg = new THREE.Mesh(legGeo, pMat); leftLeg.position.set(-0.2, 1.0, 0); group.add(leftLeg);
+    const leftLeg  = new THREE.Mesh(legGeo, pMat); leftLeg.position.set(-0.2, 1.0, 0); group.add(leftLeg);
     const rightLeg = new THREE.Mesh(legGeo, pMat); rightLeg.position.set(0.2, 1.0, 0); group.add(rightLeg);
 
-    return { group, leftArm, rightArm, leftLeg, rightLeg };
+    return { group, leftUpper: left.upper, leftLower: left.lower, rightUpper: right.upper, rightLower: right.lower, leftLeg, rightLeg };
 }
 
-// ---- Ball builder (rebuildable when geometry sliders move) ----
-let ball, lacesGroup;
+// ---- Ball ----
+let ball;
 function buildBall(radius, longScale) {
-    if (ball) {
-        if (ball.parent) ball.parent.remove(ball);
-        ball.geometry.dispose();
-    }
+    if (ball) { if (ball.parent) ball.parent.remove(ball); ball.geometry.dispose(); }
     const ballGeo = new THREE.SphereGeometry(radius, 16, 16); ballGeo.scale(1, 1, longScale);
     const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
     ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true;
 
     const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
-    const k = radius / 0.28; // scale laces proportionally to ball radius
+    const k = radius / 0.28;
     const spineGeo = new THREE.BoxGeometry(0.020 * k, 0.010 * k, 0.34 * k);
     const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = radius - 0.01; ball.add(spine);
     const stitchGeo = new THREE.BoxGeometry(0.072 * k, 0.014 * k, 0.020 * k);
@@ -154,7 +180,6 @@ function buildBall(radius, longScale) {
     return ball;
 }
 
-// ---- Build the lone player ----
 const p = buildPlayer();
 scene.add(p.group);
 buildBall(0.28, 1.8);
@@ -165,12 +190,16 @@ document.querySelectorAll('.modes button').forEach(b => b.addEventListener('clic
     document.querySelectorAll('.modes button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     mode = b.dataset.mode;
-    if (mode !== 'carry') { if (ball.parent) ball.parent.remove(ball); }
-    else { applyCarry(); }
+    if (mode === 'idle' || mode === 'run') {
+        if (ball.parent) ball.parent.remove(ball);
+    } else {
+        applyCarry();
+    }
 }));
 
-// ---- Slider state ----
-const ids = ['ballRadius','ballLong','posX','posY','posZ','rotX','rotY','rotZ','laX','laY','laZ','raX','raY','raZ'];
+// ---- Sliders ----
+const ids = ['ballRadius','ballLong','posX','posY','posZ','rotX','rotY','rotZ',
+             'luX','luY','luZ','llX','llY','llZ','ruX','ruY','ruZ','rlX','rlY','rlZ'];
 const state = {};
 ids.forEach(id => {
     const el = document.getElementById(id);
@@ -180,8 +209,8 @@ ids.forEach(id => {
         document.getElementById(id + 'V').textContent = state[id].toFixed(2);
         if (id === 'ballRadius' || id === 'ballLong') {
             buildBall(state.ballRadius, state.ballLong);
-            if (mode === 'carry') applyCarry();
-        } else if (mode === 'carry') {
+            if (mode === 'carry' || mode === 'runcarry') applyCarry();
+        } else if (mode === 'carry' || mode === 'runcarry') {
             applyCarry();
         }
     });
@@ -191,26 +220,34 @@ function applyCarry() {
     p.group.add(ball);
     ball.position.set(state.posX, state.posY, state.posZ);
     ball.rotation.set(state.rotX, state.rotY, state.rotZ);
-    p.leftArm.rotation.set(state.laX, state.laY, state.laZ);
-    p.rightArm.rotation.set(state.raX, state.raY, state.raZ);
-    p.leftLeg.rotation.set(0, 0, 0);
-    p.rightLeg.rotation.set(0, 0, 0);
+    p.leftUpper.rotation.set(state.luX, state.luY, state.luZ);
+    p.leftLower.rotation.set(state.llX, state.llY, state.llZ);
+    if (mode === 'carry') {
+        p.rightUpper.rotation.set(state.ruX, state.ruY, state.ruZ);
+        p.rightLower.rotation.set(state.rlX, state.rlY, state.rlZ);
+        p.leftLeg.rotation.set(0, 0, 0);
+        p.rightLeg.rotation.set(0, 0, 0);
+    }
+    // In runcarry, animation tick will overwrite right-arm + legs each frame.
 }
 applyCarry();
 
-// ---- Copy values to clipboard ----
+// ---- Copy button ----
 document.getElementById('copy-btn').addEventListener('click', () => {
-    const f = (n) => n.toFixed(3).replace(/\.?0+$/, '') || '0';
-    const text = `const TUCKED_POSITION = new THREE.Vector3(${f(state.posX)}, ${f(state.posY)}, ${f(state.posZ)});
+    const f = (n) => { let s = n.toFixed(3).replace(/\.?0+$/, ''); return s === '' || s === '-' ? '0' : s; };
+    const text = `// --- Carry pose constants ---
+const TUCKED_POSITION = new THREE.Vector3(${f(state.posX)}, ${f(state.posY)}, ${f(state.posZ)});
 const TUCKED_EULER    = new THREE.Euler(${f(state.rotX)}, ${f(state.rotY)}, ${f(state.rotZ)});
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(${f(state.laX)}, ${f(state.laY)}, ${f(state.laZ)});
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(${f(state.raX)}, ${f(state.raY)}, ${f(state.raZ)});
-// Ball geometry:  SphereGeometry(${f(state.ballRadius)}, 16, 16); scale(1, 1, ${f(state.ballLong)});`;
+const TUCKED_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(${f(state.luX)}, ${f(state.luY)}, ${f(state.luZ)});
+const TUCKED_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(${f(state.llX)}, ${f(state.llY)}, ${f(state.llZ)});
+const TUCKED_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(${f(state.ruX)}, ${f(state.ruY)}, ${f(state.ruZ)});
+const TUCKED_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(${f(state.rlX)}, ${f(state.rlY)}, ${f(state.rlZ)});
+// Ball geometry: SphereGeometry(${f(state.ballRadius)}, 16, 16); scale(1, 1, ${f(state.ballLong)});`;
     document.getElementById('copy-out').value = text;
     navigator.clipboard?.writeText(text);
 });
 
-// ---- Camera orbit (manual mouse drag, no OrbitControls dep) ----
+// ---- Camera orbit ----
 let camAngle = 0.4, camPitch = 0.3, camDist = 6;
 function updateCamera() {
     const cx = Math.sin(camAngle) * Math.cos(camPitch) * camDist;
@@ -233,23 +270,35 @@ renderer.domElement.addEventListener('wheel', e => {
     camDist = Math.max(2, Math.min(20, camDist + e.deltaY * 0.01));
 }, { passive: false });
 
-// ---- Run animation (when mode === 'run') ----
+// ---- Animation tick ----
 const clock = new THREE.Clock();
 function tick() {
     requestAnimationFrame(tick);
     const t = clock.getElapsedTime();
-    if (mode === 'run') {
+    if (mode === 'idle') {
+        const breath = Math.sin(t * 2) * 0.04;
+        p.leftUpper.rotation.set(0, 0, breath);
+        p.rightUpper.rotation.set(0, 0, -breath);
+        p.leftLower.rotation.set(0, 0, 0);
+        p.rightLower.rotation.set(0, 0, 0);
+        p.leftLeg.rotation.set(0, 0, 0); p.rightLeg.rotation.set(0, 0, 0);
+    } else if (mode === 'run') {
         const swing = Math.sin(t * 12) * 1.0;
-        p.leftArm.rotation.set(-swing, 0, 0);
-        p.rightArm.rotation.set(swing, 0, 0);
+        p.leftUpper.rotation.set(-swing, 0, 0);
+        p.rightUpper.rotation.set(swing, 0, 0);
+        p.leftLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
+        p.rightLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
         p.leftLeg.rotation.set(swing, 0, 0);
         p.rightLeg.rotation.set(-swing, 0, 0);
-    } else if (mode === 'idle') {
-        const breath = Math.sin(t * 2) * 0.04;
-        p.leftArm.rotation.set(0, 0, breath);
-        p.rightArm.rotation.set(0, 0, -breath);
-        p.leftLeg.rotation.set(0, 0, 0);
-        p.rightLeg.rotation.set(0, 0, 0);
+    } else if (mode === 'runcarry') {
+        const swing = Math.sin(t * 12) * 1.0;
+        // Left arm: locked carry pose. Right arm: pumps. Legs: run.
+        p.leftUpper.rotation.set(state.luX, state.luY, state.luZ);
+        p.leftLower.rotation.set(state.llX, state.llY, state.llZ);
+        p.rightUpper.rotation.set(swing, 0, 0);
+        p.rightLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
+        p.leftLeg.rotation.set(-swing, 0, 0);
+        p.rightLeg.rotation.set(swing, 0, 0);
     }
     updateCamera();
     renderer.render(scene, camera);
@@ -257,9 +306,9 @@ function tick() {
 tick();
 
 window.addEventListener('resize', () => {
-    camera.aspect = (window.innerWidth - 360) / window.innerHeight;
+    camera.aspect = (window.innerWidth - PANEL_W) / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth - 360, window.innerHeight);
+    renderer.setSize(window.innerWidth - PANEL_W, window.innerHeight);
 });
 </script>
 </body>
