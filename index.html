@@ -995,10 +995,16 @@ function onMouseDown(e) {
 //   TUCKED_POSITION: ball pose in carrier.group-local space (player-relative).
 //                    Player faces +Z, so positive z is "in front of the body".
 //   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
-const TUCKED_POSITION = new THREE.Vector3(0, 1.70, 0.45);
-const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.6, 0, 1.15);  // wraps tight: more forward + more inward
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.85, 0, -0.10); // mostly forward, slight inward — hand rests against ball's right side without crossing
+// Vertical "cradle" carry. Ball stands on its end alongside the left side
+// of the chest. Rigid-arm model has no elbow, so we fake the cradle:
+//   - Ball oriented vertically (long axis along Y).
+//   - Bottom of ball tucked against the chest near the armpit/shoulder.
+//   - Left arm flipped to point straight UP, parallel to the body.
+//   - Hand sits on top of the ball, "covering" its top end.
+const TUCKED_POSITION = new THREE.Vector3(-0.5, 2.30, 0.15);
+const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0);        // long axis vertical (along Y)
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(0, 0, Math.PI);  // arm flipped 180 deg — points straight up, parallel to body
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.85, 0, -0.10); // mostly forward, slight inward — helps secure
 
 function attachBallToCarrier(carrier) {
     carrier.group.add(ball);
