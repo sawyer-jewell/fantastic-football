@@ -988,18 +988,20 @@ function onMouseDown(e) {
     }
 }
 
-// One-arm carry: right arm hangs naturally at the side, left arm bends
-// forward and inward to hug the ball at chest level. Ball is parented to
-// leftArm so it tracks the carrying arm.
-//   TUCKED_POSITION: ball's pose in leftArm-local space.
+// One-arm carry. Ball is parented to the carrier's BODY GROUP at chest
+// height in front of the player. The left arm is independently rotated
+// to bring its hand around the ball; the right arm stays at the side.
+// Ball position and arm pose can be tuned independently.
+//   TUCKED_POSITION: ball pose in carrier.group-local space (player-relative).
+//                    Player faces -Z, so negative z is "in front of the body".
 //   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
-const TUCKED_POSITION = new THREE.Vector3(0.05, -0.85, 0.1);
+const TUCKED_POSITION = new THREE.Vector3(0, 1.70, -0.45);
 const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(1.5, 0, 0.7);    // forward + inward, hand hugging ball
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(1.4, 0, 0.9);    // forward + inward, hand around ball
 const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(0, 0, 0);        // at side
 
 function attachBallToCarrier(carrier) {
-    carrier.leftArm.add(ball);
+    carrier.group.add(ball);
     ball.position.copy(TUCKED_POSITION);
     ball.rotation.copy(TUCKED_EULER);
     ball.velocity = null;
