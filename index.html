@@ -616,19 +616,24 @@ class Player {
     }
 
     animateLimbs(dt) {
-        if (GAME_STATE === 'TACKLED') return; 
+        if (GAME_STATE === 'TACKLED') return;
+        const isCarrying = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
         if (this.currentMoveSpeed > 0.1 && GAME_STATE !== 'GETTING_UP') {
             let swingSpeed = (keys['ShiftLeft'] && this.currentMoveSpeed > this.baseSpeed) ? 25 : 18;
-            let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0; 
-            this.leftArm.rotation.x = swing; this.rightArm.rotation.x = -swing;
+            let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0;
+            this.leftArm.rotation.x = swing;
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            if (isCarrying) { this.rightArm.rotation.copy(TUCKED_ARM_ROTATION); }
+            else            { this.rightArm.rotation.set(-swing, 0, 0); }
         } else if (GAME_STATE === 'GETTING_UP') {
-            let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5; 
+            let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5;
             this.leftArm.rotation.x = swing; this.rightArm.rotation.x = -swing;
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
         } else {
-            this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1); this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1);
+            this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
             this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1); this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
+            if (isCarrying) { this.rightArm.rotation.copy(TUCKED_ARM_ROTATION); }
+            else            { this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1); }
         }
     }
 
@@ -964,13 +969,18 @@ function onMouseDown(e) {
     }
 }
 
-// Local-space pose of the ball when tucked under a carrier's right arm.
-// Tweak these visually until the carry looks right.
-const TUCKED_POSITION = new THREE.Vector3(0.45, 1.55, 0.15);
-const TUCKED_EULER    = new THREE.Euler(Math.PI / 2.5, 0, 0);
+// Pose of the ball relative to the carrier's right ARM (not body).
+// The arm pivots at the shoulder, so these are arm-local coords:
+//   x: sideways across the arm (negative = toward chest)
+//   y: down the arm from shoulder (negative = toward hand)
+//   z: forward of the arm
+const TUCKED_POSITION = new THREE.Vector3(-0.25, -0.7, 0.35);
+const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0); // align long axis with arm
+// Pose of the carrying arm itself while tucking — overrides the run-swing.
+const TUCKED_ARM_ROTATION = new THREE.Euler(-1.2, 0, 0.5);   // arm bent forward, hand inward
 
 function attachBallToCarrier(carrier) {
-    carrier.group.add(ball);
+    carrier.rightArm.add(ball);
     ball.position.copy(TUCKED_POSITION);
     ball.rotation.copy(TUCKED_EULER);
     ball.velocity = null;
