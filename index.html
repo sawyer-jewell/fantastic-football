@@ -446,17 +446,18 @@ function init() {
 
     buildStadium(); buildField();
     
-    const ballGeo = new THREE.SphereGeometry(0.28, 16, 16); ballGeo.scale(1, 1, 1.8);
+    const ballGeo = new THREE.SphereGeometry(0.185, 16, 16); ballGeo.scale(1, 1, 1.8);
     const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
     ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true; scene.add(ball);
-    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.28).
+    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.185).
     const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
-    const spineGeo = new THREE.BoxGeometry(0.020, 0.010, 0.34);
-    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.27; ball.add(spine);
-    const stitchGeo = new THREE.BoxGeometry(0.072, 0.014, 0.020);
+    const k = 0.185 / 0.28; // proportional scale relative to the original tuning
+    const spineGeo = new THREE.BoxGeometry(0.020 * k, 0.010 * k, 0.34 * k);
+    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.175; ball.add(spine);
+    const stitchGeo = new THREE.BoxGeometry(0.072 * k, 0.014 * k, 0.020 * k);
     for (let i = -2; i <= 2; i++) {
         const stitch = new THREE.Mesh(stitchGeo, laceMat);
-        stitch.position.set(0, 0.275, i * 0.068);
+        stitch.position.set(0, 0.180, i * 0.068 * k);
         ball.add(stitch);
     }
 
@@ -609,13 +610,22 @@ class Player {
         this.head.add(helmet);
         this.head.position.y = 2.45; this.head.castShadow = true; this.group.add(this.head);
 
-        // Arms (Hinged at top), each with a hand at the bottom end
-        const armGeo = new THREE.BoxGeometry(0.3, 1.0, 0.3); armGeo.translate(0, -0.4, 0);
-        const handGeo = new THREE.SphereGeometry(0.18, 12, 12);
-        this.leftArm = new THREE.Mesh(armGeo, skinMat); this.leftArm.position.set(-0.6, 1.9, 0); this.group.add(this.leftArm);
-        const leftHand = new THREE.Mesh(handGeo, skinMat); leftHand.position.set(0, -0.92, 0); this.leftArm.add(leftHand);
-        this.rightArm = new THREE.Mesh(armGeo, skinMat); this.rightArm.position.set(0.6, 1.9, 0); this.group.add(this.rightArm);
-        const rightHand = new THREE.Mesh(handGeo, skinMat); rightHand.position.set(0, -0.92, 0); this.rightArm.add(rightHand);
+        // Arms: shoulder pivot -> upper arm -> elbow pivot -> lower arm -> hand sphere.
+        // Pivots are Object3Ds at the joints; geometry is translated so each segment hangs from its pivot.
+        const upperLen = 0.46, lowerLen = 0.46, armW = 0.28;
+        const upperGeo = new THREE.BoxGeometry(armW, upperLen, armW); upperGeo.translate(0, -upperLen / 2, 0);
+        const lowerGeo = new THREE.BoxGeometry(armW * 0.95, lowerLen, armW * 0.95); lowerGeo.translate(0, -lowerLen / 2, 0);
+        const handGeo = new THREE.SphereGeometry(0.16, 12, 12);
+        const makeArm = (sx) => {
+            const upper = new THREE.Object3D(); upper.position.set(sx, 1.9, 0); this.group.add(upper);
+            upper.add(new THREE.Mesh(upperGeo, skinMat));
+            const lower = new THREE.Object3D(); lower.position.set(0, -upperLen, 0); upper.add(lower);
+            lower.add(new THREE.Mesh(lowerGeo, skinMat));
+            const hand = new THREE.Mesh(handGeo, skinMat); hand.position.set(0, -lowerLen, 0); lower.add(hand);
+            return { upper, lower };
+        };
+        const la = makeArm(-0.6); this.leftUpper = la.upper; this.leftLower = la.lower;
+        const ra = makeArm( 0.6); this.rightUpper = ra.upper; this.rightLower = ra.lower;
 
         // Legs (Hinged at top)
         const legGeo = new THREE.BoxGeometry(0.35, 1.1, 0.35); legGeo.translate(0, -0.45, 0);
@@ -626,32 +636,52 @@ class Player {
         this.group.position.set(x, 0, z); scene.add(this.group);
     }
 
+    applyArmPose(rUp, rLo, lUp, lLo) {
+        this.rightUpper.rotation.copy(rUp); this.rightLower.rotation.copy(rLo);
+        this.leftUpper.rotation.copy(lUp);  this.leftLower.rotation.copy(lLo);
+    }
+
     animateLimbs(dt) {
         if (GAME_STATE === 'TACKLED') return;
-        const isCarrying = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
+        const isCarrying  = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
+        const isQBHolding = (this.role === 'QB' && GAME_STATE === 'PLAY' && !ball.velocity && this !== activeReceiver);
+
         if (this.currentMoveSpeed > 0.1 && GAME_STATE !== 'GETTING_UP') {
             let swingSpeed = (keys['ShiftLeft'] && this.currentMoveSpeed > this.baseSpeed) ? 25 : 18;
             let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0;
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
             if (isCarrying) {
-                this.rightArm.rotation.copy(TUCKED_RIGHT_ARM_ROTATION);
-                this.leftArm.rotation.copy(TUCKED_LEFT_ARM_ROTATION);
+                this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
+                                  TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
+            } else if (isQBHolding) {
+                this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
+                                  QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
             } else {
-                this.leftArm.rotation.set(swing, 0, 0);
-                this.rightArm.rotation.set(-swing, 0, 0);
+                // Normal running pump: opposite-sign upper swings, opposite-sign lower bends so both forearms come forward.
+                this.leftUpper.rotation.set(swing, 0, 0);
+                this.rightUpper.rotation.set(-swing, 0, 0);
+                const elbow = 0.3 + Math.abs(swing) * 0.4;
+                this.leftLower.rotation.set(elbow, 0, 0);
+                this.rightLower.rotation.set(-elbow, 0, 0);
             }
         } else if (GAME_STATE === 'GETTING_UP') {
             let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5;
-            this.leftArm.rotation.set(swing, 0, 0); this.rightArm.rotation.set(-swing, 0, 0);
+            this.leftUpper.rotation.set(swing, 0, 0); this.rightUpper.rotation.set(-swing, 0, 0);
+            this.leftLower.rotation.set(0, 0, 0); this.rightLower.rotation.set(0, 0, 0);
             this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
         } else {
             this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1); this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
             if (isCarrying) {
-                this.rightArm.rotation.copy(TUCKED_RIGHT_ARM_ROTATION);
-                this.leftArm.rotation.copy(TUCKED_LEFT_ARM_ROTATION);
+                this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
+                                  TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
+            } else if (isQBHolding) {
+                this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
+                                  QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
             } else {
-                this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
-                this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, 0.1);
+                this.leftUpper.rotation.x  = THREE.MathUtils.lerp(this.leftUpper.rotation.x,  0, 0.1);
+                this.rightUpper.rotation.x = THREE.MathUtils.lerp(this.rightUpper.rotation.x, 0, 0.1);
+                this.leftLower.rotation.x  = THREE.MathUtils.lerp(this.leftLower.rotation.x,  0, 0.1);
+                this.rightLower.rotation.x = THREE.MathUtils.lerp(this.rightLower.rotation.x, 0, 0.1);
             }
         }
     }
@@ -707,8 +737,8 @@ class Player {
             }
             if (!ball.velocity) {
                 camera.position.x = THREE.MathUtils.lerp(camera.position.x, this.group.position.x, 0.1); camera.position.z = THREE.MathUtils.lerp(camera.position.z, this.group.position.z + 15, 0.1); camera.lookAt(this.group.position.x, 0, this.group.position.z - 20);
-                let offset = new THREE.Vector3(0.5, 2.1, 0.2); offset.applyEuler(this.group.rotation); ball.position.copy(this.group.position).add(offset); ball.rotation.set(0,0,0);
-                
+                // Ball is parented to QB.group from snapBall; no per-frame world-space recompute needed.
+
                 if (this.group.position.z < lineOfScrimmageZ) {
                     activeReceiver = this; GAME_STATE = 'POST_CATCH'; targetedReceiver = null;
                     attachBallToCarrier(this);
@@ -952,6 +982,7 @@ function snapBall() {
     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
     document.getElementById('instructions').innerText = "CLICK TO THROW"; document.getElementById('vertical-power-meter').classList.add('hidden');
     let qb = players.offense[0]; camera.position.set(qb.group.position.x, 10, qb.group.position.z + 15); camera.lookAt(qb.group.position.x, 0, qb.group.position.z - 20);
+    attachBallToQB(qb);
     GAME_STATE = 'PLAY';
 }
 
@@ -979,37 +1010,47 @@ function onMouseMove(e) {
 }
 function onMouseDown(e) {
     if (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ) {
-        let qb = players.offense[0]; trajectoryLine.visible = false; landingMarker.visible = false; 
+        let qb = players.offense[0]; trajectoryLine.visible = false; landingMarker.visible = false;
         document.getElementById('instructions').classList.add('hidden'); document.getElementById('hang-time-ui').classList.add('hidden');
-        let dist = Math.max(1, qb.group.position.distanceTo(passTarget)); let throwSpeed = 15 + (passPower * 30); let timeInAir = dist / throwSpeed; 
+        detachBallToScene(); // ball was parented to QB; reattach to scene with world transform preserved before computing throw
+        let dist = Math.max(1, qb.group.position.distanceTo(passTarget)); let throwSpeed = 15 + (passPower * 30); let timeInAir = dist / throwSpeed;
         ball.velocity = new THREE.Vector3((passTarget.x - ball.position.x) / timeInAir, (passTarget.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (passTarget.z - ball.position.z) / timeInAir);
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR' || p.role === 'RB' || p.role === 'TE') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
     }
 }
 
-// One-arm carry. Ball is parented to the carrier's BODY GROUP at chest
-// height in front of the player. The left arm is independently rotated
-// to bring its hand around the ball; the right arm stays at the side.
-// Ball position and arm pose can be tuned independently.
-//   TUCKED_POSITION: ball pose in carrier.group-local space (player-relative).
-//                    Player faces +Z, so positive z is "in front of the body".
-//   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
-// Vertical "cradle" carry. Ball stands on its end alongside the left side
-// of the chest. Rigid-arm model has no elbow, so we fake the cradle:
-//   - Ball oriented vertically (long axis along Y).
-//   - Bottom of ball tucked against the chest near the armpit/shoulder.
-//   - Left arm flipped to point straight UP, parallel to the body.
-//   - Hand sits on top of the ball, "covering" its top end.
-const TUCKED_POSITION = new THREE.Vector3(-0.5, 2.30, 0.15);
-const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0);        // long axis vertical (along Y)
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(0, 0, Math.PI);  // arm flipped 180 deg — points straight up, parallel to body
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.85, 0, -0.10); // mostly forward, slight inward — helps secure
+// Pose constants tuned in playground.html (see DEFAULTS in that file).
+// Both poses parent the ball to the player's body group; arms use the
+// upper+lower hierarchy and are locked while the player is in the relevant state.
+//
+// Carrier: ball cradled high-and-tight; both arms wrap around it.
+const TUCKED_POSITION = new THREE.Vector3(-0.36, 1.74, 0.41);
+const TUCKED_EULER    = new THREE.Euler(1.08, 0.25, -0.58);
+const TUCKED_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(-0.79, -2.28, 0.84);
+const TUCKED_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(-1.01, 0.30, 0.18);
+const TUCKED_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(-0.66, 0.41, 0.25);
+const TUCKED_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(-1.08, 1.04, 0.52);
+
+// QB throwing-ready: ball cocked back near the right ear, off-arm raised.
+const QB_HOLD_POSITION = new THREE.Vector3(-0.61, 2.84, 0.32);
+const QB_HOLD_EULER    = new THREE.Euler(-0.23, 0, -0.40);
+const QB_HOLD_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(-1.58, 0.11, -0.67);
+const QB_HOLD_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(-0.36, 0, 0);
+const QB_HOLD_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(-2.68, -0.11, 0.04);
+const QB_HOLD_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(-0.67, 0, 0);
 
 function attachBallToCarrier(carrier) {
     carrier.group.add(ball);
     ball.position.copy(TUCKED_POSITION);
     ball.rotation.copy(TUCKED_EULER);
+    ball.velocity = null;
+}
+
+function attachBallToQB(qb) {
+    qb.group.add(ball);
+    ball.position.copy(QB_HOLD_POSITION);
+    ball.rotation.copy(QB_HOLD_EULER);
     ball.velocity = null;
 }
 
