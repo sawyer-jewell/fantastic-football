@@ -687,6 +687,7 @@ class Player {
                 
                 if (this.group.position.z < lineOfScrimmageZ) {
                     activeReceiver = this; GAME_STATE = 'POST_CATCH'; targetedReceiver = null;
+                    attachBallToCarrier(this);
                     document.getElementById('instructions').innerText = "QB SCRAMBLE! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
                     document.getElementById('stamina-bar').classList.remove('hidden');
                     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
@@ -795,6 +796,7 @@ function addScore(team, pts) {
 
 function triggerTackle(ballCarrier, tackler, message) {
     GAME_STATE = 'TACKLED';
+    detachBallToScene();
     ballCarrier.group.rotation.x = -Math.PI / 2; ballCarrier.group.position.y = 0.5; tackler.group.rotation.x = -Math.PI / 2; tackler.group.position.y = 0.5;
     document.getElementById('instructions').innerText = message; document.getElementById('instructions').classList.remove('hidden');
     
@@ -876,7 +878,8 @@ function setupFormation() {
     let ss = new Player(6, lineOfScrimmageZ - 12, 'defense', 'FS', '6', isUserHome, currentOpponent);
     players.defense.push(mlb, cb1, cb2, fs, ss);
 
-    cb1.targetPlayer = wr1; cb2.targetPlayer = wr2; fs.targetPlayer = slot; ss.targetPlayer = te; 
+    cb1.targetPlayer = wr1; cb2.targetPlayer = wr2; fs.targetPlayer = slot; ss.targetPlayer = te;
+    detachBallToScene();
     ball.position.set(0, 0.2, lineOfScrimmageZ); ball.velocity = null; ball.rotation.set(0,0,0);
     camera.position.set(0, 15, lineOfScrimmageZ + 25); camera.lookAt(0, 0, lineOfScrimmageZ);
 
@@ -961,12 +964,27 @@ function onMouseDown(e) {
     }
 }
 
+// Local-space pose of the ball when tucked under a carrier's right arm.
+// Tweak these visually until the carry looks right.
+const TUCKED_POSITION = new THREE.Vector3(0.45, 1.55, 0.15);
+const TUCKED_EULER    = new THREE.Euler(Math.PI / 2.5, 0, 0);
+
+function attachBallToCarrier(carrier) {
+    carrier.group.add(ball);
+    ball.position.copy(TUCKED_POSITION);
+    ball.rotation.copy(TUCKED_EULER);
+    ball.velocity = null;
+}
+
+function detachBallToScene() {
+    if (ball.parent && ball.parent !== scene) {
+        scene.attach(ball); // preserves world transform — no visual snap
+    }
+}
+
 function updateBallPhysics(dt) {
     if (!ball.velocity) {
-        if (GAME_STATE === 'POST_CATCH' && activeReceiver) {
-            let offset = new THREE.Vector3(0.5, 1.2, -0.3); offset.applyEuler(activeReceiver.group.rotation); 
-            ball.position.copy(activeReceiver.group.position).add(offset); ball.rotation.copy(activeReceiver.group.rotation); ball.rotateX(Math.PI / 3); 
-        } else if (GAME_STATE === 'TACKLED') { ball.position.y = 0.5; }
+        if (GAME_STATE === 'TACKLED') { ball.position.y = 0.5; }
         return;
     }
 
@@ -981,8 +999,9 @@ function updateBallPhysics(dt) {
                 let dist = p.group.position.distanceTo(ball.position);
                 if (dist < 4.5 && ball.position.y > 2.5 && ball.position.y < 5.5 && !p.isJumping) { p.isJumping = true; p.yVelocity = 10; }
                 if (dist < 3.5 && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 3.0) {
-                    ball.velocity = null; activeReceiver = p; targetedReceiver = null; GAME_STATE = 'POST_CATCH'; p.cutBurstTimer = 1.5; 
-                    document.getElementById('stamina-bar').classList.remove('hidden'); 
+                    activeReceiver = p; targetedReceiver = null; GAME_STATE = 'POST_CATCH'; p.cutBurstTimer = 1.5;
+                    attachBallToCarrier(p);
+                    document.getElementById('stamina-bar').classList.remove('hidden');
                     document.getElementById('instructions').innerText = "RUN! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden'); triggerCheer();
                 }
             }
