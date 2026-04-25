@@ -993,11 +993,11 @@ function onMouseDown(e) {
 // to bring its hand around the ball; the right arm stays at the side.
 // Ball position and arm pose can be tuned independently.
 //   TUCKED_POSITION: ball pose in carrier.group-local space (player-relative).
-//                    Player faces -Z, so negative z is "in front of the body".
+//                    Player faces +Z, so positive z is "in front of the body".
 //   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
-const TUCKED_POSITION = new THREE.Vector3(0, 1.70, -0.45);
+const TUCKED_POSITION = new THREE.Vector3(0, 1.70, 0.45);
 const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(1.4, 0, 0.9);    // forward + inward, hand around ball
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.4, 0, 0.9);   // forward + inward, hand around ball
 const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(0, 0, 0);        // at side
 
 function attachBallToCarrier(carrier) {
