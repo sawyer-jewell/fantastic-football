@@ -988,18 +988,18 @@ function onMouseDown(e) {
     }
 }
 
-// Two-hand carry, NFL-style. Right forearm lies horizontally across the chest
-// cradling the ball from below; left arm comes down on top so its hand hugs
-// the ball. Ball is parented to rightArm so it tracks the cradling forearm.
-//   TUCKED_POSITION: ball's pose in rightArm-local space.
+// One-arm carry: right arm hangs naturally at the side, left arm bends
+// forward and inward to hug the ball at chest level. Ball is parented to
+// leftArm so it tracks the carrying arm.
+//   TUCKED_POSITION: ball's pose in leftArm-local space.
 //   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
-const TUCKED_POSITION = new THREE.Vector3(0, -0.95, 0.25);
-const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0);   // long axis runs along the forearm
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.2, 0, -1.45); // ~83° across body, slight forward tilt
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.7, 0, -0.9);  // forward + inward, hand on top of ball
+const TUCKED_POSITION = new THREE.Vector3(0.05, -0.85, 0.1);
+const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(1.5, 0, 0.7);    // forward + inward, hand hugging ball
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(0, 0, 0);        // at side
 
 function attachBallToCarrier(carrier) {
-    carrier.rightArm.add(ball);
+    carrier.leftArm.add(ball);
     ball.position.copy(TUCKED_POSITION);
     ball.rotation.copy(TUCKED_EULER);
     ball.velocity = null;
