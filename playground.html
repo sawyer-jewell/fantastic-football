@@ -45,7 +45,7 @@
     <div class="row"><label>long scale</label><input type="range" id="ballLong" min="1" max="2.5" step="0.05" value="1.8"><span class="val" id="ballLongV">1.80</span></div>
 
     <h2>Ball position (group-local)</h2>
-    <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01" value="-0.2"><span class="val" id="posXV">-0.20</span></div>
+    <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01" value="0.2"><span class="val" id="posXV">0.20</span></div>
     <div class="row"><label>y</label><input type="range" id="posY" min="0" max="3" step="0.01" value="1.85"><span class="val" id="posYV">1.85</span></div>
     <div class="row"><label>z</label><input type="range" id="posZ" min="-1.5" max="1.5" step="0.01" value="0.30"><span class="val" id="posZV">0.30</span></div>
 
@@ -54,23 +54,23 @@
     <div class="row"><label>y</label><input type="range" id="rotY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rotYV">0.00</span></div>
     <div class="row"><label>z</label><input type="range" id="rotZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rotZV">0.00</span></div>
 
-    <h2>L upper arm — shoulder</h2>
+    <h2>R upper arm — shoulder</h2>
     <div class="row"><label>x</label><input type="range" id="luX" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="luXV">0.00</span></div>
     <div class="row"><label>y</label><input type="range" id="luY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="luYV">0.00</span></div>
-    <div class="row"><label>z</label><input type="range" id="luZ" min="-3.2" max="3.2" step="0.01" value="0.5"><span class="val" id="luZV">0.50</span></div>
+    <div class="row"><label>z</label><input type="range" id="luZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="luZV">0.00</span></div>
 
-    <h2>L lower arm — elbow</h2>
-    <div class="row"><label>x</label><input type="range" id="llX" min="-3.2" max="3.2" step="0.01" value="2.5"><span class="val" id="llXV">2.50</span></div>
+    <h2>R lower arm — elbow</h2>
+    <div class="row"><label>x</label><input type="range" id="llX" min="-3.2" max="3.2" step="0.01" value="0.3"><span class="val" id="llXV">0.30</span></div>
     <div class="row"><label>y</label><input type="range" id="llY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="llYV">0.00</span></div>
     <div class="row"><label>z</label><input type="range" id="llZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="llZV">0.00</span></div>
 
-    <h2>R upper arm — shoulder</h2>
+    <h2>L upper arm — shoulder</h2>
     <div class="row"><label>x</label><input type="range" id="ruX" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruXV">0.00</span></div>
     <div class="row"><label>y</label><input type="range" id="ruY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruYV">0.00</span></div>
-    <div class="row"><label>z</label><input type="range" id="ruZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="ruZV">0.00</span></div>
+    <div class="row"><label>z</label><input type="range" id="ruZ" min="-3.2" max="3.2" step="0.01" value="0.5"><span class="val" id="ruZV">0.50</span></div>
 
-    <h2>R lower arm — elbow</h2>
-    <div class="row"><label>x</label><input type="range" id="rlX" min="-3.2" max="3.2" step="0.01" value="0.3"><span class="val" id="rlXV">0.30</span></div>
+    <h2>L lower arm — elbow</h2>
+    <div class="row"><label>x</label><input type="range" id="rlX" min="-3.2" max="3.2" step="0.01" value="2.5"><span class="val" id="rlXV">2.50</span></div>
     <div class="row"><label>y</label><input type="range" id="rlY" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rlYV">0.00</span></div>
     <div class="row"><label>z</label><input type="range" id="rlZ" min="-3.2" max="3.2" step="0.01" value="0"><span class="val" id="rlZV">0.00</span></div>
 
@@ -286,19 +286,21 @@ function tick() {
         const swing = Math.sin(t * 12) * 1.0;
         p.leftUpper.rotation.set(-swing, 0, 0);
         p.rightUpper.rotation.set(swing, 0, 0);
+        // Right elbow bends opposite of left so both forearms come forward of the chest naturally.
         p.leftLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
-        p.rightLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
+        p.rightLower.rotation.set(-(0.3 + Math.abs(swing) * 0.4), 0, 0);
         p.leftLeg.rotation.set(swing, 0, 0);
         p.rightLeg.rotation.set(-swing, 0, 0);
     } else if (mode === 'runcarry') {
         const swing = Math.sin(t * 12) * 1.0;
-        // Left arm: locked carry pose. Right arm: pumps. Legs: run.
-        p.leftUpper.rotation.set(state.luX, state.luY, state.luZ);
-        p.leftLower.rotation.set(state.llX, state.llY, state.llZ);
-        p.rightUpper.rotation.set(swing, 0, 0);
-        p.rightLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
-        p.leftLeg.rotation.set(-swing, 0, 0);
-        p.rightLeg.rotation.set(swing, 0, 0);
+        // After the L/R label swap: the user-facing "L" sliders (ru*/rl* IDs) drive p.rightUpper/Lower
+        // — that's the carry arm and gets locked to the slider pose. The "R" arm (world -X) pumps.
+        p.rightUpper.rotation.set(state.ruX, state.ruY, state.ruZ);
+        p.rightLower.rotation.set(state.rlX, state.rlY, state.rlZ);
+        p.leftUpper.rotation.set(-swing, 0, 0);
+        p.leftLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
+        p.leftLeg.rotation.set(swing, 0, 0);
+        p.rightLeg.rotation.set(-swing, 0, 0);
     }
     updateCamera();
     renderer.render(scene, camera);
