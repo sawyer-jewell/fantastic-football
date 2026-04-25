@@ -446,17 +446,17 @@ function init() {
 
     buildStadium(); buildField();
     
-    const ballGeo = new THREE.SphereGeometry(0.35, 16, 16); ballGeo.scale(1, 1, 1.8);
+    const ballGeo = new THREE.SphereGeometry(0.28, 16, 16); ballGeo.scale(1, 1, 1.8);
     const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
     ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true; scene.add(ball);
-    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.35).
+    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.28).
     const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
-    const spineGeo = new THREE.BoxGeometry(0.025, 0.012, 0.42);
-    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.34; ball.add(spine);
-    const stitchGeo = new THREE.BoxGeometry(0.09, 0.018, 0.025);
+    const spineGeo = new THREE.BoxGeometry(0.020, 0.010, 0.34);
+    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.27; ball.add(spine);
+    const stitchGeo = new THREE.BoxGeometry(0.072, 0.014, 0.020);
     for (let i = -2; i <= 2; i++) {
         const stitch = new THREE.Mesh(stitchGeo, laceMat);
-        stitch.position.set(0, 0.345, i * 0.085);
+        stitch.position.set(0, 0.275, i * 0.068);
         ball.add(stitch);
     }
 
@@ -997,8 +997,8 @@ function onMouseDown(e) {
 //   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
 const TUCKED_POSITION = new THREE.Vector3(0, 1.70, 0.45);
 const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);        // long axis horizontal across chest
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.4, 0, 0.9);   // forward + inward, hand around ball
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(0, 0, 0);        // at side
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.6, 0, 1.15);  // wraps tight: more forward + more inward
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.7, 0, -0.45); // half-bent forward + slightly across, helps secure
 
 function attachBallToCarrier(carrier) {
     carrier.group.add(ball);
