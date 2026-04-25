@@ -52,4 +52,8 @@ When the user skips a game, `startSim` runs `simIntervalTimer` (a `setInterval`)
 
 - Keep everything in the one HTML file. Splitting into modules would require introducing a build step, which the project deliberately avoids.
 - The retro look depends on the `Press Start 2P` Google Font and the `#002244` / `#ffcc00` / `#e31837` palette in the CSS — don't refactor those into "design tokens" unless asked.
-- Three.js is pinned to **r128** via CDN. APIs from later majors (e.g. removal of `Geometry`, changes to `Lambert` materials) will silently misbehave; verify against r128 docs.
+- Three.js is pinned to **r128** via CDN, with a Subresource Integrity (SRI) hash on the `<script>` tag. APIs from later majors (e.g. removal of `Geometry`, changes to `Lambert` materials) will silently misbehave; verify against r128 docs. **If you ever change the Three.js URL or version, you must regenerate the SRI hash** or the browser will refuse to load the script:
+
+  ```sh
+  curl -sS <new-url> | openssl dgst -sha384 -binary | openssl base64 -A
+  ```
