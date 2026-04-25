@@ -407,25 +407,91 @@ function playMenuMusic() {
         step = (step + 1) % 16;
     }, 150); 
 }
+// Spawn a single "voice" — a sawtooth oscillator filtered by two bandpass
+// resonators tuned to vocal formants. Vibrato adds a human warble. Multiple
+// voices overlap to read as a crowd of individual people, not a synth tone.
+function spawnVoice(time, pitch, intensity, formant1, formant2, releaseSec) {
+    const ctx = audioCtx;
+    // Vibrato LFO modulating frequency (warble = humanness).
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 4.5 + Math.random() * 3;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = pitch * 0.035;
+    lfo.connect(lfoGain);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(pitch, time);
+    lfoGain.connect(osc.frequency);
+
+    // Two stacked bandpass filters at the chosen vowel's formant frequencies.
+    const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = formant1; f1.Q.value = 6;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = formant2; f2.Q.value = 5;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(intensity, time + 0.08);
+    gain.gain.linearRampToValueAtTime(intensity * 0.55, time + 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + releaseSec);
+
+    osc.connect(f1); f1.connect(f2); f2.connect(gain); gain.connect(audioCtx.destination);
+    lfo.start(time); osc.start(time);
+    lfo.stop(time + releaseSec + 0.1); osc.stop(time + releaseSec + 0.1);
+}
+
 function triggerCheer() {
     if(!audioCtx || isMuted) return;
-    crowdGain.gain.cancelScheduledValues(audioCtx.currentTime); crowdFilter.frequency.cancelScheduledValues(audioCtx.currentTime);
-    crowdGain.gain.exponentialRampToValueAtTime(0.5, audioCtx.currentTime + 0.5);
-    crowdFilter.frequency.exponentialRampToValueAtTime(1500, audioCtx.currentTime + 0.5); 
-    setTimeout(() => resetCrowd(), 3000);
+    const ct = audioCtx.currentTime;
+    // Lift the ambient murmur so individual voices sit on top of a crowd bed.
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.linearRampToValueAtTime(0.28, ct + 0.25);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.linearRampToValueAtTime(1600, ct + 0.25);
+
+    // ~18 staggered "AH" voices at varied pitches to sound like a real cheer.
+    // Formants 700 Hz / 1100 Hz are the standard vowel-A resonances.
+    for (let i = 0; i < 18; i++) {
+        const offset = Math.random() * 0.7;
+        const pitch = 180 + Math.random() * 280;        // 180–460 Hz fundamental
+        const intensity = 0.035 + Math.random() * 0.035;
+        const release = 1.3 + Math.random() * 0.6;
+        spawnVoice(ct + offset, pitch, intensity, 700, 1100, release);
+    }
+    setTimeout(() => fadeCrowd(), 1500);
 }
+
 function triggerBoo() {
     if(!audioCtx || isMuted) return;
-    crowdGain.gain.cancelScheduledValues(audioCtx.currentTime); crowdFilter.frequency.cancelScheduledValues(audioCtx.currentTime);
-    crowdGain.gain.exponentialRampToValueAtTime(0.4, audioCtx.currentTime + 0.5);
-    crowdFilter.frequency.exponentialRampToValueAtTime(250, audioCtx.currentTime + 0.5); 
-    setTimeout(() => resetCrowd(), 3000);
+    const ct = audioCtx.currentTime;
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.linearRampToValueAtTime(0.22, ct + 0.3);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.linearRampToValueAtTime(450, ct + 0.3);
+
+    // Boos: lower pitches, longer release, "OOO" vowel formants (350 / 800 Hz).
+    for (let i = 0; i < 14; i++) {
+        const offset = Math.random() * 0.6;
+        const pitch = 100 + Math.random() * 110;
+        const intensity = 0.035 + Math.random() * 0.03;
+        const release = 1.7 + Math.random() * 0.5;
+        spawnVoice(ct + offset, pitch, intensity, 350, 800, release);
+    }
+    setTimeout(() => fadeCrowd(), 1700);
 }
-function resetCrowd() {
+
+function fadeCrowd() {
     if(!audioCtx || isMuted) return;
-    crowdGain.gain.exponentialRampToValueAtTime(0.05, audioCtx.currentTime + 3.0);
-    crowdFilter.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 3.0);
+    const ct = audioCtx.currentTime;
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.exponentialRampToValueAtTime(0.05, ct + 4.5);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.exponentialRampToValueAtTime(400, ct + 4.5);
 }
+// Backwards-compat alias for any callers that still reference resetCrowd.
+function resetCrowd() { fadeCrowd(); }
 
 function init() {
     scene = new THREE.Scene();
@@ -688,8 +754,23 @@ class Player {
 
     update(dt) {
         if (GAME_STATE === 'TACKLED') return;
-        
-        this.currentMoveSpeed = 0; 
+        if (GAME_STATE === 'WALKOFF') {
+            // Both teams walk to opposite sidelines after a fumble.
+            const sidelineX = (this.team === 'offense') ? 50 : -50;
+            const dir = new THREE.Vector3(sidelineX - this.group.position.x, 0, 0);
+            if (dir.length() > 0.5) {
+                dir.normalize();
+                this.group.position.addScaledVector(dir, 6 * dt);
+                this.group.lookAt(this.group.position.clone().add(dir));
+                this.currentMoveSpeed = 6;
+            } else {
+                this.currentMoveSpeed = 0;
+            }
+            this.animateLimbs(dt);
+            return;
+        }
+
+        this.currentMoveSpeed = 0;
         let actualPlayerSpeed = this.speed;
 
         if (GAME_STATE === 'GETTING_UP') {
@@ -871,6 +952,19 @@ function updateScoreboard() {
 }
 
 function handlePlayResult(msg, finalZ) {
+    // After a fumble, briefly drop into WALKOFF so players walk to the sideline
+    // before the formation resets. Other play results skip straight through.
+    if (msg.includes('FUMBLE') && GAME_STATE !== 'WALKOFF') {
+        GAME_STATE = 'WALKOFF';
+        document.getElementById('instructions').innerText = msg + "\nWALKING OFF...";
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(() => _continueHandlePlayResult(msg, finalZ), 2500);
+        return;
+    }
+    _continueHandlePlayResult(msg, finalZ);
+}
+
+function _continueHandlePlayResult(msg, finalZ) {
     GAME_STATE = 'MENU'; document.getElementById('instructions').classList.remove('hidden');
     let isTurnover = false;
     let didHostScore = false;
