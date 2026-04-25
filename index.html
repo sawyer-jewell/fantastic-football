@@ -609,10 +609,13 @@ class Player {
         this.head.add(helmet);
         this.head.position.y = 2.45; this.head.castShadow = true; this.group.add(this.head);
 
-        // Arms (Hinged at top)
+        // Arms (Hinged at top), each with a hand at the bottom end
         const armGeo = new THREE.BoxGeometry(0.3, 1.0, 0.3); armGeo.translate(0, -0.4, 0);
+        const handGeo = new THREE.SphereGeometry(0.18, 12, 12);
         this.leftArm = new THREE.Mesh(armGeo, skinMat); this.leftArm.position.set(-0.6, 1.9, 0); this.group.add(this.leftArm);
+        const leftHand = new THREE.Mesh(handGeo, skinMat); leftHand.position.set(0, -0.92, 0); this.leftArm.add(leftHand);
         this.rightArm = new THREE.Mesh(armGeo, skinMat); this.rightArm.position.set(0.6, 1.9, 0); this.group.add(this.rightArm);
+        const rightHand = new THREE.Mesh(handGeo, skinMat); rightHand.position.set(0, -0.92, 0); this.rightArm.add(rightHand);
 
         // Legs (Hinged at top)
         const legGeo = new THREE.BoxGeometry(0.35, 1.1, 0.35); legGeo.translate(0, -0.45, 0);
@@ -985,14 +988,15 @@ function onMouseDown(e) {
     }
 }
 
-// Two-hand "high-and-tight" carry. Ball is parented to rightArm; both arms
-// are locked into a wrap pose so they meet at chest center around the ball.
-//   TUCKED_POSITION: ball's pose in rightArm-local space (after rightArm rotates).
-//   TUCKED_RIGHT_ARM_ROTATION / TUCKED_LEFT_ARM_ROTATION: arm pose during carry.
-const TUCKED_POSITION = new THREE.Vector3(-0.55, -0.85, 0.05);
-const TUCKED_EULER    = new THREE.Euler(0, Math.PI / 2, 0);   // long axis runs left-to-right across chest
-const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-1.5, 0, 0.7);
-const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.5, 0, -0.7);
+// Two-hand carry, NFL-style. Right forearm lies horizontally across the chest
+// cradling the ball from below; left arm comes down on top so its hand hugs
+// the ball. Ball is parented to rightArm so it tracks the cradling forearm.
+//   TUCKED_POSITION: ball's pose in rightArm-local space.
+//   TUCKED_*_ARM_ROTATION: each arm's pose during carry. Euler XYZ.
+const TUCKED_POSITION = new THREE.Vector3(0, -0.95, 0.25);
+const TUCKED_EULER    = new THREE.Euler(Math.PI / 2, 0, 0);   // long axis runs along the forearm
+const TUCKED_RIGHT_ARM_ROTATION = new THREE.Euler(-0.2, 0, -1.45); // ~83° across body, slight forward tilt
+const TUCKED_LEFT_ARM_ROTATION  = new THREE.Euler(-1.7, 0, -0.9);  // forward + inward, hand on top of ball
 
 function attachBallToCarrier(carrier) {
     carrier.rightArm.add(ball);
