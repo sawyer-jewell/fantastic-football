@@ -89,6 +89,7 @@
         </div>
         <div class="sim-buttons">
             <button class="btn-retro" style="background:#ffcc00; color:black;" onclick="skipToNextQuarter()">SKIP QTR</button>
+            <button class="btn-retro" style="background:#e31837;" onclick="simToEnd()">SIM TO END GAME</button>
             <button class="btn-retro" onclick="stopSim()">STOP SIM</button>
         </div>
     </div>
@@ -829,7 +830,7 @@ class Player {
                     trajectoryLine.visible = false; landingMarker.visible = false; document.getElementById('hang-time-ui').classList.add('hidden');
                 }
             }
-        } else if (this.team === 'offense' && GAME_STATE === 'PLAY' && this.role !== 'QB') {
+        } else if (this.team === 'offense' && GAME_STATE === 'PLAY' && this.role !== 'QB' && this.role !== 'OL') {
             if (this === targetedReceiver && ball.velocity) {
                 let targetXZ = new THREE.Vector3(passTarget.x, 0, passTarget.z);
                 if (this.group.position.distanceTo(targetXZ) > 0.8) {
@@ -842,8 +843,27 @@ class Player {
             } else {
                 if (this.routeIndex < this.route.length) {
                     let target = this.route[this.routeIndex]; let dir = new THREE.Vector3().subVectors(target, this.group.position); dir.y = 0;
-                    if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } } 
-                    else { dir.normalize(); this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed; }
+                    if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } }
+                    else {
+                        dir.normalize();
+                        // Avoid defenders in the path: if a defender is within ~2.2 units and roughly in front,
+                        // add a perpendicular sidestep so the receiver runs around them instead of pushing into.
+                        const sidestep = new THREE.Vector3();
+                        for (const d of players.defense) {
+                            const toD = new THREE.Vector3().subVectors(d.group.position, this.group.position); toD.y = 0;
+                            const distToD = toD.length();
+                            if (distToD > 0 && distToD < 2.4 && toD.dot(dir) > -0.3) {
+                                const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+                                const sideOfDefender = toD.dot(perp);
+                                sidestep.addScaledVector(perp, sideOfDefender > 0 ? -1 : 1);
+                            }
+                        }
+                        if (sidestep.length() > 0) {
+                            sidestep.normalize();
+                            dir.addScaledVector(sidestep, 0.9).normalize();
+                        }
+                        this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
+                    }
                 } else {
                     // Route done. If we're in (or past) the end zone, wait for the throw — that's where the
                     // play wants us. Otherwise drift to find space: move away from the nearest defender at
@@ -868,14 +888,27 @@ class Player {
             }
         } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
             let targetPos = null;
+            let speedMul = 1.0;
             if (GAME_STATE === 'POST_CATCH') targetPos = activeReceiver.group.position.clone();
-            else if (this.targetPlayer) targetPos = this.targetPlayer.group.position.clone(); 
+            else if (this.role === 'DL') {
+                // Pass rush: head straight for the QB. Collision with OL absorbs most rushers; some break
+                // through. If a rusher reaches the QB before the throw, it's a sack.
+                const qb = players.offense[0];
+                if (qb && !ball.velocity) {
+                    targetPos = qb.group.position.clone();
+                    speedMul = 0.85;
+                    if (this.group.position.distanceTo(qb.group.position) < 1.6) {
+                        triggerTackle(qb, this, "SACKED!");
+                    }
+                }
+            }
+            else if (this.targetPlayer) targetPos = this.targetPlayer.group.position.clone();
 
             if (targetPos) {
                 let dir = new THREE.Vector3().subVectors(targetPos, this.group.position); dir.y = 0;
                 if(dir.length() > 0) dir.normalize();
                 if (this.stunTimer > 0) { this.stunTimer -= dt; actualPlayerSpeed *= 0.2; }
-                this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
+                this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul;
             }
         }
 
@@ -1027,18 +1060,10 @@ function _continueHandlePlayResult(msg, finalZ) {
     document.getElementById('instructions').innerText = msg; updateScoreboard();
 
     if (isTurnover) {
-        if (didHostScore) {
-            document.getElementById('instructions').innerText += `\nSIMULATING ${currentOpponent.id} DRIVE...`;
-            // Trigger the actual sim engine when host scores
-            setTimeout(() => { startSim(); }, 2000);
-        } else {
-            document.getElementById('instructions').innerText += `\nSIMULATING ${currentOpponent.id} OFFENSE...`;
-            setTimeout(() => {
-                if (Math.random() > 0.6) { addScore('def', 7); document.getElementById('instructions').innerText = `${currentOpponent.id} SCORED TD!`; } 
-                else { document.getElementById('instructions').innerText = "DEFENSE HELD! PUNT."; }
-                updateScoreboard(); setTimeout(() => { currentDown = 1; yardsToGo = 10; lineOfScrimmageZ = 40; setupFormation(); }, 3000);
-            }, 2000);
-        }
+        // After any turnover (TD, INT, fumble, turnover on downs) hand off to the sim screen so the
+        // user can watch the opponent's drive — or fast-forward via the SIM TO END button.
+        document.getElementById('instructions').innerText += `\nSIMULATING ${currentOpponent.id} DRIVE...`;
+        setTimeout(() => { startSim(); }, 1500);
     } else {
         setupFormation();
     }
@@ -1055,18 +1080,29 @@ function setupFormation() {
     document.getElementById('stamina-bar').classList.add('hidden');
 
     let qb = new Player(0, lineOfScrimmageZ + 5, 'offense', 'QB', '1', isUserHome, currentOpponent);
-    let wr1 = new Player(-15, lineOfScrimmageZ + 1, 'offense', 'WR', '11', isUserHome, currentOpponent); 
-    let wr2 = new Player(15, lineOfScrimmageZ + 1, 'offense', 'WR', '6', isUserHome, currentOpponent);  
-    let slot = new Player(-8, lineOfScrimmageZ + 1, 'offense', 'WR', '14', isUserHome, currentOpponent); 
-    let te = new Player(5.5, lineOfScrimmageZ, 'offense', 'WR', '88', isUserHome, currentOpponent);      
-    players.offense.push(qb, wr1, wr2, slot, te);
+    let wr1 = new Player(-15, lineOfScrimmageZ + 1, 'offense', 'WR', '11', isUserHome, currentOpponent);
+    let wr2 = new Player(15, lineOfScrimmageZ + 1, 'offense', 'WR', '6', isUserHome, currentOpponent);
+    let slot = new Player(-8, lineOfScrimmageZ + 1, 'offense', 'WR', '14', isUserHome, currentOpponent);
+    let te = new Player(8, lineOfScrimmageZ, 'offense', 'WR', '88', isUserHome, currentOpponent);
+    // Offensive line: 5 linemen at the LOS. Center is at x=0 (snaps the ball).
+    let center = new Player(0, lineOfScrimmageZ, 'offense', 'OL', '60', isUserHome, currentOpponent);
+    let lg = new Player(-2.5, lineOfScrimmageZ, 'offense', 'OL', '63', isUserHome, currentOpponent);
+    let rg = new Player( 2.5, lineOfScrimmageZ, 'offense', 'OL', '69', isUserHome, currentOpponent);
+    let lt = new Player(-5,   lineOfScrimmageZ, 'offense', 'OL', '78', isUserHome, currentOpponent);
+    let rt = new Player( 5,   lineOfScrimmageZ, 'offense', 'OL', '70', isUserHome, currentOpponent);
+    players.offense.push(qb, wr1, wr2, slot, te, center, lg, rg, lt, rt);
 
-    let mlb = new Player(0, lineOfScrimmageZ - 5, 'defense', 'LB', '55', isUserHome, currentOpponent); 
-    let cb1 = new Player(-15, lineOfScrimmageZ - 5, 'defense', 'CB', '7', isUserHome, currentOpponent); 
+    let mlb = new Player(0, lineOfScrimmageZ - 5, 'defense', 'LB', '55', isUserHome, currentOpponent);
+    let cb1 = new Player(-15, lineOfScrimmageZ - 5, 'defense', 'CB', '7', isUserHome, currentOpponent);
     let cb2 = new Player(15, lineOfScrimmageZ - 5, 'defense', 'CB', '21', isUserHome, currentOpponent);
-    let fs = new Player(-6, lineOfScrimmageZ - 15, 'defense', 'FS', '28', isUserHome, currentOpponent); 
+    let fs = new Player(-6, lineOfScrimmageZ - 15, 'defense', 'FS', '28', isUserHome, currentOpponent);
     let ss = new Player(6, lineOfScrimmageZ - 12, 'defense', 'FS', '6', isUserHome, currentOpponent);
-    players.defense.push(mlb, cb1, cb2, fs, ss);
+    // Defensive line: 4 linemen rushing the QB.
+    let lde = new Player(-4,   lineOfScrimmageZ - 1.5, 'defense', 'DL', '94', isUserHome, currentOpponent);
+    let ldt = new Player(-1.5, lineOfScrimmageZ - 1.5, 'defense', 'DL', '98', isUserHome, currentOpponent);
+    let rdt = new Player( 1.5, lineOfScrimmageZ - 1.5, 'defense', 'DL', '99', isUserHome, currentOpponent);
+    let rde = new Player( 4,   lineOfScrimmageZ - 1.5, 'defense', 'DL', '91', isUserHome, currentOpponent);
+    players.defense.push(mlb, cb1, cb2, fs, ss, lde, ldt, rdt, rde);
 
     cb1.targetPlayer = wr1; cb2.targetPlayer = wr2; fs.targetPlayer = slot; ss.targetPlayer = te;
     detachBallToScene();
@@ -1086,25 +1122,25 @@ function getRoutesForPlay(playType, los) {
         [new THREE.Vector3(-15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
         [new THREE.Vector3( 15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
         [new THREE.Vector3( -8, 0, los -  8), new THREE.Vector3(5, 0, los - 20)],
-        [new THREE.Vector3(5.5, 0, los -  5), new THREE.Vector3(12, 0, los - 15)],
+        [new THREE.Vector3(8, 0, los -  5), new THREE.Vector3(12, 0, los - 15)],
     ];
     if (playType === 'verts') return [
         [new THREE.Vector3(-15, 0, los - 60)],
         [new THREE.Vector3( 15, 0, los - 60)],
         [new THREE.Vector3( -8, 0, los - 60)],
-        [new THREE.Vector3(5.5, 0, los - 60)],
+        [new THREE.Vector3(8, 0, los - 60)],
     ];
     if (playType === 'curls') return [
         [new THREE.Vector3(-15, 0, los - 20), new THREE.Vector3(-13, 0, los - 18)],
         [new THREE.Vector3( 15, 0, los - 20), new THREE.Vector3( 13, 0, los - 18)],
         [new THREE.Vector3( -8, 0, los - 12), new THREE.Vector3(-10, 0, los - 10)],
-        [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3(  2, 0, los -  8)],
+        [new THREE.Vector3(8, 0, los - 10), new THREE.Vector3(  2, 0, los -  8)],
     ];
     if (playType === 'posts') return [
         [new THREE.Vector3(-15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
         [new THREE.Vector3( 15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
         [new THREE.Vector3( -8, 0, los - 10), new THREE.Vector3(-15, 0, los - 30)],
-        [new THREE.Vector3(5.5, 0, los - 10), new THREE.Vector3( 15, 0, los - 30)],
+        [new THREE.Vector3(8, 0, los - 10), new THREE.Vector3( 15, 0, los - 30)],
     ];
     return [[], [], [], []];
 }
@@ -1298,6 +1334,14 @@ function processSimPlay() {
 
     document.getElementById('sim-log-content').innerHTML += `<span class="sim-timestamp">[${timeStr}]</span> ${playDesc} <span class="sim-score">| ${MY_TEAM.id} ${scoreOff} - ${currentOpponent.id} ${scoreDef}</span><br>`;
     document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight; updateScoreboard();
+}
+
+function simToEnd() {
+    if (GAME_STATE !== 'SIMULATING') return;
+    // Fast-forward: re-run processSimPlay on a tight interval until the game ends.
+    // processSimPlay calls stopSim(true) -> endGame() when Q4 hits zero, which clears the timer.
+    clearInterval(simIntervalTimer);
+    simIntervalTimer = setInterval(processSimPlay, 60);
 }
 
 function skipToNextQuarter() {
