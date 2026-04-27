@@ -642,11 +642,11 @@ function buildStadium() {
 class Player {
     constructor(x, z, team, role, number, homeFlag, opp) {
         this.team = team; this.role = role;
-        this.baseSpeed = role === 'RB' ? 13 : role === 'WR' ? 11 : (role === 'CB' || role === 'FS' || role === 'SS') ? 10.5 : (role === 'QB' || role === 'LB') ? 9 : role === 'TE' ? 8 : role === 'DL' ? 5 : role === 'OL' ? 4 : 6;
+        this.baseSpeed = role === 'RB' ? 11 : role === 'WR' ? 10.5 : (role === 'CB' || role === 'FS' || role === 'SS') ? 10 : (role === 'QB' || role === 'LB') ? 8.5 : role === 'TE' ? 7.5 : role === 'DL' ? 5 : role === 'OL' ? 4 : 6;
         this.speed = this.baseSpeed;
         this.stamina = 300;
 
-        this.cutBurstTimer = 0; this.stunTimer = 0; this.runReactTimer = 0; this.isJumping = false; this.yVelocity = 0; this.currentMoveSpeed = 0;
+        this.cutBurstTimer = 0; this.stunTimer = 0; this.runReactTimer = 0; this.throwTimer = 0; this.isJumping = false; this.yVelocity = 0; this.currentMoveSpeed = 0;
         
         // Setup Jersey Colors based on Home/Away status
         let isMyTeam = (team === 'offense'); // User is always offense right now
@@ -693,6 +693,16 @@ class Player {
         const helmet = new THREE.Mesh(new THREE.SphereGeometry(isLineman ? 0.46 : 0.4, 16, 16), hMat);
         const visor = new THREE.Mesh(new THREE.BoxGeometry(isLineman ? 0.58 : 0.5, 0.25, 0.3), new THREE.MeshLambertMaterial({ color: 0x111111 }));
         visor.position.set(0, 0.1, isLineman ? 0.35 : 0.3); helmet.add(visor);
+        // Facemask: two horizontal bars + center vertical bar
+        const fmMat = new THREE.MeshLambertMaterial({ color: 0xbbbbbb });
+        const fz = isLineman ? 0.43 : 0.37;
+        const fmW = isLineman ? 0.50 : 0.44;
+        const fmTop = new THREE.Mesh(new THREE.BoxGeometry(fmW, 0.045, 0.045), fmMat);
+        fmTop.position.set(0, -0.03, fz); helmet.add(fmTop);
+        const fmBot = new THREE.Mesh(new THREE.BoxGeometry(fmW, 0.045, 0.045), fmMat);
+        fmBot.position.set(0, -0.27, fz - 0.05); helmet.add(fmBot);
+        const fmMid = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.24, 0.045), fmMat);
+        fmMid.position.set(0, -0.15, fz - 0.025); helmet.add(fmMid);
         this.head.add(helmet);
         this.head.position.y = isLineman ? 2.55 : 2.45; this.head.castShadow = true; this.group.add(this.head);
 
@@ -733,6 +743,42 @@ class Player {
 
     animateLimbs(dt) {
         if (GAME_STATE === 'TACKLED') return;
+
+        // QB throw animation — highest priority, overrides everything.
+        if (this.throwTimer > 0) {
+            this.throwTimer = Math.max(0, this.throwTimer - dt);
+            const t = this.throwTimer / 0.55; // 1 → 0
+            if (t > 0.55) {
+                // Wind-up: right arm cocks back over shoulder
+                this.rightUpper.rotation.set(-2.0, 0.5, 0.5);
+                this.rightLower.rotation.set(-0.6, 0, 0);
+                this.leftUpper.rotation.set(0.6, -0.3, -0.4);
+                this.leftLower.rotation.set(0.2, 0, 0);
+            } else {
+                // Release: arm whips through and extends forward
+                const r = 1 - (t / 0.55);
+                this.rightUpper.rotation.set(THREE.MathUtils.lerp(-2.0, 1.3, r), THREE.MathUtils.lerp(0.5, -0.1, r), THREE.MathUtils.lerp(0.5, 0, r));
+                this.rightLower.rotation.set(THREE.MathUtils.lerp(-0.6, -1.2, r), 0, 0);
+                this.leftUpper.rotation.set(THREE.MathUtils.lerp(0.6, -0.3, r), THREE.MathUtils.lerp(-0.3, 0, r), THREE.MathUtils.lerp(-0.4, 0, r));
+                this.leftLower.rotation.set(THREE.MathUtils.lerp(0.2, 0.1, r), 0, 0);
+            }
+            // Still swing legs while stepping into throw
+            const swing = Math.sin(clock.getElapsedTime() * 14) * 0.5;
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            return;
+        }
+
+        // QB handoff arm — extend right arm forward/down toward RB.
+        if (this.role === 'QB' && GAME_STATE === 'PLAY' && handoffPending) {
+            this.rightUpper.rotation.set(0.85, 0, -0.15);
+            this.rightLower.rotation.set(0.35, 0, 0);
+            this.leftUpper.rotation.set(0.25, 0, 0.15);
+            this.leftLower.rotation.set(0.15, 0, 0);
+            const swing = Math.sin(clock.getElapsedTime() * 14) * 0.5;
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            return;
+        }
+
         const isCarrying  = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
         const isQBHolding = (this.role === 'QB' && GAME_STATE === 'PLAY' && !ball.velocity && this !== activeReceiver);
 
@@ -812,13 +858,13 @@ class Player {
         if (GAME_STATE === 'POST_CATCH') {
             if (this === activeReceiver) {
                 if (isSprintHeld && this.stamina > 0) {
-                    actualPlayerSpeed = this.baseSpeed + 5;
+                    actualPlayerSpeed = this.baseSpeed + 3;
                     this.stamina -= dt * 43;
                 } else {
                     if (this.stamina > 0) this.stamina -= dt * 15;
                     if (this.stamina < 0) this.stamina = 0;
                     // Gradually slow from full stamina down to the role floor at 0.
-                    const staminaFloor = this.role === 'RB' ? 9 : 2.5;
+                    const staminaFloor = this.role === 'RB' ? 8 : 2.5;
                     actualPlayerSpeed = this.stamina <= 0 ? staminaFloor
                         : staminaFloor + (this.baseSpeed - staminaFloor) * (this.stamina / 300);
                 }
@@ -1057,7 +1103,22 @@ class Player {
             camera.position.y = THREE.MathUtils.lerp(camera.position.y, this.group.position.y + 6, 0.1);
             camera.lookAt(this.group.position);
 
-            if (this.group.position.z < -100) { triggerCheer(); handlePlayResult("TOUCHDOWN", -100); }
+            if (this.group.position.z < -100) {
+                this.group.position.z = -100; // pin at goal line
+                GAME_STATE = 'TACKLED'; // freeze all other players
+                // Arms raised in victory
+                this.applyArmPose(
+                    new THREE.Euler(-Math.PI * 0.82, 0, 0.45),
+                    new THREE.Euler(-0.25, 0, 0),
+                    new THREE.Euler(-Math.PI * 0.82, 0, -0.45),
+                    new THREE.Euler(-0.25, 0, 0)
+                );
+                triggerCheer();
+                document.getElementById('instructions').innerText = "TOUCHDOWN!";
+                document.getElementById('instructions').classList.remove('hidden');
+                setTimeout(() => { handlePlayResult("TOUCHDOWN", -100); }, 2800);
+                return;
+            }
             
             players.defense.forEach(d => { 
                 if(d.group.position.distanceTo(this.group.position) < 1.8) {
@@ -1138,20 +1199,35 @@ function triggerDive(carrier) {
     detachBallToScene();
     const lunge = new THREE.Vector3(0, 0, -1).applyQuaternion(carrier.group.quaternion); lunge.y = 0;
     if (lunge.length() > 0) lunge.normalize();
-    carrier.group.position.addScaledVector(lunge, 5);
-    carrier.group.rotation.x = -Math.PI / 2; carrier.group.position.y = 0.5;
     document.getElementById('instructions').innerText = "DIVE!"; document.getElementById('instructions').classList.remove('hidden');
+    // Phase 1 — leap: lean 45° forward, surge 2 units, lift off ground slightly
+    carrier.group.rotation.x = -Math.PI / 4;
+    carrier.group.position.addScaledVector(lunge, 2);
+    carrier.group.position.y = 1.0;
+    // Phase 2 — hit turf: flatten to stomach, slide the remaining 3 units
+    setTimeout(() => {
+        carrier.group.rotation.x = -Math.PI / 2;
+        carrier.group.position.addScaledVector(lunge, 3);
+        carrier.group.position.y = 0.3;
+    }, 230);
+    // Phase 3 — get up
     setTimeout(() => {
         GAME_STATE = 'GETTING_UP';
         carrier.group.rotation.x = 0; carrier.group.position.y = 0;
         carrier.group.lookAt(carrier.group.position.x, 0, lineOfScrimmageZ);
         setTimeout(() => { handlePlayResult("DIVE", carrier.group.position.z); }, 2000);
-    }, 1500);
+    }, 1800);
 }
 
 function triggerTackle(ballCarrier, tackler, message) {
     GAME_STATE = 'TACKLED';
     detachBallToScene();
+    // Pull tackler flush to carrier so they land together
+    const impact = new THREE.Vector3().subVectors(ballCarrier.group.position, tackler.group.position);
+    const impactDist = impact.length();
+    if (impactDist > 0.1) {
+        tackler.group.position.addScaledVector(impact.normalize(), impactDist - 0.6);
+    }
     ballCarrier.group.rotation.x = -Math.PI / 2; ballCarrier.group.position.y = 0.5; tackler.group.rotation.x = -Math.PI / 2; tackler.group.position.y = 0.5;
     document.getElementById('instructions').innerText = message; document.getElementById('instructions').classList.remove('hidden');
     
@@ -1420,6 +1496,7 @@ function onMouseDown(e) {
         ball.velocity = new THREE.Vector3((passTarget.x - ball.position.x) / timeInAir, (passTarget.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (passTarget.z - ball.position.z) / timeInAir);
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
+        qb.throwTimer = 0.55; // trigger throw animation
     }
 }
 
@@ -1486,7 +1563,8 @@ function updateBallPhysics(dt) {
                     p.isJumping = true; p.yVelocity = 10;
                 }
                 const canCatch = !targetedReceiver || p === targetedReceiver;
-                if (canCatch && dist < 3.5 && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 3.5) {
+                // hand height ≈ group.y + 2 (arms raised to catch); use 4-unit vertical window
+                if (canCatch && dist < 4.0 && Math.abs((p.group.position.y + 2.0) - ball.position.y) < 4.0) {
                     activeReceiver = p; targetedReceiver = null; GAME_STATE = 'POST_CATCH'; p.cutBurstTimer = 1.5;
                     attachBallToCarrier(p);
                     // Always run straight downfield after the catch until the player steers.
