@@ -992,13 +992,20 @@ class Player {
                         }
                         if (sidestep.length() > 0) {
                             sidestep.normalize();
-                            dir.addScaledVector(sidestep, 0.9).normalize();
+                            dir.addScaledVector(sidestep, 0.35).normalize();
                         }
                         this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
                     }
                 } else {
-                    // Route done — hold position and wait for the throw.
-                    this.currentMoveSpeed = 0;
+                    // Route done — keep moving in the QB's facing direction to stay open.
+                    const qb = players.offense[0];
+                    const qbFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(qb.group.quaternion); qbFwd.y = 0;
+                    if (qbFwd.length() > 0.1) {
+                        qbFwd.normalize();
+                        this.group.position.addScaledVector(qbFwd, actualPlayerSpeed * 0.75 * dt);
+                        this.group.lookAt(this.group.position.clone().add(qbFwd));
+                        this.currentMoveSpeed = actualPlayerSpeed * 0.75;
+                    }
                 }
             }
         } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
