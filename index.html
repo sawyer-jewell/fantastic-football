@@ -49,11 +49,14 @@
 
         /* Sim Screen */
         #sim-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #002244; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 200; color: white; pointer-events: auto;}
-        #sim-screen h1 { font-size: 2rem; margin-bottom: 20px; color: #ffcc00; }
-        .sim-log { width: 70%; height: 50%; background: #000; border: 4px solid #fff; padding: 20px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; margin-bottom: 30px; line-height: 1.8; text-align: left; }
+        #sim-screen h1 { font-size: 2rem; margin-bottom: 12px; color: #ffcc00; }
+        #sim-possession { font-size: 0.85rem; letter-spacing: 2px; padding: 7px 22px; border-radius: 6px; margin-bottom: 14px; border: 2px solid rgba(255,255,255,0.25); transition: background 0.3s; }
+        .sim-log { width: 70%; height: 46%; background: #000; border: 4px solid #fff; padding: 20px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; margin-bottom: 30px; line-height: 1.8; text-align: left; }
         .sim-buttons { display: flex; gap: 20px; }
         .sim-timestamp { color: #ffcc00; margin-right: 10px; }
         .sim-score { color: #00ffff; margin-left: 10px; }
+        .sim-off { color: #00ff88; }
+        .sim-def { color: #ff6666; }
 
         /* Franchise Additions */
         #team-record-display { font-size: 1rem; color: #00ff00; margin-bottom: 20px; letter-spacing: 2px;}
@@ -84,13 +87,14 @@
 
     <div id="sim-screen" class="hidden">
         <h1>Sim the Game</h1>
+        <div id="sim-possession">🏈 — — —</div>
         <div id="sim-log" class="sim-log">
             <div id="sim-log-content">Initializing Play-By-Play Simulation...<br><br></div>
         </div>
         <div class="sim-buttons">
             <button class="btn-retro" style="background:#ffcc00; color:black;" onclick="skipToNextQuarter()">SKIP QTR</button>
             <button class="btn-retro" style="background:#e31837;" onclick="simToEnd()">SIM TO END GAME</button>
-            <button class="btn-retro" onclick="stopSim()">STOP SIM</button>
+            <button id="btn-stop-sim" class="btn-retro" onclick="requestStopSim()">STOP SIM</button>
         </div>
     </div>
 
@@ -249,7 +253,8 @@ let crowdGain; let crowdFilter; let musicInterval;
 let field, ball, endzoneDef, endzoneHome;
 let players = { offense: [], defense: [] };
 let activeReceiver = null; let targetedReceiver = null; let currentPlay = null; let isRunPlay = false; let handoffPending = false; let divePending = false;
-let diveAnim = null; // { carrier, startPos, endPos, elapsed, duration }
+let diveAnim   = null; // { carrier, startPos, endPos, elapsed, duration }
+let tackleAnim = null; // { carrier, tackler, elapsed, duration, message }
 let runArrow; // ArrowHelper that shows run-play direction during PRE_SNAP
 let menuPlayerModel = null;
 
@@ -261,6 +266,10 @@ let jumpCooldown = 0;
 
 // Rules
 let lineOfScrimmageZ = 60; let yardsToGo = 10; let currentDown = 1;
+let ballPastLOSBoostDone = false; // one DB/safety gets speed 13 when ball crosses LOS
+let inOpponentDriveSim  = false;  // true while startOpponentDriveSim drive is running
+let pendingStopSim      = false;  // user pressed STOP SIM during opponent drive — stop after drive ends
+let simPossession       = 'off';  // 'off' = user's team, 'def' = opponent
 let blueLine, yellowLine;
 let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
 let simIntervalTimer;
@@ -694,25 +703,43 @@ class Player {
         const helmetR = isLineman ? 0.46 : 0.4;
 
         // Face sphere — skin visible through the helmet opening
-        const headSkin = new THREE.Mesh(new THREE.SphereGeometry(helmetR * 0.88, 12, 12), skinMat);
+        const faceR = helmetR * 0.88;
+        const headSkin = new THREE.Mesh(new THREE.SphereGeometry(faceR, 12, 12), skinMat);
         this.head.add(headSkin);
 
-        // Eyes (tuned in playground)
+        // Eyes
         const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
         [-1, 1].forEach(side => {
             const eye = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 6), eyeMat);
-            eye.position.set(side * 0.112, 0.052, helmetR * 0.88 * 0.88);
+            eye.position.set(side * 0.112, 0.052, faceR * 0.88);
             this.head.add(eye);
         });
 
-        // Helmet shell — 80° face opening (phiStart=2.2689, phiLength=4.8869)
-        const helmet = new THREE.Mesh(
-            new THREE.SphereGeometry(helmetR, 18, 14, 2.2689, 4.8869),
-            hMat
-        );
-
-        // Cage bars (tuned in playground)
+        // Helmet shell — 3-piece construction so width AND height are independent
+        // openingDeg=90° horizontal, openingHeight=80° vertical (matches playground defaults)
         const cageMat = new THREE.MeshLambertMaterial({ color: 0xd0d0d0 });
+        const shell = new THREE.Group();
+        this.head.add(shell);
+
+        const gapRad    = (80 * Math.PI) / 180;   // 80° horizontal opening (playground-tuned → phiStart=2.2689, phiLength=4.8869)
+        const heightRad = (80 * Math.PI) / 180;  // 80° vertical opening
+        const phiStart  = Math.PI / 2 + gapRad / 2;
+        const phiLength = Math.PI * 2 - gapRad;
+        const tCenter   = Math.PI * 0.47;
+        const tFaceTop  = Math.max(0.01, tCenter - heightRad / 2);
+        const tFaceBot  = Math.min(Math.PI * 0.99, tCenter + heightRad / 2);
+
+        // 1. Crown — full phi ring above the face opening
+        if (tFaceTop > 0.02)
+            shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, 0, tFaceTop), hMat));
+        // 2. Face ring — has the phi gap (the actual opening)
+        shell.add(new THREE.Mesh(
+            new THREE.SphereGeometry(helmetR, 20, 8, phiStart, phiLength, tFaceTop, tFaceBot - tFaceTop), hMat));
+        // 3. Chin guard — full phi ring below the face opening
+        if (tFaceBot < Math.PI * 0.98)
+            shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, tFaceBot, Math.PI - tFaceBot), hMat));
+
+        // Cage bars (attached to shell so they follow any opening shift)
         const barR = 0.02;
         function addCageBar(ax, ay, az, bx, by, bz) {
             const from = new THREE.Vector3(ax, ay, az), to = new THREE.Vector3(bx, by, bz);
@@ -721,25 +748,24 @@ class Player {
             const cyl = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, len, 8), cageMat);
             cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
             cyl.position.lerpVectors(from, to, 0.5);
-            helmet.add(cyl);
+            shell.add(cyl);
         }
         if (isLineman) {
-            const hw = 0.50, fz = 0.44;
-            addCageBar(-hw/2,  0.06, fz,       hw/2,  0.06, fz);
-            addCageBar(-hw/2, -0.13, fz-0.04,  hw/2, -0.13, fz-0.04);
-            addCageBar(-hw/2+0.04, -0.30, fz-0.11, hw/2-0.04, -0.30, fz-0.11);
-            addCageBar(-hw/2, 0.06, fz, -hw/2+0.04, -0.30, fz-0.11);
-            addCageBar(    0, 0.06, fz,          0, -0.30, fz-0.11);
-            addCageBar( hw/2, 0.06, fz,  hw/2-0.04, -0.30, fz-0.11);
+            const hw = 0.50, fz = 0.44, top = 0.05, bot = -0.27, botZ = 0.33;
+            addCageBar(-hw/2,        top,            fz,    hw/2,        top,            fz);
+            addCageBar(-hw/2, (top+bot)/2,       fz-0.04,   hw/2, (top+bot)/2,       fz-0.04);
+            addCageBar(-hw/2+0.04,   bot,          botZ,    hw/2-0.04,   bot,          botZ);
+            addCageBar(-hw/2,        top,            fz,   -hw/2+0.04,   bot,          botZ);
+            addCageBar(    0,        top,            fz,    0,           bot,          botZ);
+            addCageBar( hw/2,        top,            fz,    hw/2-0.04,   bot,          botZ);
         } else {
-            const hw = 0.20, fz = 0.37;
-            addCageBar(-hw,  0.05, fz,           hw,  0.05, fz);
-            addCageBar(-hw+0.04, -0.27, fz-0.09, hw-0.04, -0.27, fz-0.09);
-            addCageBar(-hw,  0.05, fz,  -hw+0.04, -0.27, fz-0.09);
-            addCageBar(   0, 0.05, fz,         0, -0.27, fz-0.09);
-            addCageBar( hw,  0.05, fz,   hw-0.04, -0.27, fz-0.09);
+            const fz = 0.37, hw = 0.20, top = 0.05, bot = -0.27, botZ = fz - 0.09;
+            addCageBar(-hw,     top,  fz,      hw,     top,  fz);
+            addCageBar(-hw+0.04, bot, botZ,   hw-0.04, bot, botZ);
+            addCageBar(-hw,     top,  fz,    -hw+0.04, bot, botZ);
+            addCageBar(    0,   top,  fz,     0,       bot, botZ);
+            addCageBar( hw,     top,  fz,     hw-0.04, bot, botZ);
         }
-        this.head.add(helmet);
         this.head.position.y = isLineman ? 2.55 : 2.45; this.head.castShadow = true; this.group.add(this.head);
 
         // Arms: shoulder pivot -> upper arm -> elbow pivot -> lower arm -> hand sphere.
@@ -994,25 +1020,22 @@ class Player {
                 this.animateLimbs(dt); return;
             }
             if (this === targetedReceiver && ball.velocity) {
-                // Always run to the predicted landing spot (green circle), updated each frame.
+                // Always sprint at full speed toward the landing circle — never stop to wait.
+                // Within 0.4 units of the spot, track the actual ball so the WR doesn't plant.
                 const landingXZ = new THREE.Vector3(landingMarker.position.x, 0, landingMarker.position.z);
                 const distToLanding = this.group.position.distanceTo(landingXZ);
-                if (distToLanding > 0.8) {
-                    let dir = new THREE.Vector3().subVectors(landingXZ, this.group.position); dir.y = 0; dir.normalize();
+                let dir;
+                if (distToLanding > 0.4) {
+                    dir = new THREE.Vector3().subVectors(landingXZ, this.group.position);
+                } else {
+                    dir = new THREE.Vector3().subVectors(ball.position, this.group.position);
+                }
+                dir.y = 0;
+                if (dir.length() > 0.01) {
+                    dir.normalize();
                     this.group.position.addScaledVector(dir, actualPlayerSpeed * dt);
                     this.group.lookAt(this.group.position.clone().add(dir));
                     this.currentMoveSpeed = actualPlayerSpeed;
-                } else {
-                    // At landing spot — face the ball and micro-step toward it as it arrives.
-                    let ballDir = new THREE.Vector3().subVectors(ball.position, this.group.position); ballDir.y = 0;
-                    const hDist = ballDir.length();
-                    if (hDist > 0.1) {
-                        ballDir.normalize();
-                        this.group.lookAt(this.group.position.clone().add(ballDir));
-                        if (hDist < 2.5 && ball.position.y < 5) {
-                            this.group.position.addScaledVector(ballDir, (actualPlayerSpeed * 0.3) * dt);
-                        }
-                    }
                 }
             } else {
                 // Non-targeted WR that overshot — also turn back toward the ball.
@@ -1026,37 +1049,31 @@ class Player {
                     if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } }
                     else {
                         dir.normalize();
-                        // Avoid defenders in the path: if a defender is within ~2.2 units and roughly in front,
-                        // add a perpendicular sidestep so the receiver runs around them instead of pushing into.
-                        const sidestep = new THREE.Vector3();
-                        for (const d of players.defense) {
-                            const toD = new THREE.Vector3().subVectors(d.group.position, this.group.position); toD.y = 0;
-                            const distToD = toD.length();
-                            if (distToD > 0 && distToD < 2.4 && toD.dot(dir) > -0.3) {
-                                const perp = new THREE.Vector3(-dir.z, 0, dir.x);
-                                const sideOfDefender = toD.dot(perp);
-                                sidestep.addScaledVector(perp, sideOfDefender > 0 ? -1 : 1);
-                            }
-                        }
-                        if (sidestep.length() > 0) {
-                            sidestep.normalize();
-                            dir.addScaledVector(sidestep, 0.35).normalize();
-                        }
                         this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
                     }
                 } else {
-                    // Route done — keep moving in the QB's facing direction to stay open.
-                    const qb = players.offense[0];
-                    const qbFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(qb.group.quaternion); qbFwd.y = 0;
-                    if (qbFwd.length() > 0.1) {
-                        qbFwd.normalize();
-                        this.group.position.addScaledVector(qbFwd, actualPlayerSpeed * 0.75 * dt);
-                        this.group.lookAt(this.group.position.clone().add(qbFwd));
-                        this.currentMoveSpeed = actualPlayerSpeed * 0.75;
-                    }
+                    // Route done — always run straight downfield so WRs never drift sideways into a DB.
+                    const driftDir = new THREE.Vector3(0, 0, -1);
+                    this.group.position.addScaledVector(driftDir, actualPlayerSpeed * 0.85 * dt);
+                    this.group.lookAt(this.group.position.clone().add(driftDir));
+                    this.currentMoveSpeed = actualPlayerSpeed * 0.85;
                 }
             }
-        } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
+        } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH' || (GAME_STATE === 'TACKLED' && diveAnim))) {
+            // During a dive: DL/LB sprint at the carrier; coverage DBs keep chasing their WR
+            if (GAME_STATE === 'TACKLED' && diveAnim) {
+                const isCoverageDB = (this.role === 'CB' || this.role === 'FS' || this.role === 'SS');
+                const chaseTarget = isCoverageDB && this.targetPlayer
+                    ? this.targetPlayer.group.position
+                    : diveAnim.carrier.group.position;
+                let dir = new THREE.Vector3().subVectors(chaseTarget, this.group.position); dir.y = 0;
+                if (dir.length() > 0.5) {
+                    dir.normalize();
+                    this.group.position.addScaledVector(dir, this.baseSpeed * (isCoverageDB ? 1.0 : 1.2) * dt);
+                    this.group.lookAt(this.group.position.clone().add(dir));
+                }
+                return;
+            }
             let targetPos = null;
             let speedMul = 1.0;
             if (GAME_STATE === 'POST_CATCH') {
@@ -1084,7 +1101,11 @@ class Player {
 
             if (targetPos) {
                 let dir = new THREE.Vector3().subVectors(targetPos, this.group.position); dir.y = 0;
-                if(dir.length() > 0) dir.normalize();
+                const distToTarget = dir.length();
+                // During pass coverage (PLAY state), shadow the WR at arm's-length — don't pile on.
+                const minCovDist = (GAME_STATE === 'PLAY' && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS')) ? 0.9 : 0.05;
+                if (distToTarget < minCovDist) { this.animateLimbs(dt); return; }
+                if(distToTarget > 0) dir.normalize();
                 if (this.stunTimer > 0) { this.stunTimer -= dt; actualPlayerSpeed *= 0.2; }
                 this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul;
             }
@@ -1159,75 +1180,22 @@ class Player {
             camera.lookAt(this.group.position);
 
             if (this.group.position.z < -100) {
-                this.group.position.z = -100;
-                GAME_STATE = 'TACKLED'; // freeze other players
-                triggerCheer();
-                document.getElementById('instructions').innerText = "TOUCHDOWN!";
-                document.getElementById('instructions').classList.remove('hidden');
-
-                // TD Dance — 5-pose sequence over 2.6 s
-                const dancer = this;
-                // Pose 0: leap + arms wide
-                dancer.group.position.y = 0.7;
-                dancer.applyArmPose(
-                    new THREE.Euler(-Math.PI * 0.9, 0, 0.55),
-                    new THREE.Euler(-0.2, 0, 0),
-                    new THREE.Euler(-Math.PI * 0.9, 0, -0.55),
-                    new THREE.Euler(-0.2, 0, 0)
-                );
-                setTimeout(() => {
-                    // Pose 1: land + spike (right arm down hard)
-                    dancer.group.position.y = 0;
-                    dancer.applyArmPose(
-                        new THREE.Euler(0.6, 0, -1.3),
-                        new THREE.Euler(0.8, 0, 0),
-                        new THREE.Euler(-Math.PI * 0.7, 0, -0.35),
-                        new THREE.Euler(-0.2, 0, 0)
-                    );
-                }, 350);
-                setTimeout(() => {
-                    // Pose 2: airplane spin — arms out flat, spin 180°
-                    dancer.group.rotation.y += Math.PI;
-                    dancer.applyArmPose(
-                        new THREE.Euler(0, 0,  Math.PI * 0.48),
-                        new THREE.Euler(0.25, 0, 0),
-                        new THREE.Euler(0, 0, -Math.PI * 0.48),
-                        new THREE.Euler(0.25, 0, 0)
-                    );
-                }, 800);
-                setTimeout(() => {
-                    // Pose 3: arms up + spin 180° back
-                    dancer.group.rotation.y += Math.PI;
-                    dancer.applyArmPose(
-                        new THREE.Euler(-Math.PI * 0.85, 0,  0.45),
-                        new THREE.Euler(-0.25, 0, 0),
-                        new THREE.Euler(-Math.PI * 0.85, 0, -0.45),
-                        new THREE.Euler(-0.25, 0, 0)
-                    );
-                }, 1300);
-                setTimeout(() => {
-                    // Pose 4: mini jump + arms up
-                    dancer.group.position.y = 0.5;
-                    dancer.applyArmPose(
-                        new THREE.Euler(-Math.PI * 0.95, 0,  0.3),
-                        new THREE.Euler(-0.1, 0, 0),
-                        new THREE.Euler(-Math.PI * 0.95, 0, -0.3),
-                        new THREE.Euler(-0.1, 0, 0)
-                    );
-                }, 1800);
-                setTimeout(() => { dancer.group.position.y = 0; }, 2100);
-
-                setTimeout(() => { handlePlayResult("TOUCHDOWN", -100); }, 2800);
+                this.group.position.z = -100; // hold them in the end zone
+                // Wait until player has actually landed before celebrating
+                if (this.isJumping || this.group.position.y >= 0.5) return;
+                triggerTDCelebration(this);
                 return;
             }
             
-            players.defense.forEach(d => { 
-                if(d.group.position.distanceTo(this.group.position) < 1.8) {
-                    if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
-                        if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
-                    } else triggerTackle(this, d, "TACKLED"); 
-                } 
-            });
+            if (this.group.position.z > -99) { // no tackles in the end zone
+                players.defense.forEach(d => {
+                    if(d.group.position.distanceTo(this.group.position) < 1.8) {
+                        if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
+                            if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
+                        } else triggerTackle(this, d, "TACKLED");
+                    }
+                });
+            }
         }
 
         if (this.isJumping) {
@@ -1236,14 +1204,17 @@ class Player {
         }
 
         // Player-vs-player collision: push self out of any overlap with another player.
-        // Each player resolves their own collisions, so two overlapping players each
-        // contribute half a push and end up apart within a frame.
+        // During PLAY, skip offense-vs-defense collisions — WRs/DBs occupy the same space
+        // during coverage and the push force (15 u/s) overpowers WR movement (10 u/s), freezing them.
+        // Tackles use triggerTackle distance checks, not this system.
         const PLAYER_RADIUS = 0.7;
         const minDist = PLAYER_RADIUS * 2;
         const all = players.offense.concat(players.defense);
         for (let i = 0; i < all.length; i++) {
             const other = all[i];
             if (other === this) continue;
+            // Skip cross-team collisions while routes are running so DBs can't pin WRs in place.
+            if (GAME_STATE === 'PLAY' && this.team !== other.team) continue;
             const dx = this.group.position.x - other.group.position.x;
             const dz = this.group.position.z - other.group.position.z;
             const d2 = dx * dx + dz * dz;
@@ -1297,7 +1268,7 @@ function addScore(team, pts) {
 
 function triggerDive(carrier) {
     GAME_STATE = 'TACKLED';
-    detachBallToScene();
+    // Ball stays parented to carrier.group during flight — detach happens on landing
     document.getElementById('instructions').innerText = "DIVE!";
     document.getElementById('instructions').classList.remove('hidden');
 
@@ -1307,35 +1278,120 @@ function triggerDive(carrier) {
     if (lunge.lengthSq() < 0.01) lunge.set(0, 0, -1);
     lunge.normalize();
 
-    // Instantly flatten stomach-down, half a body in the air
-    carrier.group.rotation.x = -Math.PI / 2;
-    carrier.group.position.y = 1.0;
+    // Flatten stomach-down and set initial height for the glide
+    carrier.group.rotation.x = Math.PI / 2;  // +PI/2 → head pitches forward/downfield
+    carrier.group.position.y = 1.5;
 
     const startPos = carrier.group.position.clone();
-    const endPos   = startPos.clone().addScaledVector(lunge, 5);
+    const endPos   = startPos.clone().addScaledVector(lunge, 6);
 
-    // Hand the animation to the render loop (driven by dt, no setInterval jank)
-    diveAnim = { carrier, startPos: startPos.clone(), endPos: endPos.clone(), elapsed: 0, duration: 0.55 };
+    // duration 0.45s: fast explosive dive
+    diveAnim = { carrier, startPos: startPos.clone(), endPos: endPos.clone(), elapsed: 0, duration: 0.45 };
+}
+
+function makeRagdollParams(player) {
+    // Random final body orientation — mostly land on back (positive rotX = fall backward)
+    return {
+        startRotY : player.group.rotation.y,
+        finalRotX : Math.PI / 2 * (Math.random() > 0.3 ? 1 : -1) * (0.75 + Math.random() * 0.25),
+        finalRotZ : (Math.random() - 0.5) * Math.PI * 0.65,
+        finalRotYd: (Math.random() - 0.5) * 0.7,   // slight spin
+        // Arms fling out to random angles
+        lArmX: (Math.random() - 0.5) * Math.PI * 1.1,
+        lArmZ: (Math.random() - 0.3) * Math.PI * 0.9,
+        rArmX: (Math.random() - 0.5) * Math.PI * 1.1,
+        rArmZ: (Math.random() + 0.1) * Math.PI * 0.9,
+        lLowX: (Math.random() - 0.5) * 1.4,
+        rLowX: (Math.random() - 0.5) * 1.4,
+        // Legs kick out
+        lLegX: (Math.random() - 0.5) * 0.9,
+        lLegZ:  Math.random() * 0.55,
+        rLegX: (Math.random() - 0.5) * 0.9,
+        rLegZ: -Math.random() * 0.55,
+    };
+}
+
+function triggerTDCelebration(scorer) {
+    if (GAME_STATE === 'TACKLED') return; // already celebrating or tackled
+    GAME_STATE = 'TACKLED'; // freeze keyboard control, but poses still apply via setTimeout
+    triggerCheer();
+    document.getElementById('instructions').innerText = "TOUCHDOWN!";
+    document.getElementById('instructions').classList.remove('hidden');
+
+    // All other offense players strike a random celebration pose instantly
+    players.offense.forEach(p => {
+        if (p === scorer || p.role === 'OL') return;
+        const side = Math.random() > 0.5 ? 1 : -1;
+        p.group.position.y = Math.random() * 0.35;
+        p.applyArmPose(
+            new THREE.Euler(-Math.PI * (0.5 + Math.random() * 0.5), 0,  side * (0.3 + Math.random() * 0.5)),
+            new THREE.Euler(-0.2, 0, 0),
+            new THREE.Euler(-Math.PI * (0.5 + Math.random() * 0.5), 0, -side * (0.3 + Math.random() * 0.5)),
+            new THREE.Euler(-0.2, 0, 0)
+        );
+        // Mini bounce
+        setTimeout(() => { p.group.position.y = 0; }, 300 + Math.random() * 300);
+        setTimeout(() => {
+            p.group.position.y = 0.25 + Math.random() * 0.25;
+            setTimeout(() => { p.group.position.y = 0; }, 250); }, 900 + Math.random() * 400);
+    });
+
+    // Scorer: 5-pose dance sequence
+    const dancer = scorer;
+    dancer.group.position.y = 0.7;
+    dancer.applyArmPose(
+        new THREE.Euler(-Math.PI * 0.9, 0, 0.55), new THREE.Euler(-0.2, 0, 0),
+        new THREE.Euler(-Math.PI * 0.9, 0, -0.55), new THREE.Euler(-0.2, 0, 0)
+    );
+    setTimeout(() => {
+        dancer.group.position.y = 0;
+        dancer.applyArmPose(
+            new THREE.Euler(0.6, 0, -1.3), new THREE.Euler(0.8, 0, 0),
+            new THREE.Euler(-Math.PI * 0.7, 0, -0.35), new THREE.Euler(-0.2, 0, 0)
+        );
+    }, 350);
+    setTimeout(() => {
+        dancer.group.rotation.y += Math.PI;
+        dancer.applyArmPose(
+            new THREE.Euler(0, 0, Math.PI * 0.48), new THREE.Euler(0.25, 0, 0),
+            new THREE.Euler(0, 0, -Math.PI * 0.48), new THREE.Euler(0.25, 0, 0)
+        );
+    }, 800);
+    setTimeout(() => {
+        dancer.group.rotation.y += Math.PI;
+        dancer.applyArmPose(
+            new THREE.Euler(-Math.PI * 0.85, 0, 0.45), new THREE.Euler(-0.25, 0, 0),
+            new THREE.Euler(-Math.PI * 0.85, 0, -0.45), new THREE.Euler(-0.25, 0, 0)
+        );
+    }, 1300);
+    setTimeout(() => {
+        dancer.group.position.y = 0.5;
+        dancer.applyArmPose(
+            new THREE.Euler(-Math.PI * 0.95, 0, 0.3), new THREE.Euler(-0.1, 0, 0),
+            new THREE.Euler(-Math.PI * 0.95, 0, -0.3), new THREE.Euler(-0.1, 0, 0)
+        );
+    }, 1800);
+    setTimeout(() => { dancer.group.position.y = 0; }, 2100);
+    setTimeout(() => { handlePlayResult("TOUCHDOWN", -100); }, 2800);
 }
 
 function triggerTackle(ballCarrier, tackler, message) {
     GAME_STATE = 'TACKLED';
     detachBallToScene();
-    // Pull tackler flush to carrier so they land together
+    document.getElementById('instructions').innerText = message;
+    document.getElementById('instructions').classList.remove('hidden');
+
+    // Pull tackler flush to carrier
     const impact = new THREE.Vector3().subVectors(ballCarrier.group.position, tackler.group.position);
     const impactDist = impact.length();
-    if (impactDist > 0.1) {
-        tackler.group.position.addScaledVector(impact.normalize(), impactDist - 0.6);
-    }
-    ballCarrier.group.rotation.x = -Math.PI / 2; ballCarrier.group.position.y = 0.5; tackler.group.rotation.x = -Math.PI / 2; tackler.group.position.y = 0.5;
-    document.getElementById('instructions').innerText = message; document.getElementById('instructions').classList.remove('hidden');
-    
-    setTimeout(() => {
-        GAME_STATE = 'GETTING_UP';
-        ballCarrier.group.rotation.x = 0; ballCarrier.group.position.y = 0; tackler.group.rotation.x = 0; tackler.group.position.y = 0;
-        ballCarrier.group.lookAt(ballCarrier.group.position.x, 0, lineOfScrimmageZ); tackler.group.lookAt(tackler.group.position.x, 0, lineOfScrimmageZ);
-        setTimeout(() => { handlePlayResult(message, ballCarrier.group.position.z); }, 2000);
-    }, 1500);
+    if (impactDist > 0.1) tackler.group.position.addScaledVector(impact.normalize(), impactDist - 0.6);
+
+    tackleAnim = {
+        carrier: ballCarrier, tackler,
+        elapsed: 0, duration: 0.45, message,
+        cr: makeRagdollParams(ballCarrier),
+        tr: makeRagdollParams(tackler),
+    };
 }
 
 function updateScoreboard() {
@@ -1390,7 +1446,7 @@ function _continueHandlePlayResult(msg, finalZ) {
 function setupFormation() {
     updateScoreboard();
     players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group));
-    players = { offense: [], defense: [] }; activeReceiver = null; targetedReceiver = null;
+    players = { offense: [], defense: [] }; activeReceiver = null; targetedReceiver = null; ballPastLOSBoostDone = false;
     trajectoryLine.visible = false; landingMarker.visible = false; document.getElementById('hang-time-ui').classList.add('hidden');
     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]); jumpCooldown = 0;
     
@@ -1445,29 +1501,35 @@ function setupFormation() {
 // Build route waypoints for a play, ordered [wr1, wr2, slot, te] to match
 // players.offense[1..4]. Coordinates are absolute world positions.
 function getRoutesForPlay(playType, los) {
+    // All routes: WRs release STRAIGHT upfield first (stay on their X), then make a sharp cut.
+    // WR1=x-18, WR2=x+18, slot=x-11, TE=x+8
     if (playType === 'slant') return [
-        [new THREE.Vector3(-15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
-        [new THREE.Vector3( 15, 0, los - 10), new THREE.Vector3(0, 0, los - 30)],
-        [new THREE.Vector3( -8, 0, los -  8), new THREE.Vector3(5, 0, los - 20)],
-        [new THREE.Vector3(8, 0, los -  5), new THREE.Vector3(12, 0, los - 15)],
+        // Slant: 5yds straight up, then cut sharply inside at 45°
+        [new THREE.Vector3(-18, 0, los - 5), new THREE.Vector3(-3, 0, los - 20)],
+        [new THREE.Vector3( 18, 0, los - 5), new THREE.Vector3( 3, 0, los - 20)],
+        [new THREE.Vector3(-11, 0, los - 4), new THREE.Vector3( 2, 0, los - 14)],
+        [new THREE.Vector3(  8, 0, los - 3), new THREE.Vector3(14, 0, los - 10)],
     ];
     if (playType === 'verts') return [
-        [new THREE.Vector3(-15, 0, los - 60)],
-        [new THREE.Vector3( 15, 0, los - 60)],
-        [new THREE.Vector3( -8, 0, los - 60)],
-        [new THREE.Vector3(8, 0, los - 60)],
+        // Four verts: straight deep on their lane
+        [new THREE.Vector3(-18, 0, los - 60)],
+        [new THREE.Vector3( 18, 0, los - 60)],
+        [new THREE.Vector3(-11, 0, los - 60)],
+        [new THREE.Vector3(  8, 0, los - 60)],
     ];
     if (playType === 'curls') return [
-        [new THREE.Vector3(-15, 0, los - 20), new THREE.Vector3(-13, 0, los - 18)],
-        [new THREE.Vector3( 15, 0, los - 20), new THREE.Vector3( 13, 0, los - 18)],
-        [new THREE.Vector3( -8, 0, los - 12), new THREE.Vector3(-10, 0, los - 10)],
-        [new THREE.Vector3(8, 0, los - 10), new THREE.Vector3(  2, 0, los -  8)],
+        // Curl: 18yds straight up, then curl back toward QB (turn and face)
+        [new THREE.Vector3(-18, 0, los - 18), new THREE.Vector3(-18, 0, los - 13)],
+        [new THREE.Vector3( 18, 0, los - 18), new THREE.Vector3( 18, 0, los - 13)],
+        [new THREE.Vector3(-11, 0, los - 12), new THREE.Vector3(-11, 0, los -  8)],
+        [new THREE.Vector3(  8, 0, los -  9), new THREE.Vector3(  8, 0, los -  5)],
     ];
     if (playType === 'posts') return [
-        [new THREE.Vector3(-15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
-        [new THREE.Vector3( 15, 0, los - 15), new THREE.Vector3(0, 0, los - 50)],
-        [new THREE.Vector3( -8, 0, los - 10), new THREE.Vector3(-15, 0, los - 30)],
-        [new THREE.Vector3(8, 0, los - 10), new THREE.Vector3( 15, 0, los - 30)],
+        // Post: 12yds straight up, then cut hard toward the goalpost (center field)
+        [new THREE.Vector3(-18, 0, los - 12), new THREE.Vector3( 0, 0, los - 45)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( 0, 0, los - 45)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-2, 0, los - 28)],
+        [new THREE.Vector3(  8, 0, los -  7), new THREE.Vector3(16, 0, los - 22)],
     ];
     return [[], [], [], []];
 }
@@ -1579,7 +1641,7 @@ function onMouseMove(e) {
     cursorX = e.clientX; cursorY = e.clientY;
     if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP') {
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObject(field);
+        raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObjects([field, endzoneHome, endzoneDef]);
         if (intersects.length > 0) {
             passTarget.copy(intersects[0].point); landingMarker.position.set(passTarget.x, 0.2, passTarget.z);
             let ui = document.getElementById('hang-time-ui'); ui.style.left = (e.clientX + 15) + 'px'; ui.style.top = (e.clientY + 15) + 'px'; ui.innerText = `Time: ${passTimeEstimate.toFixed(2)}s`;
@@ -1716,6 +1778,7 @@ function startOpponentDriveSim() {
     document.getElementById('ui-layer').classList.add('hidden');
     document.getElementById('sim-screen').classList.remove('hidden');
     GAME_STATE = 'SIMULATING';
+    inOpponentDriveSim = true;
 
     const numPlays = Math.floor(Math.random() * 3) + 3; // 3-5 plays
     document.getElementById('sim-log-content').innerHTML +=
@@ -1730,7 +1793,8 @@ function startOpponentDriveSim() {
             document.getElementById('sim-log-content').innerHTML +=
                 `> <span style="color:#00aaff;">--- ${currentOpponent.id} punts | YOUR BALL ---</span><br>`;
             document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
-            setTimeout(() => { stopSim(false); }, 1500);
+            inOpponentDriveSim = false;
+            setTimeout(() => { stopSim(pendingStopSim ? false : false); }, 1500);
             return;
         }
         playNum++;
@@ -1764,11 +1828,22 @@ function startOpponentDriveSim() {
     simIntervalTimer = setTimeout(runNextOpponentPlay, 1200);
 }
 
+function setSimPossession(team) {
+    simPossession = team;
+    const bar = document.getElementById('sim-possession');
+    if (!bar) return;
+    const isOff = team === 'off';
+    const name  = isOff ? MY_TEAM.id : currentOpponent.id;
+    bar.textContent  = `🏈  ${name} BALL`;
+    bar.style.background = isOff ? 'rgba(0,120,0,0.55)' : 'rgba(160,0,0,0.55)';
+    bar.style.color      = isOff ? '#00ff88' : '#ff7777';
+}
+
 function startSim() {
-    // Hide playing UI and transition to Sim Screen
-    document.getElementById('ui-layer').classList.add('hidden'); 
+    document.getElementById('ui-layer').classList.add('hidden');
     document.getElementById('sim-screen').classList.remove('hidden');
-    GAME_STATE = 'SIMULATING'; 
+    GAME_STATE = 'SIMULATING';
+    setSimPossession('off'); // user starts with the ball
     simIntervalTimer = setInterval(processSimPlay, 2500);
 }
 
@@ -1776,26 +1851,58 @@ function processSimPlay() {
     if (gameTime <= 0) {
         if (currentQuarter < 4) {
             currentQuarter++; gameTime = 120;
-            document.getElementById('sim-log-content').innerHTML += `> <span style="color:#00aaff;">--- END OF QUARTER ---</span><br>`;
+            const qHtml = `> <span style="color:#00aaff;">--- END OF Q${currentQuarter - 1} | START Q${currentQuarter} ---</span><br>`;
+            document.getElementById('sim-log-content').innerHTML += qHtml;
         } else {
             document.getElementById('sim-log-content').innerHTML += `> <span style="color:#ffcc00;">--- GAME OVER ---</span><br>`;
             stopSim(true); return;
         }
     }
 
-    let timeBurned = Math.floor(Math.random() * 12 + 6); gameTime = Math.max(0, gameTime - timeBurned);
-    let timeStr = `Q${currentQuarter} ${Math.floor(gameTime / 60)}:${(gameTime % 60)<10?'0':''}${gameTime % 60}`;
-    
-    let r = Math.random(); let playDesc = "";
-    if (r < 0.1) { addScore('off', 7); playDesc = `Deep pass complete! <span style="color:#00ff00;">TOUCHDOWN ${MY_TEAM.id}!</span>`; } 
-    else if (r < 0.2) { addScore('def', 7); playDesc = `Pass intercepted! <span style="color:#ff0000;">PICK 6! ${currentOpponent.id} SCORES.</span>`; } 
-    else if (r < 0.4) { playDesc = `Pass incomplete intended for WR.`; } 
-    else if (r < 0.6) { playDesc = `QB sacked for a loss of ${Math.floor(Math.random() * 5 + 2)} yards.`; } 
-    else if (r < 0.8) { playDesc = `Run up the middle for ${Math.floor(Math.random() * 6 + 1)} yards.`; } 
-    else { playDesc = `Pass complete over the middle for ${Math.floor(Math.random() * 15 + 5)} yards.`; }
+    const isOff   = simPossession === 'off';
+    const offTeam = isOff ? MY_TEAM.id : currentOpponent.id;
+    const defTeam = isOff ? currentOpponent.id : MY_TEAM.id;
+    const cls     = isOff ? 'sim-off' : 'sim-def';
 
-    document.getElementById('sim-log-content').innerHTML += `<span class="sim-timestamp">[${timeStr}]</span> ${playDesc} <span class="sim-score">| ${MY_TEAM.id} ${scoreOff} - ${currentOpponent.id} ${scoreDef}</span><br>`;
-    document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight; updateScoreboard();
+    let timeBurned = Math.floor(Math.random() * 12 + 6);
+    gameTime = Math.max(0, gameTime - timeBurned);
+    let timeStr = `Q${currentQuarter} ${Math.floor(gameTime / 60)}:${String(gameTime % 60).padStart(2,'0')}`;
+
+    let r = Math.random(); let playDesc = ''; let possession = simPossession;
+
+    if (r < 0.09) {
+        // Touchdown by current offense
+        addScore(isOff ? 'off' : 'def', 7);
+        playDesc = `<span class="${cls}">${offTeam}</span> — Deep ball caught in the end zone! <span style="color:#${isOff?'00ff88':'ff6666'};">TOUCHDOWN ${offTeam}! +7</span>`;
+        possession = isOff ? 'def' : 'off'; // other team kicks off
+    } else if (r < 0.14) {
+        // Turnover / interception → switch possession
+        playDesc = `<span class="${cls}">${offTeam}</span> — Pass intercepted by ${defTeam}! <span style="color:#ffcc00;">TURNOVER</span>`;
+        possession = isOff ? 'def' : 'off';
+    } else if (r < 0.19) {
+        // Punt → switch possession
+        playDesc = `<span class="${cls}">${offTeam}</span> — Drive stalls. Punt to ${defTeam}.`;
+        possession = isOff ? 'def' : 'off';
+    } else if (r < 0.38) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Incomplete pass.`;
+    } else if (r < 0.52) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — QB sacked for -${Math.floor(Math.random() * 5 + 2)} yds.`;
+    } else if (r < 0.70) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Run for ${Math.floor(Math.random() * 6 + 1)} yds.`;
+    } else if (r < 0.84) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Pass complete, ${Math.floor(Math.random() * 12 + 4)} yds.`;
+    } else {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Big gain, ${Math.floor(Math.random() * 20 + 12)} yds downfield!`;
+    }
+
+    const scoreStr = `<span class="sim-score">| ${MY_TEAM.id} ${scoreOff} – ${currentOpponent.id} ${scoreDef}</span>`;
+    document.getElementById('sim-log-content').innerHTML +=
+        `<span class="sim-timestamp">[${timeStr}]</span> ${playDesc} ${scoreStr}<br>`;
+    document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
+    updateScoreboard();
+
+    // Update possession AFTER logging so the banner flips for next play
+    if (possession !== simPossession) setSimPossession(possession);
 }
 
 function simToEnd() {
@@ -1814,15 +1921,30 @@ function skipToNextQuarter() {
     document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight; updateScoreboard();
 }
 
-function stopSim(forceEnd = false) { 
-    clearInterval(simIntervalTimer); 
-    document.getElementById('sim-screen').classList.add('hidden'); 
-    document.getElementById('ui-layer').classList.remove('hidden'); 
-    
+function requestStopSim() {
+    if (GAME_STATE !== 'SIMULATING') return;
+    if (inOpponentDriveSim) {
+        // Let the drive finish — flag it and update the button
+        pendingStopSim = true;
+        const btn = document.getElementById('btn-stop-sim');
+        if (btn) { btn.textContent = 'STOPPING AFTER DRIVE…'; btn.disabled = true; }
+    } else {
+        stopSim(false);
+    }
+}
+
+function stopSim(forceEnd = false) {
+    clearInterval(simIntervalTimer);
+    inOpponentDriveSim = false;
+    pendingStopSim     = false;
+    const btn = document.getElementById('btn-stop-sim');
+    if (btn) { btn.textContent = 'STOP SIM'; btn.disabled = false; }
+    document.getElementById('sim-screen').classList.add('hidden');
+    document.getElementById('ui-layer').classList.remove('hidden');
+
     if (forceEnd) {
         endGame();
     } else {
-        // Return control to user Offense
         currentDown = 1; yardsToGo = 10; lineOfScrimmageZ = 40; setupFormation();
     }
 }
@@ -1912,19 +2034,125 @@ function animate() {
             da.elapsed += dt;
             const t    = Math.min(1, da.elapsed / da.duration);
             const ease = 1 - Math.pow(1 - t, 2); // ease-out quad: fast launch, slows on turf
-            da.carrier.group.position.lerpVectors(da.startPos, da.endPos, ease);
-            da.carrier.group.position.y = 1.0 * (1 - ease); // arc: 1.0 → 0
+            // XZ: linear (straight glide, no deceleration)
+            da.carrier.group.position.lerpVectors(da.startPos, da.endPos, t);
+
+            // Y: two-phase — straight glide for first 55%, then ease-in fall
+            const FALL_START = 0.55;
+            const GLIDE_Y    = 1.5;
+            if (t < FALL_START) {
+                da.carrier.group.position.y = GLIDE_Y;
+            } else {
+                const ft = (t - FALL_START) / (1 - FALL_START); // 0→1 during fall
+                const fallEase = ft * ft;                        // ease-in: slow start, accelerates
+                da.carrier.group.position.y = THREE.MathUtils.lerp(GLIDE_Y, 0.3, fallEase);
+            }
+
             if (t >= 1) {
+                // Slam to ground — stay flat (rx=PI/2) so it looks like a real fall
                 da.carrier.group.position.copy(da.endPos);
-                da.carrier.group.position.y = 0;
-                const landZ = da.endPos.z;
+                da.carrier.group.position.y = 0.3;
+                // Head tip is ~2.45 units ahead of group origin (local +Y → world -Z when rx=PI/2)
+                const landZ = da.endPos.z - 2.45;
                 const isTD  = landZ < -100;
-                da.carrier.group.rotation.x = 0;
+                // Now release the ball from the carrier's hand and place it at the head tip
+                detachBallToScene();
+                ball.position.set(da.endPos.x, 0.2, landZ);
+                if (ball.velocity) ball.velocity.set(0, 0, 0);
+
+                // Fumble chance on landing if a defender is within 3 units (they hit you mid-dive)
+                const nearbyTackler = !isTD && players.defense.find(d =>
+                    d.group.position.distanceTo(da.carrier.group.position) < 3
+                );
+                const fumbled = nearbyTackler && Math.random() < 0.28;
+
                 GAME_STATE = 'GETTING_UP';
                 diveAnim = null;
-                setTimeout(() => handlePlayResult(isTD ? "TOUCHDOWN (DIVE)" : "DIVE", landZ), 900);
+                const carrierRef = da.carrier;
+                setTimeout(() => {
+                    carrierRef.group.rotation.x = 0;
+                    carrierRef.group.position.y = 0;
+                    if (isTD) {
+                        triggerTDCelebration(carrierRef);
+                    } else if (fumbled) {
+                        handlePlayResult("FUMBLE! LOST BALL.", landZ);
+                    } else {
+                        handlePlayResult("DIVE", landZ);
+                    }
+                }, 900);
             }
         }
+
+        // Tackle ragdoll — per-limb randomised, driven by render-loop dt
+        if (tackleAnim) {
+            const ta = tackleAnim;
+            ta.elapsed += dt;
+            const t  = Math.min(1, ta.elapsed / ta.duration);
+            const rt = t * t; // ease-in — heavier snap at impact
+
+            function applyRagdoll(p, r) {
+                p.group.rotation.x = THREE.MathUtils.lerp(0, r.finalRotX, rt);
+                p.group.rotation.z = THREE.MathUtils.lerp(0, r.finalRotZ, rt);
+                p.group.rotation.y = THREE.MathUtils.lerp(r.startRotY, r.startRotY + r.finalRotYd, rt);
+                p.leftUpper.rotation.x  = THREE.MathUtils.lerp(0, r.lArmX, rt);
+                p.leftUpper.rotation.z  = THREE.MathUtils.lerp(0, r.lArmZ, rt);
+                p.rightUpper.rotation.x = THREE.MathUtils.lerp(0, r.rArmX, rt);
+                p.rightUpper.rotation.z = THREE.MathUtils.lerp(0, r.rArmZ, rt);
+                p.leftLower.rotation.x  = THREE.MathUtils.lerp(0, r.lLowX, rt);
+                p.rightLower.rotation.x = THREE.MathUtils.lerp(0, r.rLowX, rt);
+                p.leftLeg.rotation.x    = THREE.MathUtils.lerp(0, r.lLegX, rt);
+                p.leftLeg.rotation.z    = THREE.MathUtils.lerp(0, r.lLegZ, rt);
+                p.rightLeg.rotation.x   = THREE.MathUtils.lerp(0, r.rLegX, rt);
+                p.rightLeg.rotation.z   = THREE.MathUtils.lerp(0, r.rLegZ, rt);
+            }
+            applyRagdoll(ta.carrier, ta.cr);
+            applyRagdoll(ta.tackler, ta.tr);
+
+            // Y: arc up then land flat — t*0.3 keeps body above turf at all rotation angles
+            ta.carrier.group.position.y = Math.sin(t * Math.PI) * 0.6 + t * 0.3;
+            ta.tackler.group.position.y = Math.sin(t * Math.PI) * 0.5 + t * 0.3;
+
+            if (t >= 1) {
+                ta.carrier.group.position.y = 0.3;
+                ta.tackler.group.position.y = 0.3;
+                const { carrier, tackler, message, cr, tr } = ta;
+                tackleAnim = null;
+
+                function resetPlayer(p, r) {
+                    p.group.rotation.set(0, r.startRotY, 0);
+                    p.group.position.y = 0;
+                    p.leftUpper.rotation.set(0, 0, 0);
+                    p.rightUpper.rotation.set(0, 0, 0);
+                    p.leftLower.rotation.set(0, 0, 0);
+                    p.rightLower.rotation.set(0, 0, 0);
+                    p.leftLeg.rotation.set(0, 0, 0);
+                    p.rightLeg.rotation.set(0, 0, 0);
+                }
+                setTimeout(() => {
+                    GAME_STATE = 'GETTING_UP';
+                    resetPlayer(carrier, cr);
+                    resetPlayer(tackler, tr);
+                    carrier.group.lookAt(carrier.group.position.x, 0, lineOfScrimmageZ);
+                    tackler.group.lookAt(tackler.group.position.x, 0, lineOfScrimmageZ);
+                    setTimeout(() => { handlePlayResult(message, carrier.group.position.z); }, 2000);
+                }, 1500);
+            }
+        }
+
+        // When ball crosses LOS, the DB/safety closest to the ball's destination gets a 13-speed burst
+        if (!ballPastLOSBoostDone && ball.position.z < lineOfScrimmageZ &&
+                (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
+            ballPastLOSBoostDone = true;
+            const dbs = players.defense.filter(p => p.role === 'CB' || p.role === 'FS' || p.role === 'SS');
+            if (dbs.length > 0) {
+                // Pick the one nearest the ball's current destination
+                const destZ = landingMarker.visible ? landingMarker.position.z : ball.position.z;
+                dbs.sort((a, b) =>
+                    Math.abs(a.group.position.z - destZ) - Math.abs(b.group.position.z - destZ));
+                dbs[0].baseSpeed = 13;
+            }
+        }
+
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
     }
     renderer.render(scene, camera);
