@@ -14,18 +14,22 @@
     #panel h2 { margin: 14px 0 6px; font-size: 12px; color: #ffcc00; border-bottom: 1px solid #333; padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
     #panel h2:first-of-type { margin-top: 0; }
     .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-    .row label { width: 56px; color: #aaa; font-size: 11px; }
+    .row label { width: 60px; color: #aaa; font-size: 11px; flex-shrink: 0; }
     .row input[type=range] { flex: 1; }
     .row .val { width: 50px; text-align: right; font-variant-numeric: tabular-nums; color: #fff; font-size: 11px; }
+    .row input[type=color] { width: 48px; height: 24px; border: 1px solid #555; background: none; cursor: pointer; padding: 1px; }
     .tabs { display: flex; gap: 0; margin: 0 -16px 8px; padding: 0 16px; border-bottom: 2px solid #2a3142; }
-    .tabs button { padding: 8px 14px; background: transparent; color: #888; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-family: inherit; font-size: 12px; margin-bottom: -2px; }
+    .tabs button { padding: 8px 12px; background: transparent; color: #888; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-family: inherit; font-size: 12px; margin-bottom: -2px; }
     .tabs button.active { color: #ffcc00; border-bottom-color: #ffcc00; }
     .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0 12px; }
     .modes button { padding: 6px; background: #2a3142; color: #eee; border: 1px solid #444; cursor: pointer; font-family: inherit; font-size: 11px; }
     .modes button.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
-    #copy-btn { width: 100%; padding: 8px; margin-top: 12px; background: #00aaff; color: #000; border: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: bold; }
-    #copy-btn:hover { background: #33ccff; }
-    #copy-out { width: 100%; height: 130px; margin-top: 8px; background: #0d1018; color: #9cf; border: 1px solid #333; padding: 6px; font-family: ui-monospace, monospace; font-size: 10px; box-sizing: border-box; }
+    .toggle-row { display: flex; gap: 6px; margin: 6px 0; }
+    .toggle-row button { flex: 1; padding: 5px; background: #2a3142; color: #aaa; border: 1px solid #444; cursor: pointer; font-family: inherit; font-size: 11px; }
+    .toggle-row button.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
+    .copy-btn { width: 100%; padding: 8px; margin-top: 12px; background: #00aaff; color: #000; border: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: bold; }
+    .copy-btn:hover { background: #33ccff; }
+    .copy-out { width: 100%; height: 120px; margin-top: 8px; background: #0d1018; color: #9cf; border: 1px solid #333; padding: 6px; font-family: ui-monospace, monospace; font-size: 10px; box-sizing: border-box; }
     #help { font-size: 11px; color: #888; margin-top: 12px; line-height: 1.5; border-top: 1px solid #333; padding-top: 8px; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
@@ -38,88 +42,127 @@
     <div class="tabs">
         <button data-tab="carrier" class="active">Ball Carrier</button>
         <button data-tab="qb">QB Hold</button>
+        <button data-tab="helmet">Helmet</button>
     </div>
 
-    <h2>Mode</h2>
-    <div class="modes">
-        <button data-mode="idle">Idle</button>
-        <button data-mode="run">Run</button>
-        <button data-mode="carry" class="active">Hold</button>
-        <button data-mode="runcarry">Run + Hold</button>
-    </div>
+    <!-- ═══════════════════ POSE PANEL ═══════════════════ -->
+    <div id="pose-panel">
+        <h2>Mode</h2>
+        <div class="modes">
+            <button data-mode="idle">Idle</button>
+            <button data-mode="run">Run</button>
+            <button data-mode="carry" class="active">Hold</button>
+            <button data-mode="runcarry">Run + Hold</button>
+        </div>
 
-    <h2>Ball geometry</h2>
-    <div class="row"><label>radius</label><input type="range" id="ballRadius" min="0.15" max="0.5" step="0.005"><span class="val" id="ballRadiusV"></span></div>
-    <div class="row"><label>long scale</label><input type="range" id="ballLong" min="1" max="2.5" step="0.05"><span class="val" id="ballLongV"></span></div>
+        <h2>Ball geometry</h2>
+        <div class="row"><label>radius</label><input type="range" id="ballRadius" min="0.15" max="0.5" step="0.005"><span class="val" id="ballRadiusV"></span></div>
+        <div class="row"><label>long scale</label><input type="range" id="ballLong" min="1" max="2.5" step="0.05"><span class="val" id="ballLongV"></span></div>
 
-    <h2>Ball position (group-local)</h2>
-    <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01"><span class="val" id="posXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="posY" min="0" max="3" step="0.01"><span class="val" id="posYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="posZ" min="-1.5" max="1.5" step="0.01"><span class="val" id="posZV"></span></div>
+        <h2>Ball position (group-local)</h2>
+        <div class="row"><label>x</label><input type="range" id="posX" min="-1.5" max="1.5" step="0.01"><span class="val" id="posXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="posY" min="0" max="3" step="0.01"><span class="val" id="posYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="posZ" min="-1.5" max="1.5" step="0.01"><span class="val" id="posZV"></span></div>
 
-    <h2>Ball rotation (radians)</h2>
-    <div class="row"><label>x</label><input type="range" id="rotX" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="rotY" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="rotZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotZV"></span></div>
+        <h2>Ball rotation (radians)</h2>
+        <div class="row"><label>x</label><input type="range" id="rotX" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="rotY" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="rotZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="rotZV"></span></div>
 
-    <h2>R upper arm — shoulder</h2>
-    <div class="row"><label>x</label><input type="range" id="luX" min="-3.2" max="3.2" step="0.01"><span class="val" id="luXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="luY" min="-3.2" max="3.2" step="0.01"><span class="val" id="luYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="luZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="luZV"></span></div>
+        <h2>R upper arm — shoulder</h2>
+        <div class="row"><label>x</label><input type="range" id="luX" min="-3.2" max="3.2" step="0.01"><span class="val" id="luXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="luY" min="-3.2" max="3.2" step="0.01"><span class="val" id="luYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="luZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="luZV"></span></div>
 
-    <h2>R lower arm — elbow</h2>
-    <div class="row"><label>x</label><input type="range" id="llX" min="-3.2" max="3.2" step="0.01"><span class="val" id="llXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="llY" min="-3.2" max="3.2" step="0.01"><span class="val" id="llYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="llZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="llZV"></span></div>
+        <h2>R lower arm — elbow</h2>
+        <div class="row"><label>x</label><input type="range" id="llX" min="-3.2" max="3.2" step="0.01"><span class="val" id="llXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="llY" min="-3.2" max="3.2" step="0.01"><span class="val" id="llYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="llZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="llZV"></span></div>
 
-    <h2>L upper arm — shoulder</h2>
-    <div class="row"><label>x</label><input type="range" id="ruX" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="ruY" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="ruZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruZV"></span></div>
+        <h2>L upper arm — shoulder</h2>
+        <div class="row"><label>x</label><input type="range" id="ruX" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="ruY" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="ruZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="ruZV"></span></div>
 
-    <h2>L lower arm — elbow</h2>
-    <div class="row"><label>x</label><input type="range" id="rlX" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlXV"></span></div>
-    <div class="row"><label>y</label><input type="range" id="rlY" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlYV"></span></div>
-    <div class="row"><label>z</label><input type="range" id="rlZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlZV"></span></div>
+        <h2>L lower arm — elbow</h2>
+        <div class="row"><label>x</label><input type="range" id="rlX" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlXV"></span></div>
+        <div class="row"><label>y</label><input type="range" id="rlY" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlYV"></span></div>
+        <div class="row"><label>z</label><input type="range" id="rlZ" min="-3.2" max="3.2" step="0.01"><span class="val" id="rlZV"></span></div>
 
-    <button id="copy-btn">Copy values</button>
-    <textarea id="copy-out" readonly></textarea>
+        <button id="copy-btn" class="copy-btn">Copy values</button>
+        <textarea id="copy-out" class="copy-out" readonly></textarea>
 
-    <div id="help">
-        <strong>Controls:</strong><br>
-        Drag = orbit camera · Scroll = zoom<br>
-        <strong>Tabs:</strong> Ball Carrier (cradle pose) / QB Hold (throwing pose). Each tab has its own slider state.<br>
-        <strong>Modes:</strong><br>
-        Idle / Run = animation only, sliders ignored.<br>
-        Hold = locks to slider pose (no legs).<br>
-        Run + Hold = legs run, both arms locked to slider values (so you tune both).
-    </div>
+        <div id="help">
+            <strong>Controls:</strong><br>
+            Drag = orbit camera · Scroll = zoom<br>
+            <strong>Tabs:</strong> Ball Carrier / QB Hold share pose sliders. Helmet tab lives separately.<br>
+            <strong>Modes:</strong><br>
+            Idle / Run = animation only.<br>
+            Hold = locked to slider pose.<br>
+            Run + Hold = legs animate, arms locked.
+        </div>
+    </div><!-- /pose-panel -->
+
+    <!-- ═══════════════════ HELMET PANEL ═══════════════════ -->
+    <div id="helmet-panel" style="display:none">
+
+        <h2>Helmet Shell</h2>
+        <div class="row"><label>Color</label><input type="color" id="hHelmetColor" value="#004c54"><span style="color:#888;font-size:11px;flex:1;padding-left:6px">helmet shell</span></div>
+        <div class="row"><label>Style</label>
+            <div class="toggle-row" style="flex:1;margin:0">
+                <button class="cage-style-btn active" data-style="skill">Skill</button>
+                <button class="cage-style-btn" data-style="lineman">Lineman</button>
+            </div>
+        </div>
+        <div class="row"><label>Width</label><input type="range" id="hOpening" min="20" max="160" step="2" value="90"><span class="val" id="hOpeningV">90°</span></div>
+        <div class="row"><label>Height</label><input type="range" id="hOpeningHeight" min="20" max="160" step="2" value="80"><span class="val" id="hOpeningHeightV">80°</span></div>
+        <div class="row"><label>Shift L/R</label><input type="range" id="hOpeningH" min="-45" max="45" step="1" value="0"><span class="val" id="hOpeningHV">0°</span></div>
+        <div class="row"><label>Shift U/D</label><input type="range" id="hOpeningV2" min="-40" max="40" step="1" value="0"><span class="val" id="hOpeningV2V">0°</span></div>
+
+        <h2>Face Mask (Cage)</h2>
+        <div class="row"><label>Color</label><input type="color" id="hCageColor" value="#d0d0d0"></div>
+        <div class="row"><label>Bar size</label><input type="range" id="hBarR" min="0.008" max="0.04" step="0.001" value="0.018"><span class="val" id="hBarRV">0.018</span></div>
+        <div class="row"><label>Depth</label><input type="range" id="hCageZ" min="0.28" max="0.55" step="0.005" value="0.37"><span class="val" id="hCageZV">0.37</span></div>
+        <div class="row"><label>Width</label><input type="range" id="hCageW" min="0.10" max="0.35" step="0.005" value="0.20"><span class="val" id="hCageWV">0.20</span></div>
+        <div class="row"><label>Top Y</label><input type="range" id="hCageTop" min="-0.1" max="0.20" step="0.005" value="0.05"><span class="val" id="hCageTopV">0.05</span></div>
+        <div class="row"><label>Bot Y</label><input type="range" id="hCageBot" min="-0.5" max="-0.05" step="0.005" value="-0.27"><span class="val" id="hCageBotV">-0.27</span></div>
+
+        <h2>Face / Skin</h2>
+        <div class="row"><label>Skin</label><input type="color" id="hSkinColor" value="#e0ac69"></div>
+        <div class="row"><label>Face size</label><input type="range" id="hFaceR" min="0.60" max="0.98" step="0.01" value="0.88"><span class="val" id="hFaceRV">0.88×</span></div>
+
+        <h2>Eyes</h2>
+        <div class="row"><label>Color</label><input type="color" id="hEyeColor" value="#111111"></div>
+        <div class="row"><label>Size</label><input type="range" id="hEyeSize" min="0.01" max="0.10" step="0.002" value="0.036"><span class="val" id="hEyeSizeV">0.036</span></div>
+        <div class="row"><label>Spread X</label><input type="range" id="hEyeX" min="0.05" max="0.28" step="0.005" value="0.112"><span class="val" id="hEyeXV">0.112</span></div>
+        <div class="row"><label>Height Y</label><input type="range" id="hEyeY" min="-0.10" max="0.25" step="0.005" value="0.052"><span class="val" id="hEyeYV">0.052</span></div>
+        <div class="row"><label>Depth Z</label><input type="range" id="hEyeZ" min="0.50" max="0.98" step="0.01" value="0.88"><span class="val" id="hEyeZV">0.88×</span></div>
+
+        <button id="copy-helmet-btn" class="copy-btn">Copy code for index.html</button>
+        <textarea id="helmet-copy-out" class="copy-out" readonly></textarea>
+    </div><!-- /helmet-panel -->
 </div>
 
 <script>
-// ---- Per-tab pose state ----
+// ─────────────────────────────────────────────
+// Per-tab pose state
+// ─────────────────────────────────────────────
 const DEFAULTS = {
     carrier: {
-        // Carrier cradle — values tuned in playground 2026-04-25.
         ballRadius: 0.185, ballLong: 1.80,
         posX: -0.36, posY: 1.74, posZ: 0.41,
         rotX: 1.08, rotY: 0.25, rotZ: -0.58,
-        // "R" labels (lu*/ll* IDs) -> p.leftUpper/Lower (world -X arm)
         luX: -0.66, luY: 0.41, luZ: 0.25,
         llX: -1.08, llY: 1.04, llZ: 0.52,
-        // "L" labels (ru*/rl* IDs) -> p.rightUpper/Lower (world +X arm)
         ruX: -0.79, ruY: -2.28, ruZ: 0.84,
         rlX: -1.01, rlY: 0.3, rlZ: 0.18,
     },
     qb: {
-        // QB throwing-ready stance — values tuned in playground 2026-04-25.
         ballRadius: 0.185, ballLong: 1.80,
         posX: -0.61, posY: 2.84, posZ: 0.32,
         rotX: -0.23, rotY: 0, rotZ: -0.40,
-        // "R" labels -> p.leftUpper/Lower (world -X arm)
         luX: -2.68, luY: -0.11, luZ: 0.04,
         llX: -0.67, llY: 0, llZ: 0,
-        // "L" labels -> p.rightUpper/Lower (world +X arm)
         ruX: -1.58, ruY: 0.11, ruZ: -0.67,
         rlX: -0.36, rlY: 0, rlZ: 0,
     },
@@ -128,7 +171,32 @@ const state = { carrier: { ...DEFAULTS.carrier }, qb: { ...DEFAULTS.qb } };
 let activeTab = 'carrier';
 const cur = () => state[activeTab];
 
-// ---- Scene ----
+// Helmet state
+const HS = {
+    helmetColor: '#004c54',
+    cageColor:   '#d0d0d0',
+    skinColor:   '#e0ac69',
+    eyeColor:    '#111111',
+    style:       'skill',      // 'skill' | 'lineman'
+    openingDeg:    90,   // width  — horizontal phi gap
+    openingHeight: 80,   // height — vertical theta extent
+    openingH:    0,      // horizontal shift of opening in degrees (+= right, -= left)
+    openingV:    0,      // vertical shift of opening in degrees (+= up, -= down)
+    barR:        0.018,
+    cageZ:       0.37,
+    cageW:       0.20,
+    cageTop:     0.05,
+    cageBot:    -0.27,
+    faceR:       0.88,
+    eyeSize:     0.036,
+    eyeX:        0.112,
+    eyeY:        0.052,
+    eyeZ:        0.88,
+};
+
+// ─────────────────────────────────────────────
+// Scene
+// ─────────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a3a55);
 scene.fog = new THREE.Fog(0x2a3a55, 12, 40);
@@ -141,74 +209,166 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
-const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-dir.position.set(5, 12, 6); dir.castShadow = true; scene.add(dir);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dirLight.position.set(5, 12, 6); dirLight.castShadow = true; scene.add(dirLight);
 
 const grid = new THREE.GridHelper(20, 20, 0x556677, 0x334455); scene.add(grid);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshLambertMaterial({ color: 0x2a5a34 }));
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; ground.receiveShadow = true; scene.add(ground);
 
-// ---- Player builder ----
+// ─────────────────────────────────────────────
+// Player builder
+// ─────────────────────────────────────────────
+function hexToInt(hex) { return parseInt(hex.replace('#', ''), 16); }
+
+let headGroup = null; // reference so we can rebuild just the head
+
+function buildHelmetGroup() {
+    const helmetR = HS.style === 'lineman' ? 0.46 : 0.40;
+    const hMat   = new THREE.MeshLambertMaterial({ color: hexToInt(HS.helmetColor) });
+    const skinMat = new THREE.MeshLambertMaterial({ color: hexToInt(HS.skinColor) });
+    const cageMat = new THREE.MeshLambertMaterial({ color: hexToInt(HS.cageColor) });
+    const eyeMat  = new THREE.MeshBasicMaterial({ color: hexToInt(HS.eyeColor) });
+
+    const hg = new THREE.Group();
+
+    // Face sphere (shows through opening)
+    const faceR = helmetR * HS.faceR;
+    hg.add(new THREE.Mesh(new THREE.SphereGeometry(faceR, 12, 12), skinMat));
+
+    // Eyes
+    const eyeZ = faceR * HS.eyeZ;
+    [-1, 1].forEach(side => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(HS.eyeSize, 6, 6), eyeMat);
+        eye.position.set(side * HS.eyeX, HS.eyeY, eyeZ);
+        hg.add(eye);
+    });
+
+    // ── Shell + cage live in a sub-group so we can rotate the opening independently ──
+    const shell = new THREE.Group();
+    // Horizontal offset: rotate shell around Y  (+ = opening shifts right, - = left)
+    shell.rotation.y = (HS.openingH * Math.PI) / 180;
+    // Vertical offset: rotate shell around X  (+ = opening shifts up, - = down)
+    shell.rotation.x = (HS.openingV * Math.PI) / 180;
+    hg.add(shell);
+
+    // Helmet shell — 3-piece construction so width AND height are independent
+    // Width:  phi gap (horizontal opening)
+    // Height: theta range (vertical opening)
+    const gapRad    = (HS.openingDeg    * Math.PI) / 180;
+    const heightRad = (HS.openingHeight * Math.PI) / 180;
+    const phiStart  = Math.PI / 2 + gapRad / 2;
+    const phiLength = Math.PI * 2 - gapRad;
+
+    // Face opening centered at theta = 0.47π (roughly eye / cheekbone level)
+    const tCenter  = Math.PI * 0.47;
+    const tFaceTop = Math.max(0.01,        tCenter - heightRad / 2);
+    const tFaceBot = Math.min(Math.PI * 0.99, tCenter + heightRad / 2);
+
+    // 1. Crown — full phi ring above the face opening
+    if (tFaceTop > 0.02)
+        shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, 0, tFaceTop), hMat));
+
+    // 2. Face ring — has the phi gap (the actual opening)
+    shell.add(new THREE.Mesh(
+        new THREE.SphereGeometry(helmetR, 20, 8, phiStart, phiLength, tFaceTop, tFaceBot - tFaceTop), hMat));
+
+    // 3. Chin guard — full phi ring below the face opening
+    if (tFaceBot < Math.PI * 0.98)
+        shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, tFaceBot, Math.PI - tFaceBot), hMat));
+
+    // Cage bars (attached to shell so they follow the opening rotation)
+    const barR = HS.barR;
+    function addBar(ax, ay, az, bx, by, bz) {
+        const from = new THREE.Vector3(ax, ay, az), to = new THREE.Vector3(bx, by, bz);
+        const dir  = new THREE.Vector3().subVectors(to, from);
+        const len  = dir.length();
+        const cyl  = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, len, 8), cageMat);
+        cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        cyl.position.lerpVectors(from, to, 0.5);
+        shell.add(cyl);
+    }
+
+    const fz = HS.cageZ, hw = HS.cageW;
+    const top = HS.cageTop, bot = HS.cageBot;
+
+    if (HS.style === 'lineman') {
+        const fzL = fz + 0.07, hwL = hw + 0.30;
+        const botZ = fzL - 0.11;
+        addBar(-hwL/2, top,  fzL,      hwL/2, top,  fzL);
+        addBar(-hwL/2, (top+bot)/2, fzL-0.04, hwL/2, (top+bot)/2, fzL-0.04);
+        addBar(-hwL/2+0.04, bot, botZ, hwL/2-0.04, bot, botZ);
+        addBar(-hwL/2, top, fzL, -hwL/2+0.04, bot, botZ);
+        addBar(0,      top, fzL,  0,           bot, botZ);
+        addBar( hwL/2, top, fzL,  hwL/2-0.04, bot, botZ);
+    } else {
+        const botZ = fz - 0.09;
+        addBar(-hw, top, fz,        hw, top, fz);
+        addBar(-hw+0.04, bot, botZ, hw-0.04, bot, botZ);
+        addBar(-hw, top, fz,  -hw+0.04, bot, botZ);
+        addBar(0,   top, fz,   0,       bot, botZ);
+        addBar( hw, top, fz,   hw-0.04, bot, botZ);
+    }
+
+    return hg;
+}
+
 function buildPlayer() {
     const group = new THREE.Group();
-    const jMat = new THREE.MeshLambertMaterial({ color: 0x004c54 });
-    const pMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const hMat = new THREE.MeshLambertMaterial({ color: 0x004c54 });
-    const skinMat = new THREE.MeshLambertMaterial({ color: 0xe0ac69 });
+    const jMat   = new THREE.MeshLambertMaterial({ color: 0x004c54 });
+    const pMat   = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
     const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.5), pMat);
     pelvis.position.y = 1.0; group.add(pelvis);
     const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.55), jMat);
     torso.position.y = 1.65; group.add(torso);
 
-    const head = new THREE.Group();
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), hMat);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.25, 0.3), new THREE.MeshLambertMaterial({ color: 0x111111 }));
-    visor.position.set(0, 0.1, 0.3); helmet.add(visor);
-    head.add(helmet); head.position.y = 2.45; group.add(head);
+    // Head
+    headGroup = buildHelmetGroup();
+    headGroup.position.y = 2.45;
+    group.add(headGroup);
 
+    const skinMat = new THREE.MeshLambertMaterial({ color: hexToInt(HS.skinColor) });
     const upperLen = 0.46, lowerLen = 0.46, armW = 0.28;
     const upperGeo = new THREE.BoxGeometry(armW, upperLen, armW); upperGeo.translate(0, -upperLen / 2, 0);
     const lowerGeo = new THREE.BoxGeometry(armW * 0.95, lowerLen, armW * 0.95); lowerGeo.translate(0, -lowerLen / 2, 0);
-    const handGeo = new THREE.SphereGeometry(0.16, 12, 12);
+    const handGeo  = new THREE.SphereGeometry(0.16, 12, 12);
 
     function makeArm(side) {
         const sx = (side === 'left' ? -1 : 1) * 0.6;
-        const upperPivot = new THREE.Object3D();
-        upperPivot.position.set(sx, 1.9, 0); group.add(upperPivot);
-        upperPivot.add(new THREE.Mesh(upperGeo, skinMat));
-        const lowerPivot = new THREE.Object3D();
-        lowerPivot.position.set(0, -upperLen, 0); upperPivot.add(lowerPivot);
-        lowerPivot.add(new THREE.Mesh(lowerGeo, skinMat));
-        const hand = new THREE.Mesh(handGeo, skinMat); hand.position.set(0, -lowerLen, 0); lowerPivot.add(hand);
-        return { upper: upperPivot, lower: lowerPivot };
+        const upper = new THREE.Object3D(); upper.position.set(sx, 1.9, 0); group.add(upper);
+        upper.add(new THREE.Mesh(upperGeo, skinMat));
+        const lower = new THREE.Object3D(); lower.position.set(0, -upperLen, 0); upper.add(lower);
+        lower.add(new THREE.Mesh(lowerGeo, skinMat));
+        const hand = new THREE.Mesh(handGeo, skinMat); hand.position.set(0, -lowerLen, 0); lower.add(hand);
+        return { upper, lower };
     }
     const left = makeArm('left'), right = makeArm('right');
 
     const legGeo = new THREE.BoxGeometry(0.35, 1.1, 0.35); legGeo.translate(0, -0.45, 0);
     const leftLeg  = new THREE.Mesh(legGeo, pMat); leftLeg.position.set(-0.2, 1.0, 0); group.add(leftLeg);
-    const rightLeg = new THREE.Mesh(legGeo, pMat); rightLeg.position.set(0.2, 1.0, 0); group.add(rightLeg);
+    const rightLeg = new THREE.Mesh(legGeo, pMat); rightLeg.position.set( 0.2, 1.0, 0); group.add(rightLeg);
 
     return { group, leftUpper: left.upper, leftLower: left.lower, rightUpper: right.upper, rightLower: right.lower, leftLeg, rightLeg };
 }
 
-// ---- Ball builder ----
+// ─────────────────────────────────────────────
+// Ball builder
+// ─────────────────────────────────────────────
 let ball;
 function buildBall(radius, longScale) {
     if (ball) { if (ball.parent) ball.parent.remove(ball); ball.geometry.dispose(); }
     const ballGeo = new THREE.SphereGeometry(radius, 16, 16); ballGeo.scale(1, 1, longScale);
     const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
     ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true;
-
     const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
     const k = radius / 0.28;
-    const spineGeo = new THREE.BoxGeometry(0.020 * k, 0.010 * k, 0.34 * k);
-    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = radius - 0.01; ball.add(spine);
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.020 * k, 0.010 * k, 0.34 * k), laceMat);
+    spine.position.y = radius - 0.01; ball.add(spine);
     const stitchGeo = new THREE.BoxGeometry(0.072 * k, 0.014 * k, 0.020 * k);
     for (let i = -2; i <= 2; i++) {
         const s = new THREE.Mesh(stitchGeo, laceMat);
-        s.position.set(0, radius - 0.005, i * 0.068 * k);
-        ball.add(s);
+        s.position.set(0, radius - 0.005, i * 0.068 * k); ball.add(s);
     }
     return ball;
 }
@@ -217,12 +377,24 @@ const p = buildPlayer();
 scene.add(p.group);
 buildBall(cur().ballRadius, cur().ballLong);
 
-// ---- Slider <-> state wiring ----
-const ids = ['ballRadius','ballLong','posX','posY','posZ','rotX','rotY','rotZ',
-             'luX','luY','luZ','llX','llY','llZ','ruX','ruY','ruZ','rlX','rlY','rlZ'];
+// ─────────────────────────────────────────────
+// Rebuild just the head group
+// ─────────────────────────────────────────────
+function rebuildHelmet() {
+    p.group.remove(headGroup);
+    headGroup = buildHelmetGroup();
+    headGroup.position.y = 2.45;
+    p.group.add(headGroup);
+}
+
+// ─────────────────────────────────────────────
+// Pose slider wiring
+// ─────────────────────────────────────────────
+const poseIds = ['ballRadius','ballLong','posX','posY','posZ','rotX','rotY','rotZ',
+                 'luX','luY','luZ','llX','llY','llZ','ruX','ruY','ruZ','rlX','rlY','rlZ'];
 
 function syncSlidersFromState() {
-    ids.forEach(id => {
+    poseIds.forEach(id => {
         const el = document.getElementById(id);
         el.value = cur()[id];
         document.getElementById(id + 'V').textContent = cur()[id].toFixed(2);
@@ -230,39 +402,93 @@ function syncSlidersFromState() {
 }
 syncSlidersFromState();
 
-ids.forEach(id => {
-    document.getElementById(id).addEventListener('input', (e) => {
+poseIds.forEach(id => {
+    document.getElementById(id).addEventListener('input', e => {
         cur()[id] = parseFloat(e.target.value);
         document.getElementById(id + 'V').textContent = cur()[id].toFixed(2);
-        if (id === 'ballRadius' || id === 'ballLong') {
-            buildBall(cur().ballRadius, cur().ballLong);
-        }
+        if (id === 'ballRadius' || id === 'ballLong') buildBall(cur().ballRadius, cur().ballLong);
         if (mode === 'carry') applyPose();
-        // run+carry uses tick() to keep applying values; no need to call applyPose here.
     });
 });
 
-// ---- Tab switcher ----
+// ─────────────────────────────────────────────
+// Helmet control wiring
+// ─────────────────────────────────────────────
+function wireHelmetColor(id, key) {
+    document.getElementById(id).addEventListener('input', e => { HS[key] = e.target.value; rebuildHelmet(); });
+}
+wireHelmetColor('hHelmetColor', 'helmetColor');
+wireHelmetColor('hCageColor',   'cageColor');
+wireHelmetColor('hSkinColor',   'skinColor');
+wireHelmetColor('hEyeColor',    'eyeColor');
+
+function wireHelmetSlider(id, key, suffix) {
+    const el  = document.getElementById(id);
+    const val = document.getElementById(id + 'V');
+    el.addEventListener('input', e => {
+        HS[key] = parseFloat(e.target.value);
+        val.textContent = HS[key].toFixed(3).replace(/\.?0+$/, '') + (suffix || '');
+        rebuildHelmet();
+    });
+    // set initial display
+    val.textContent = HS[key].toFixed(3).replace(/\.?0+$/, '') + (suffix || '');
+}
+wireHelmetSlider('hOpening',       'openingDeg',    '°');
+wireHelmetSlider('hOpeningHeight', 'openingHeight', '°');
+wireHelmetSlider('hOpeningH',      'openingH',      '°');
+wireHelmetSlider('hOpeningV2',     'openingV',      '°');
+wireHelmetSlider('hBarR',    'barR',  '');
+wireHelmetSlider('hCageZ',   'cageZ', '');
+wireHelmetSlider('hCageW',   'cageW', '');
+wireHelmetSlider('hCageTop', 'cageTop', '');
+wireHelmetSlider('hCageBot', 'cageBot', '');
+wireHelmetSlider('hFaceR',   'faceR', '×');
+wireHelmetSlider('hEyeSize', 'eyeSize', '');
+wireHelmetSlider('hEyeX',    'eyeX',  '');
+wireHelmetSlider('hEyeY',    'eyeY',  '');
+wireHelmetSlider('hEyeZ',    'eyeZ',  '×');
+
+// Cage style toggle
+document.querySelectorAll('.cage-style-btn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.cage-style-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    HS.style = b.dataset.style;
+    rebuildHelmet();
+}));
+
+// ─────────────────────────────────────────────
+// Tab switcher
+// ─────────────────────────────────────────────
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     activeTab = b.dataset.tab;
-    syncSlidersFromState();
-    buildBall(cur().ballRadius, cur().ballLong);
-    if (mode === 'carry' || mode === 'runcarry') applyPose();
+
+    if (activeTab === 'helmet') {
+        document.getElementById('pose-panel').style.display = 'none';
+        document.getElementById('helmet-panel').style.display = '';
+        // Zoom in on the head for editing
+        camDist = 3; camPitch = 0.15; camAngle = 0.3;
+    } else {
+        document.getElementById('pose-panel').style.display = '';
+        document.getElementById('helmet-panel').style.display = 'none';
+        syncSlidersFromState();
+        buildBall(cur().ballRadius, cur().ballLong);
+        if (mode === 'carry' || mode === 'runcarry') applyPose();
+        camDist = 6;
+    }
 }));
 
-// ---- Mode handling ----
+// ─────────────────────────────────────────────
+// Mode handling
+// ─────────────────────────────────────────────
 let mode = 'carry';
 document.querySelectorAll('.modes button').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('.modes button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     mode = b.dataset.mode;
-    if (mode === 'idle' || mode === 'run') {
-        if (ball.parent) ball.parent.remove(ball);
-    } else {
-        applyPose();
-    }
+    if (mode === 'idle' || mode === 'run') { if (ball.parent) ball.parent.remove(ball); }
+    else { applyPose(); }
 }));
 
 function applyPose() {
@@ -270,43 +496,80 @@ function applyPose() {
     p.group.add(ball);
     ball.position.set(s.posX, s.posY, s.posZ);
     ball.rotation.set(s.rotX, s.rotY, s.rotZ);
-    p.leftUpper.rotation.set(s.luX, s.luY, s.luZ);   // "R" sliders
+    p.leftUpper.rotation.set(s.luX, s.luY, s.luZ);
     p.leftLower.rotation.set(s.llX, s.llY, s.llZ);
-    p.rightUpper.rotation.set(s.ruX, s.ruY, s.ruZ);  // "L" sliders
+    p.rightUpper.rotation.set(s.ruX, s.ruY, s.ruZ);
     p.rightLower.rotation.set(s.rlX, s.rlY, s.rlZ);
-    if (mode === 'carry') {
-        p.leftLeg.rotation.set(0, 0, 0);
-        p.rightLeg.rotation.set(0, 0, 0);
-    }
+    if (mode === 'carry') { p.leftLeg.rotation.set(0,0,0); p.rightLeg.rotation.set(0,0,0); }
 }
 applyPose();
 
-// ---- Copy ----
+// ─────────────────────────────────────────────
+// Copy buttons
+// ─────────────────────────────────────────────
 document.getElementById('copy-btn').addEventListener('click', () => {
-    const f = (n) => { let s = n.toFixed(3).replace(/\.?0+$/, ''); return s === '' || s === '-' ? '0' : s; };
+    const f = n => { let s = n.toFixed(3).replace(/\.?0+$/, ''); return (s === '' || s === '-') ? '0' : s; };
     const s = cur();
     const prefix = activeTab === 'qb' ? 'QB_HOLD' : 'TUCKED';
-    const text = `// --- ${activeTab === 'qb' ? 'QB hold pose' : 'Carrier cradle pose'} ---
+    const text =
+`// --- ${activeTab === 'qb' ? 'QB hold pose' : 'Carrier cradle pose'} ---
 const ${prefix}_POSITION = new THREE.Vector3(${f(s.posX)}, ${f(s.posY)}, ${f(s.posZ)});
 const ${prefix}_EULER    = new THREE.Euler(${f(s.rotX)}, ${f(s.rotY)}, ${f(s.rotZ)});
-// "L"-labelled sliders drive p.rightUpper/Lower (world +X arm). Adjust naming for index.html.
 const ${prefix}_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(${f(s.ruX)}, ${f(s.ruY)}, ${f(s.ruZ)});
 const ${prefix}_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(${f(s.rlX)}, ${f(s.rlY)}, ${f(s.rlZ)});
 const ${prefix}_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(${f(s.luX)}, ${f(s.luY)}, ${f(s.luZ)});
 const ${prefix}_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(${f(s.llX)}, ${f(s.llY)}, ${f(s.llZ)});
-// Ball geometry: SphereGeometry(${f(s.ballRadius)}, 16, 16); scale(1, 1, ${f(s.ballLong)});`;
+// Ball: SphereGeometry(${f(s.ballRadius)}, 16, 16); scale(1, 1, ${f(s.ballLong)});`;
     document.getElementById('copy-out').value = text;
     navigator.clipboard?.writeText(text);
 });
 
-// ---- Camera orbit ----
+document.getElementById('copy-helmet-btn').addEventListener('click', () => {
+    const f = n => n.toFixed(3).replace(/\.?0+$/, '') || '0';
+    const isL = HS.style === 'lineman';
+    const helmetR = isL ? 0.46 : 0.40;
+    const gapRad = (HS.openingDeg * Math.PI / 180).toFixed(4);
+    const phiStart  = (Math.PI / 2 + HS.openingDeg * Math.PI / 180 / 2).toFixed(4);
+    const phiLength = (Math.PI * 2 - HS.openingDeg * Math.PI / 180).toFixed(4);
+    const text =
+`// ── Helmet (paste into Player constructor, replaces helmet section) ──
+const helmetR = ${helmetR};
+// Face sphere
+const headSkin = new THREE.Mesh(new THREE.SphereGeometry(helmetR * ${f(HS.faceR)}, 12, 12), skinMat);
+this.head.add(headSkin);
+// Eyes
+const eyeMat = new THREE.MeshBasicMaterial({ color: ${HS.eyeColor.replace('#','0x')} });
+[-1, 1].forEach(side => {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(${f(HS.eyeSize)}, 6, 6), eyeMat);
+    eye.position.set(side * ${f(HS.eyeX)}, ${f(HS.eyeY)}, helmetR * ${f(HS.faceR)} * ${f(HS.eyeZ)});
+    this.head.add(eye);
+});
+// Helmet shell (${HS.openingDeg}° face opening)
+const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(helmetR, 18, 14, ${phiStart}, ${phiLength}), hMat);
+// Cage bars — barR=${f(HS.barR)}, style=${HS.style}
+const cageMat = new THREE.MeshLambertMaterial({ color: ${HS.cageColor.replace('#','0x')} });
+const barR = ${f(HS.barR)};
+// (addCageBar helper + cage construction from playground Helmet tab)
+this.head.add(helmet);`;
+    document.getElementById('helmet-copy-out').value = text;
+    navigator.clipboard?.writeText(text);
+});
+
+// ─────────────────────────────────────────────
+// Camera orbit
+// ─────────────────────────────────────────────
 let camAngle = 0.4, camPitch = 0.3, camDist = 6;
+let camTarget = new THREE.Vector3(0, 1.5, 0); // tracks head when on helmet tab
+
 function updateCamera() {
+    const lookY = activeTab === 'helmet' ? 2.5 : 1.5;
+    camTarget.lerp(new THREE.Vector3(0, lookY, 0), 0.08);
     const cx = Math.sin(camAngle) * Math.cos(camPitch) * camDist;
-    const cy = 1.5 + Math.sin(camPitch) * camDist;
+    const cy = camTarget.y + Math.sin(camPitch) * camDist;
     const cz = Math.cos(camAngle) * Math.cos(camPitch) * camDist;
     camera.position.set(cx, cy, cz);
-    camera.lookAt(0, 1.5, 0);
+    camera.lookAt(camTarget);
 }
 let dragging = false, lastX = 0, lastY = 0;
 renderer.domElement.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
@@ -319,39 +582,42 @@ window.addEventListener('mousemove', e => {
 });
 renderer.domElement.addEventListener('wheel', e => {
     e.preventDefault();
-    camDist = Math.max(2, Math.min(20, camDist + e.deltaY * 0.01));
+    camDist = Math.max(1, Math.min(20, camDist + e.deltaY * 0.01));
 }, { passive: false });
 
-// ---- Animation ----
+// ─────────────────────────────────────────────
+// Animation loop
+// ─────────────────────────────────────────────
 const clock = new THREE.Clock();
 function tick() {
     requestAnimationFrame(tick);
     const t = clock.getElapsedTime();
-    if (mode === 'idle') {
-        const breath = Math.sin(t * 2) * 0.04;
+    if (activeTab !== 'helmet') {
+        if (mode === 'idle') {
+            const breath = Math.sin(t * 2) * 0.04;
+            p.leftUpper.rotation.set(0, 0, breath);  p.rightUpper.rotation.set(0, 0, -breath);
+            p.leftLower.rotation.set(0,0,0);          p.rightLower.rotation.set(0,0,0);
+            p.leftLeg.rotation.set(0,0,0);            p.rightLeg.rotation.set(0,0,0);
+        } else if (mode === 'run') {
+            const swing = Math.sin(t * 12) * 1.0;
+            p.leftUpper.rotation.set(-swing, 0, 0);  p.rightUpper.rotation.set(swing, 0, 0);
+            p.leftLower.rotation.set( 0.3 + Math.abs(swing)*0.4, 0, 0);
+            p.rightLower.rotation.set(-(0.3 + Math.abs(swing)*0.4), 0, 0);
+            p.leftLeg.rotation.set(swing, 0, 0);     p.rightLeg.rotation.set(-swing, 0, 0);
+        } else if (mode === 'runcarry') {
+            const swing = Math.sin(t * 12) * 1.0;
+            const s = cur();
+            p.leftUpper.rotation.set(s.luX, s.luY, s.luZ);
+            p.leftLower.rotation.set(s.llX, s.llY, s.llZ);
+            p.rightUpper.rotation.set(s.ruX, s.ruY, s.ruZ);
+            p.rightLower.rotation.set(s.rlX, s.rlY, s.rlZ);
+            p.leftLeg.rotation.set(swing, 0, 0);     p.rightLeg.rotation.set(-swing, 0, 0);
+        }
+    } else {
+        // On helmet tab: slow idle breathing so you can see the face
+        const breath = Math.sin(t * 1.5) * 0.03;
         p.leftUpper.rotation.set(0, 0, breath);
         p.rightUpper.rotation.set(0, 0, -breath);
-        p.leftLower.rotation.set(0, 0, 0);
-        p.rightLower.rotation.set(0, 0, 0);
-        p.leftLeg.rotation.set(0, 0, 0); p.rightLeg.rotation.set(0, 0, 0);
-    } else if (mode === 'run') {
-        const swing = Math.sin(t * 12) * 1.0;
-        p.leftUpper.rotation.set(-swing, 0, 0);
-        p.rightUpper.rotation.set(swing, 0, 0);
-        p.leftLower.rotation.set(0.3 + Math.abs(swing) * 0.4, 0, 0);
-        p.rightLower.rotation.set(-(0.3 + Math.abs(swing) * 0.4), 0, 0);
-        p.leftLeg.rotation.set(swing, 0, 0);
-        p.rightLeg.rotation.set(-swing, 0, 0);
-    } else if (mode === 'runcarry') {
-        // Both arms locked to slider values; only legs animate.
-        const swing = Math.sin(t * 12) * 1.0;
-        const s = cur();
-        p.leftUpper.rotation.set(s.luX, s.luY, s.luZ);    // "R" sliders
-        p.leftLower.rotation.set(s.llX, s.llY, s.llZ);
-        p.rightUpper.rotation.set(s.ruX, s.ruY, s.ruZ);   // "L" sliders
-        p.rightLower.rotation.set(s.rlX, s.rlY, s.rlZ);
-        p.leftLeg.rotation.set(swing, 0, 0);
-        p.rightLeg.rotation.set(-swing, 0, 0);
     }
     updateCamera();
     renderer.render(scene, camera);
