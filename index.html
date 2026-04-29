@@ -346,6 +346,7 @@ let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
 let timeoutsOff = 3; let pendingQuarterEnd = false;
 let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
 let isTwoPointAttempt = false;
+let blimpGroup = null;
 let cheerleaders = [];
 let defScheme = 'base'; // randomized each formation: 'base','cover2','cover3','man','prevent'
 let simIntervalTimer;
@@ -828,8 +829,6 @@ function buildSidelineCharacters() {
         cam.position.set(x > 0 ? -0.5 : 0.5, 1.5, 0); fig.add(cam);
     });
 }
-
-let blimpGroup = null;
 
 function buildBlimp() {
     blimpGroup = new THREE.Group();
