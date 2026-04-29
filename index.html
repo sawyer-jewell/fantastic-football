@@ -100,6 +100,9 @@
             integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
             crossorigin="anonymous"
             referrerpolicy="no-referrer"></script>
+    <!-- Google Drive API – loaded async; callbacks fire gapiLoaded() / gisLoaded() -->
+    <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()" async defer></script>
 </head>
 <body>
     <div id="hang-time-ui" class="hidden">Time: 0.00s</div>
@@ -135,6 +138,11 @@
                 <button class="btn-retro" style="background:#00aaff;" onclick="openSchedule()">SCHEDULE</button>
                 <button id="btn-mute" class="btn-retro" style="background:#444;" onclick="toggleAudio()">MUTE AUDIO</button>
             </div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
+                <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="saveToDrive()">SAVE TO DRIVE</button>
+                <button class="btn-retro" style="background:#4285f4; font-size:0.7rem; padding:10px 20px;" onclick="loadFromDrive()">LOAD FROM DRIVE</button>
+            </div>
+            <div id="drive-status" class="hidden" style="font-size:0.65rem; margin-top:10px; letter-spacing:2px;"></div>
         </div>
 
         <div id="schedule-screen" class="menu hidden">
@@ -2601,6 +2609,122 @@ function animate() {
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
     }
     renderer.render(scene, camera);
+}
+
+// ─── GOOGLE DRIVE SAVE / LOAD ────────────────────────────────────────────────
+// Before using these features, create a project at https://console.cloud.google.com/,
+// enable the Google Drive API, configure an OAuth 2.0 Web Client ID (add your
+// origin to "Authorized JavaScript origins"), and generate an API key.
+// Then replace the two placeholder strings below.
+const DRIVE_CLIENT_ID  = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+const DRIVE_API_KEY    = 'YOUR_API_KEY';
+const DRIVE_DISCOVERY  = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SAVE_NAME  = 'fantastic-football-save.json';
+
+let _gapiReady = false, _gisReady = false, _driveTokenClient = null;
+
+function gapiLoaded() {
+    gapi.load('client', async () => {
+        await gapi.client.init({ apiKey: DRIVE_API_KEY, discoveryDocs: [DRIVE_DISCOVERY] });
+        _gapiReady = true;
+    });
+}
+
+function gisLoaded() {
+    _driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE_CLIENT_ID, scope: DRIVE_SCOPE, callback: ''
+    });
+    _gisReady = true;
+}
+
+function _driveCheck() {
+    if (!_gapiReady || !_gisReady) {
+        alert('Google Drive not ready.\n\nOpen index.html in a browser and make sure\nDRIVE_CLIENT_ID and DRIVE_API_KEY are set.');
+        return false;
+    }
+    return true;
+}
+
+function saveToDrive() {
+    if (!_driveCheck()) return;
+    _driveTokenClient.callback = async (r) => {
+        if (r.error) { alert('Google auth failed: ' + r.error); return; }
+        await _driveSave();
+    };
+    gapi.client.getToken()
+        ? _driveTokenClient.requestAccessToken({ prompt: '' })
+        : _driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function _driveSave() {
+    const payload = JSON.stringify({ v: 1, myRecord, currentWeek, seasonSchedule }, null, 2);
+    const token   = gapi.client.getToken().access_token;
+
+    const list = await gapi.client.drive.files.list({
+        q: `name='${DRIVE_SAVE_NAME}' and trashed=false`,
+        fields: 'files(id)', spaces: 'drive'
+    });
+    const existing = list.result.files;
+
+    if (existing && existing.length > 0) {
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existing[0].id}?uploadType=media`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: payload
+        });
+    } else {
+        const meta = JSON.stringify({ name: DRIVE_SAVE_NAME, mimeType: 'application/json' });
+        const form = new FormData();
+        form.append('metadata', new Blob([meta],    { type: 'application/json' }));
+        form.append('file',     new Blob([payload], { type: 'application/json' }));
+        await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: form
+        });
+    }
+    _driveStatus('SAVED TO DRIVE!', '#34a853');
+}
+
+function loadFromDrive() {
+    if (!_driveCheck()) return;
+    _driveTokenClient.callback = async (r) => {
+        if (r.error) { alert('Google auth failed: ' + r.error); return; }
+        await _driveLoad();
+    };
+    gapi.client.getToken()
+        ? _driveTokenClient.requestAccessToken({ prompt: '' })
+        : _driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function _driveLoad() {
+    const list = await gapi.client.drive.files.list({
+        q: `name='${DRIVE_SAVE_NAME}' and trashed=false`,
+        fields: 'files(id)', spaces: 'drive'
+    });
+    const files = list.result.files;
+    if (!files || files.length === 0) { alert('No save file found in Google Drive.'); return; }
+
+    const res  = await gapi.client.drive.files.get({ fileId: files[0].id, alt: 'media' });
+    const data = JSON.parse(res.body);
+
+    myRecord.w = data.myRecord.w;
+    myRecord.l = data.myRecord.l;
+    myRecord.t = data.myRecord.t;
+    currentWeek = data.currentWeek;
+    seasonSchedule.length = 0;
+    data.seasonSchedule.forEach(g => seasonSchedule.push(g));
+    updateMenuUI();
+    _driveStatus('LOADED FROM DRIVE!', '#4285f4');
+}
+
+function _driveStatus(msg, color) {
+    const el = document.getElementById('drive-status');
+    el.textContent = msg;
+    el.style.color  = color;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3000);
 }
 </script>
 </body>
