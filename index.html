@@ -256,17 +256,17 @@
         <p id="quarter-break-text"></p>
     </div>
 
-    <!-- Extra point screen -->
+    <!-- Extra point / kickoff / punt screen (reused for all kick meters) -->
     <div id="extra-point-screen" class="hidden">
-        <h1 style="font-size:2.5rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">TOUCHDOWN!</h1>
-        <div style="font-size:0.9rem; color:#00ff88; letter-spacing:3px; margin-bottom:28px;">+6 POINTS</div>
-        <div style="font-size:0.7rem; color:#ffcc00; letter-spacing:2px; margin-bottom:4px;">EXTRA POINT ATTEMPT</div>
+        <h1 id="pat-title" style="font-size:2.5rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">TOUCHDOWN!</h1>
+        <div id="pat-subtitle" style="font-size:0.9rem; color:#00ff88; letter-spacing:3px; margin-bottom:28px;">+6 POINTS</div>
+        <div id="pat-action-label" style="font-size:0.7rem; color:#ffcc00; letter-spacing:2px; margin-bottom:4px;">EXTRA POINT ATTEMPT</div>
         <div id="pat-meter">
             <div id="pat-meter-good"></div>
             <div id="pat-meter-indicator"></div>
         </div>
         <div style="font-size:0.6rem; color:#aaa; margin-bottom:22px; letter-spacing:1px;">PRESS SPACE TO KICK — HIT THE GREEN ZONE</div>
-        <button class="btn-retro" style="background:#444; font-size:0.55rem; padding:10px 22px;" onclick="goForTwo()">GO FOR 2 (45% CHANCE)</button>
+        <button id="btn-go-for-two" class="btn-retro" style="background:#444; font-size:0.55rem; padding:10px 22px;" onclick="goForTwo()">GO FOR 2 (PLAY IT)</button>
     </div>
 
     <!-- Halftime overlay (semi-transparent so cheerleaders are visible) -->
@@ -345,6 +345,7 @@ let blueLine, yellowLine;
 let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
 let timeoutsOff = 3; let pendingQuarterEnd = false;
 let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
+let isTwoPointAttempt = false;
 let cheerleaders = [];
 let defScheme = 'base'; // randomized each formation: 'base','cover2','cover3','man','prevent'
 let simIntervalTimer;
@@ -682,6 +683,21 @@ function buildField() {
     yellowLine.rotation.x = -Math.PI/2; yellowLine.position.y = 0.1; scene.add(yellowLine);
 
     buildGoalpost(120); buildGoalpost(-120);
+
+    // Ground fill: cover the gap between end zones (z ±120) and end stands (z ±145),
+    // plus side margins between the 106-wide field and the stand walls.
+    const fillMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    // Behind north end zone (z -120 to -145)
+    const ngap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
+    ngap.rotation.x = -Math.PI / 2; ngap.position.set(0, -0.05, -132); scene.add(ngap);
+    // Behind south end zone (z 120 to 145)
+    const sgap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
+    sgap.rotation.x = -Math.PI / 2; sgap.position.set(0, -0.05, 132); scene.add(sgap);
+    // Side margins (x ±53–±65) full length
+    const emL = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    emL.rotation.x = -Math.PI / 2; emL.position.set(-65, -0.05, 0); scene.add(emL);
+    const emR = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    emR.rotation.x = -Math.PI / 2; emR.position.set(65, -0.05, 0); scene.add(emR);
 }
 function buildGoalpost(zPos) {
     const mat = new THREE.MeshLambertMaterial({ color: 0xffff00 });
@@ -691,7 +707,7 @@ function buildGoalpost(zPos) {
     const up2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 15), mat); up2.position.set(5, 13.5, zPos); scene.add(up2);
 }
 function buildStadium() {
-    const standMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    const standMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
     const fanColors = [0xff0000, 0x0055ff, 0xffffff, 0xaaaaaa, 0x000000, 0xffff00];
     const fanInstanced = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshLambertMaterial({ color: 0xffffff }), 20000);
     let fanCount = 0; const dummy = new THREE.Object3D(); const colorObj = new THREE.Color();
@@ -722,6 +738,89 @@ function buildStadium() {
         addFansToSection(0, y*2, 145 + i*depth - depth/2, 145 + i*depth + depth/2, 150);
     }
     fanInstanced.instanceMatrix.needsUpdate = true; if(fanInstanced.instanceColor) fanInstanced.instanceColor.needsUpdate = true; scene.add(fanInstanced);
+
+    buildSidelineCharacters();
+    buildBlimp();
+}
+
+function buildSidelineCharacters() {
+    // Shared geometries / materials for the small figures
+    const bodyGeo  = new THREE.BoxGeometry(0.7, 1.0, 0.4);
+    const headGeo  = new THREE.SphereGeometry(0.32, 6, 6);
+    const legGeo   = new THREE.BoxGeometry(0.28, 0.7, 0.28);
+
+    function addFigure(x, z, bodyColor, headColor, yRot) {
+        const group = new THREE.Group();
+        const body = new THREE.Mesh(bodyGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        body.position.y = 1.2; group.add(body);
+        const head = new THREE.Mesh(headGeo, new THREE.MeshLambertMaterial({ color: headColor }));
+        head.position.y = 1.95; group.add(head);
+        const lleg = new THREE.Mesh(legGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        lleg.position.set(-0.18, 0.45, 0); group.add(lleg);
+        const rleg = new THREE.Mesh(legGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        rleg.position.set( 0.18, 0.45, 0); group.add(rleg);
+        group.position.set(x, 0, z);
+        group.rotation.y = yRot || 0;
+        scene.add(group);
+        return group;
+    }
+
+    // Referees — white & black striped shirt (approximated as light-gray)
+    const refPositions = [[-56, 40], [-56, 10], [-56, -10], [-56, -40], [56, 20], [56, -20]];
+    refPositions.forEach(([x, z]) => addFigure(x, z, 0xdddddd, 0xe0ac69, x > 0 ? -Math.PI/2 : Math.PI/2));
+
+    // Security — dark-blue shirts, standing near corners and end zones
+    const secPositions = [[-55, 80], [55, 80], [-55, -80], [55, -80], [-55, 110], [55, 110], [-55, -110], [55, -110]];
+    secPositions.forEach(([x, z]) => addFigure(x, z, 0x00008b, 0xc68642, x > 0 ? -Math.PI/2 : Math.PI/2));
+
+    // Camera crew — dark clothing, holding a camera box (extra cube in front)
+    const camCrew = [[-57, 60], [57, 60], [-57, -60], [57, -60]];
+    camCrew.forEach(([x, z]) => {
+        const fig = addFigure(x, z, 0x222222, 0xf1c27d, x > 0 ? -Math.PI/2 : Math.PI/2);
+        const camGeo = new THREE.BoxGeometry(0.5, 0.4, 0.9);
+        const cam = new THREE.Mesh(camGeo, new THREE.MeshLambertMaterial({ color: 0x111111 }));
+        cam.position.set(x > 0 ? -0.5 : 0.5, 1.5, 0); fig.add(cam);
+    });
+}
+
+let blimpGroup = null;
+
+function buildBlimp() {
+    blimpGroup = new THREE.Group();
+
+    // Envelope — elongated sphere made from scaled SphereGeometry
+    const envGeo = new THREE.SphereGeometry(3, 12, 8);
+    const envMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+    const envelope = new THREE.Mesh(envGeo, envMat);
+    envelope.scale.set(4, 1, 1);
+    blimpGroup.add(envelope);
+
+    // Gondola underneath
+    const gondola = new THREE.Mesh(new THREE.BoxGeometry(3, 0.6, 1.2), new THREE.MeshLambertMaterial({ color: 0x555555 }));
+    gondola.position.set(0, -1.5, 0);
+    blimpGroup.add(gondola);
+
+    // Banner with scrolling text texture
+    const bannerCanvas = document.createElement('canvas');
+    bannerCanvas.width = 512; bannerCanvas.height = 64;
+    const ctx = bannerCanvas.getContext('2d');
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(0, 0, 512, 64);
+    ctx.fillStyle = '#002244';
+    ctx.font = 'bold 26px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('WHAYON & SAWYER — THE GOAT DEVS 🏈', 256, 32);
+    const bannerTex = new THREE.CanvasTexture(bannerCanvas);
+    const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 1.5),
+        new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide })
+    );
+    banner.position.set(0, -3.2, 0);
+    blimpGroup.add(banner);
+
+    blimpGroup.position.set(80, 70, 0);
+    scene.add(blimpGroup);
 }
 
 class Player {
@@ -1250,7 +1349,7 @@ class Player {
             }
         }
 
-        if (this === activeReceiver && GAME_STATE === 'POST_CATCH') {
+        if (this === activeReceiver && (GAME_STATE === 'POST_CATCH' || GAME_STATE === 'TOUCHDOWN')) {
             let moveDir = new THREE.Vector3();
             if (keys['KeyW']) moveDir.z = -1; if (keys['KeyS']) moveDir.z = 1;
             if (keys['KeyA']) moveDir.x = -1; if (keys['KeyD']) moveDir.x = 1;
@@ -1283,14 +1382,22 @@ class Player {
             camera.position.y = THREE.MathUtils.lerp(camera.position.y, this.group.position.y + 6, 0.1);
             camera.lookAt(this.group.position);
 
-            if (this.group.position.z < -100) {
-                // Allow players to move freely through the whole endzone — trigger TD on landing
+            if (this.group.position.z < -100 && GAME_STATE !== 'TOUCHDOWN') {
                 if (this.isJumping || this.group.position.y >= 0.5) return;
-                triggerTDCelebration(this);
+                if (isTwoPointAttempt) {
+                    isTwoPointAttempt = false;
+                    GAME_STATE = 'TACKLED';
+                    addScore('off', 2); triggerCheer();
+                    document.getElementById('instructions').innerText = '2-POINT CONVERSION! +2';
+                    document.getElementById('instructions').classList.remove('hidden');
+                    setTimeout(finalizeTouchdown, 2000);
+                } else {
+                    triggerTDCelebration(this);
+                }
                 return;
             }
-            
-            if (this.group.position.z > -99) { // no tackles in the end zone
+
+            if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN') { // no tackles during TD celebration or in end zone
                 players.defense.forEach(d => {
                     if(d.group.position.distanceTo(this.group.position) < 1.8) {
                         if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
@@ -1304,6 +1411,11 @@ class Player {
         if (this.isJumping) {
             this.group.position.y += this.yVelocity * dt; this.yVelocity -= 30 * dt;
             if (this.group.position.y <= 0) { this.group.position.y = 0; this.isJumping = false; }
+        }
+        // Gravity fallback: if a player ended up above ground without jumping (e.g. after a catch
+        // in the air), pull them down so they don't float.
+        if (!this.isJumping && this.group.position.y > 0) {
+            this.group.position.y = Math.max(0, this.group.position.y - 20 * dt);
         }
 
         // Player-vs-player collision: push self out of any overlap with another player.
@@ -1333,7 +1445,7 @@ class Player {
         // don't run into the stadium walls. End zones run to z = -100; clamp slightly
         // beyond so the carrier can still cross for a TD before being clamped back.
         this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -50, 50);
-        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -118, 105);
+        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -120, 105);
 
         this.animateLimbs(dt);
     }
@@ -1416,9 +1528,9 @@ function makeRagdollParams(player) {
 }
 
 function triggerTDCelebration(scorer) {
-    if (GAME_STATE === 'TACKLED') return; // already celebrating or tackled
-    GAME_STATE = 'TACKLED'; // freeze keyboard control, but poses still apply via setTimeout
-    addScore('off', 6); updateScoreboard(); // show +6 immediately during celebration
+    if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TOUCHDOWN') return;
+    GAME_STATE = 'TOUCHDOWN'; // allow free roam during celebration
+    addScore('off', 6); updateScoreboard();
     triggerCheer();
     document.getElementById('instructions').innerText = "TOUCHDOWN!";
     document.getElementById('instructions').classList.remove('hidden');
@@ -1521,6 +1633,16 @@ function handlePlayResult(msg, finalZ) {
 }
 
 function _continueHandlePlayResult(msg, finalZ) {
+    // 2-point conversion attempt failed (play ended without scoring)
+    if (isTwoPointAttempt) {
+        isTwoPointAttempt = false;
+        triggerBoo();
+        GAME_STATE = 'TACKLED';
+        document.getElementById('instructions').innerText = '2-POINT ATTEMPT FAILED!';
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(finalizeTouchdown, 1800);
+        return;
+    }
     GAME_STATE = 'MENU'; document.getElementById('instructions').classList.remove('hidden');
     let isTurnover = false;
     let didHostScore = false;
@@ -1544,8 +1666,8 @@ function _continueHandlePlayResult(msg, finalZ) {
         // Clock expired during this play — fire the quarter transition now that it's resolved
         setTimeout(() => { _triggerQuarterTransition(); }, 1200);
     } else if (isTurnover) {
-        document.getElementById('instructions').innerText += `\nSIMULATING ${currentOpponent.id} DRIVE...`;
-        setTimeout(() => { startOpponentDriveSim(); }, 1500);
+        document.getElementById('instructions').innerText += `\nPUNT IT AWAY...`;
+        setTimeout(() => { triggerPunt(); }, 1500);
     } else {
         setupFormation();
     }
@@ -1832,7 +1954,7 @@ function checkInputs(e) {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
-    if (e.code === 'Space' && GAME_STATE === 'EXTRA_POINT' && e.type === 'keydown') attemptExtraPointKick();
+    if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     
     if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
@@ -1984,42 +2106,64 @@ function updateBallPhysics(dt) {
 /**
  * EXTRA POINT / 2-POINT CONVERSION
  */
-function triggerExtraPoint() {
-    GAME_STATE = 'EXTRA_POINT';
+function _showKickScreen(title, subtitle, actionLabel, showGoForTwo) {
+    GAME_STATE = title === 'TOUCHDOWN!' ? 'EXTRA_POINT' : title.includes('KICKOFF') ? 'KICKOFF' : 'PUNT';
     patMeterPos = 0; patMeterDir = 1; patActive = true;
+    document.getElementById('pat-title').textContent = title;
+    document.getElementById('pat-subtitle').textContent = subtitle;
+    document.getElementById('pat-action-label').textContent = actionLabel;
+    const btn = document.getElementById('btn-go-for-two');
+    if (showGoForTwo) btn.classList.remove('hidden'); else btn.classList.add('hidden');
     document.getElementById('extra-point-screen').classList.remove('hidden');
 }
 
+function triggerExtraPoint() {
+    _showKickScreen('TOUCHDOWN!', '+6 POINTS', 'EXTRA POINT ATTEMPT', true);
+}
+
+function triggerKickoff() {
+    _showKickScreen('KICKOFF!', '', 'KICK IT DEEP — HIT THE GREEN ZONE', false);
+}
+
+function triggerPunt() {
+    _showKickScreen('PUNT!', '', 'KICK IT AWAY — HIT THE GREEN ZONE', false);
+}
+
 function attemptExtraPointKick() {
-    if (!patActive || GAME_STATE !== 'EXTRA_POINT') return;
+    if (!patActive) return;
     patActive = false;
-    const isGood = patMeterPos >= 0.35 && patMeterPos <= 0.65;
     document.getElementById('extra-point-screen').classList.add('hidden');
-    if (isGood) {
-        addScore('off', 1); triggerCheer();
-        document.getElementById('instructions').innerText = 'EXTRA POINT GOOD! +1';
-    } else {
-        triggerBoo();
-        document.getElementById('instructions').innerText = 'KICK NO GOOD!';
+
+    if (GAME_STATE === 'EXTRA_POINT') {
+        const isGood = patMeterPos >= 0.35 && patMeterPos <= 0.65;
+        if (isGood) {
+            addScore('off', 1); triggerCheer();
+            document.getElementById('instructions').innerText = 'EXTRA POINT GOOD! +1';
+        } else {
+            triggerBoo();
+            document.getElementById('instructions').innerText = 'KICK NO GOOD!';
+        }
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(triggerKickoff, 1800);
+    } else if (GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') {
+        const goodKick = patMeterPos >= 0.3 && patMeterPos <= 0.7;
+        const label = GAME_STATE === 'KICKOFF' ? (goodKick ? 'DEEP KICKOFF!' : 'SHORT KICKOFF') : (goodKick ? 'GREAT PUNT!' : 'SHORT PUNT');
+        document.getElementById('instructions').innerText = label;
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(startOpponentDriveSim, 1500);
     }
-    document.getElementById('instructions').classList.remove('hidden');
-    setTimeout(finalizeTouchdown, 1800);
 }
 
 function goForTwo() {
     if (GAME_STATE !== 'EXTRA_POINT') return;
     patActive = false;
     document.getElementById('extra-point-screen').classList.add('hidden');
-    const success = Math.random() < 0.45;
-    if (success) {
-        addScore('off', 2); triggerCheer();
-        document.getElementById('instructions').innerText = '2-POINT CONVERSION! +2';
-    } else {
-        triggerBoo();
-        document.getElementById('instructions').innerText = '2-POINT ATTEMPT FAILED!';
-    }
+    isTwoPointAttempt = true;
+    lineOfScrimmageZ = -98;
+    yardsToGo = 2; currentDown = 1;
+    document.getElementById('instructions').innerText = 'GO FOR 2 — SCORE TO CONVERT!';
     document.getElementById('instructions').classList.remove('hidden');
-    setTimeout(finalizeTouchdown, 1800);
+    setTimeout(() => { document.getElementById('instructions').classList.add('hidden'); setupFormation(); }, 1200);
 }
 
 function finalizeTouchdown() {
@@ -2027,9 +2171,7 @@ function finalizeTouchdown() {
     if (pendingQuarterEnd) {
         _triggerQuarterTransition();
     } else {
-        document.getElementById('instructions').innerText = `SIMULATING ${currentOpponent.id} DRIVE...`;
-        document.getElementById('instructions').classList.remove('hidden');
-        setTimeout(startOpponentDriveSim, 1200);
+        setTimeout(triggerKickoff, 800);
     }
 }
 
@@ -2040,7 +2182,6 @@ function finalizeTouchdown() {
 // Short sim of the opponent's single drive after a turnover. Runs 3-5 plays then
 // automatically hands possession back to the user.
 function startOpponentDriveSim() {
-    document.getElementById('ui-layer').classList.add('hidden');
     document.getElementById('sim-screen').classList.remove('hidden');
     GAME_STATE = 'SIMULATING';
     inOpponentDriveSim = true;
@@ -2463,15 +2604,22 @@ function animate() {
         cheerleaders.forEach(c => c.animate(elapsed));
     }
 
-    // PAT meter oscillation
-    if (GAME_STATE === 'EXTRA_POINT' && patActive) {
+    // Blimp orbits the stadium
+    if (blimpGroup) {
+        const bt = clock.getElapsedTime() * 0.08;
+        blimpGroup.position.set(Math.cos(bt) * 110, 70, Math.sin(bt) * 110);
+        blimpGroup.rotation.y = -bt - Math.PI / 2;
+    }
+
+    // PAT / kickoff / punt meter oscillation
+    if ((GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && patActive) {
         patMeterPos += patMeterDir * 1.4 * dt;
         if (patMeterPos >= 1) { patMeterPos = 1; patMeterDir = -1; }
         if (patMeterPos <= 0) { patMeterPos = 0; patMeterDir =  1; }
         document.getElementById('pat-meter-indicator').style.left = (patMeterPos * 96).toFixed(1) + '%';
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
@@ -2602,7 +2750,7 @@ function animate() {
                 const destZ = landingMarker.visible ? landingMarker.position.z : ball.position.z;
                 dbs.sort((a, b) =>
                     Math.abs(a.group.position.z - destZ) - Math.abs(b.group.position.z - destZ));
-                dbs[0].baseSpeed = 13;
+                dbs[0].baseSpeed = 10;
             }
         }
 
