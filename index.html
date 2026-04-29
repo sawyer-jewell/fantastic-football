@@ -31,9 +31,28 @@
         .clock { margin: 0 20px; color: #ffcc00; display: flex; align-items: center; font-size: 1.2rem; }
         #down-distance { font-size: 0.8rem; margin-top: 15px; color: #fff; letter-spacing: 1px; }
 
-        #playbook { position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; pointer-events: auto; flex-wrap: wrap; justify-content: center; width: 800px; z-index: 50;}
-        .play-card { background: #002244; border: 4px solid #ffcc00; padding: 15px; color: white; cursor: pointer; text-align: center; font-size: 0.7rem; line-height: 1.5; width: 140px; box-shadow: inset -4px -4px 0px rgba(0,0,0,0.5); }
-        .play-card:active { box-shadow: inset 4px 4px 0px rgba(0,0,0,0.5); transform: translateY(4px); }
+        #playbook { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); pointer-events: auto; width: 680px; max-height: 270px; overflow-y: auto; z-index: 50; background: rgba(0,8,22,0.92); border: 4px solid #ffcc00; padding: 10px; box-sizing: border-box; }
+        #playbook::-webkit-scrollbar { width: 8px; } #playbook::-webkit-scrollbar-track { background: #001133; } #playbook::-webkit-scrollbar-thumb { background: #ffcc00; }
+        .playbook-inner { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .play-card { background: #002244; border: 3px solid #ffcc00; padding: 10px 8px; color: white; cursor: pointer; text-align: center; font-size: 0.6rem; line-height: 1.5; width: 118px; box-shadow: inset -3px -3px 0px rgba(0,0,0,0.5); }
+        .play-card:active { box-shadow: inset 3px 3px 0px rgba(0,0,0,0.5); transform: translateY(3px); }
+        .play-divider { width: 100%; text-align: center; color: #e31837; font-size: 0.5rem; padding: 3px 0; letter-spacing: 2px; }
+
+        /* Quarter break overlay */
+        #quarter-break { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; z-index: 150; }
+        #quarter-break-text { color: #ffcc00; font-family: 'Press Start 2P', monospace; font-size: 2.2rem; text-shadow: 4px 4px 0 #000, 0 0 30px rgba(255,204,0,0.6); text-align: center; line-height: 1.8; }
+
+        /* Halftime overlay */
+        #halftime-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 160; background: rgba(0,0,0,0.55); color: white; }
+
+        /* Timeout display */
+        #timeout-display { font-size: 0.55rem; color: #00ffcc; margin-top: 6px; letter-spacing: 2px; cursor: pointer; pointer-events: auto; }
+
+        /* Extra point screen */
+        #extra-point-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 175; background: rgba(0,0,0,0.78); color: white; }
+        #pat-meter { width: 440px; height: 46px; background: #111; border: 4px solid #fff; position: relative; margin: 16px 0; overflow: hidden; box-shadow: 4px 4px 0 rgba(0,0,0,0.6); }
+        #pat-meter-good { position: absolute; left: 35%; width: 30%; height: 100%; background: #00cc44; opacity: 0.75; }
+        #pat-meter-indicator { position: absolute; top: 0; width: 10px; height: 100%; background: #ffff00; left: 0; box-shadow: 0 0 10px #ffff00; }
 
         #hud { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; pointer-events: none; width: 600px; text-align: center; z-index: 50;}
         #instructions { color: #ffcc00; font-size: 1rem; text-shadow: 3px 3px 0 #000; margin-bottom: 10px; line-height: 1.5;}
@@ -105,9 +124,10 @@
             <div class="controls-list">
                 <div><span>WASD</span> Move / Scramble</div>
                 <div><span>Mouse Click</span> Throw Pass</div>
-                <div><span>Up/Down</span> Throw Power</div>
+                <div><span>Q / E</span> Throw Power</div>
                 <div><span>Spacebar</span> Snap / Hurdle</div>
                 <div><span>SHIFT</span> Sprint (Post-throw/Scramble)</div>
+                <div><span>T</span> Call Timeout</div>
                 <div><span>Escape</span> Pause</div>
             </div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center;">
@@ -179,17 +199,31 @@
                 <span id="score-def" class="score">0</span> <span id="scoreboard-opp-name" class="team-name def">DAL</span>
             </div>
             <div id="down-distance">1ST & 10</div>
+            <div id="timeout-display" onclick="callTimeout()">TO: ●●●</div>
+            <div id="def-scheme-label" style="font-size:0.45rem;color:#aabbcc;letter-spacing:2px;margin-top:4px;"></div>
         </div>
 
         <div id="playbook" class="hidden">
-            <div class="play-card" onclick="selectPlay('slant')" onmouseenter="previewPlay('slant')" onmouseleave="clearRoutePreview()">SLANTS</div>
-            <div class="play-card" onclick="selectPlay('verts')" onmouseenter="previewPlay('verts')" onmouseleave="clearRoutePreview()">FOUR VERTS</div>
-            <div class="play-card" onclick="selectPlay('curls')" onmouseenter="previewPlay('curls')" onmouseleave="clearRoutePreview()">CURLS</div>
-            <div class="play-card" onclick="selectPlay('posts')" onmouseenter="previewPlay('posts')" onmouseleave="clearRoutePreview()">POSTS</div>
-            <div style="width:100%;text-align:center;color:#e31837;font-size:0.55rem;padding:4px 0;letter-spacing:2px;">── RUN PLAYS ──</div>
-            <div class="play-card" onclick="selectPlay('dive')" style="border-color:#e31837;">HB DIVE</div>
-            <div class="play-card" onclick="selectPlay('sweepl')" style="border-color:#e31837;">SWEEP LEFT</div>
-            <div class="play-card" onclick="selectPlay('sweepr')" style="border-color:#e31837;">SWEEP RIGHT</div>
+            <div style="text-align:center; color:#ffcc00; font-size:0.65rem; padding:5px 0 8px; letter-spacing:3px; border-bottom:2px solid #ffcc00; margin-bottom:8px;">SELECT PLAY</div>
+            <div class="playbook-inner">
+                <div class="play-divider">── PASS PLAYS ──</div>
+                <div class="play-card" onclick="selectPlay('slant')" onmouseenter="previewPlay('slant')" onmouseleave="clearRoutePreview()">SLANTS</div>
+                <div class="play-card" onclick="selectPlay('verts')" onmouseenter="previewPlay('verts')" onmouseleave="clearRoutePreview()">FOUR VERTS</div>
+                <div class="play-card" onclick="selectPlay('curls')" onmouseenter="previewPlay('curls')" onmouseleave="clearRoutePreview()">CURLS</div>
+                <div class="play-card" onclick="selectPlay('posts')" onmouseenter="previewPlay('posts')" onmouseleave="clearRoutePreview()">POSTS</div>
+                <div class="play-card" onclick="selectPlay('hitches')" onmouseenter="previewPlay('hitches')" onmouseleave="clearRoutePreview()">HITCHES</div>
+                <div class="play-card" onclick="selectPlay('corners')" onmouseenter="previewPlay('corners')" onmouseleave="clearRoutePreview()">CORNERS</div>
+                <div class="play-card" onclick="selectPlay('outs')" onmouseenter="previewPlay('outs')" onmouseleave="clearRoutePreview()">OUT ROUTES</div>
+                <div class="play-card" onclick="selectPlay('crossing')" onmouseenter="previewPlay('crossing')" onmouseleave="clearRoutePreview()">CROSSING</div>
+                <div class="play-card" onclick="selectPlay('digs')" onmouseenter="previewPlay('digs')" onmouseleave="clearRoutePreview()">DIGS</div>
+                <div class="play-card" onclick="selectPlay('comeback')" onmouseenter="previewPlay('comeback')" onmouseleave="clearRoutePreview()">COMEBACK</div>
+                <div class="play-card" onclick="selectPlay('screen')" onmouseenter="previewPlay('screen')" onmouseleave="clearRoutePreview()">WR SCREEN</div>
+                <div class="play-divider">── RUN PLAYS ──</div>
+                <div class="play-card" onclick="selectPlay('dive')" style="border-color:#e31837;">HB DIVE</div>
+                <div class="play-card" onclick="selectPlay('sweepl')" style="border-color:#e31837;">SWEEP LEFT</div>
+                <div class="play-card" onclick="selectPlay('sweepr')" style="border-color:#e31837;">SWEEP RIGHT</div>
+                <div class="play-card" onclick="selectPlay('draw')" style="border-color:#e31837;">DRAW</div>
+            </div>
         </div>
 
         <div id="hud">
@@ -207,6 +241,35 @@
         <div id="vertical-power-meter" class="hidden">
             <div id="vertical-power-fill"></div>
         </div>
+    </div>
+
+    <!-- Quarter break overlay (no background, just text floating over 3D scene) -->
+    <div id="quarter-break" class="hidden">
+        <p id="quarter-break-text"></p>
+    </div>
+
+    <!-- Extra point screen -->
+    <div id="extra-point-screen" class="hidden">
+        <h1 style="font-size:2.5rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">TOUCHDOWN!</h1>
+        <div style="font-size:0.9rem; color:#00ff88; letter-spacing:3px; margin-bottom:28px;">+6 POINTS</div>
+        <div style="font-size:0.7rem; color:#ffcc00; letter-spacing:2px; margin-bottom:4px;">EXTRA POINT ATTEMPT</div>
+        <div id="pat-meter">
+            <div id="pat-meter-good"></div>
+            <div id="pat-meter-indicator"></div>
+        </div>
+        <div style="font-size:0.6rem; color:#aaa; margin-bottom:22px; letter-spacing:1px;">PRESS SPACE TO KICK — HIT THE GREEN ZONE</div>
+        <button class="btn-retro" style="background:#444; font-size:0.55rem; padding:10px 22px;" onclick="goForTwo()">GO FOR 2 (45% CHANCE)</button>
+    </div>
+
+    <!-- Halftime overlay (semi-transparent so cheerleaders are visible) -->
+    <div id="halftime-screen" class="hidden">
+        <h1 style="font-size:2.8rem; margin-bottom:15px; color:#ffcc00; text-shadow:4px 4px 0 #e31837;">HALFTIME</h1>
+        <div id="halftime-score" style="font-size:1.1rem; color:#fff; margin-bottom:25px; letter-spacing:3px;">0 — 0</div>
+        <div style="color:#ffcc00; font-size:0.7rem; margin-bottom:40px; line-height:2.2; text-align:center;">
+            ★ CHEERLEADERS ARE PERFORMING ★<br>
+            <span style="color:#aaa; font-size:0.55rem;">TIMEOUTS RESET FOR 2ND HALF</span>
+        </div>
+        <button class="btn-retro" onclick="resumeFromHalftime()">START 2ND HALF</button>
     </div>
 
 <script>
@@ -272,6 +335,10 @@ let pendingStopSim      = false;  // user pressed STOP SIM during opponent drive
 let simPossession       = 'off';  // 'off' = user's team, 'def' = opponent
 let blueLine, yellowLine;
 let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
+let timeoutsOff = 3; let pendingQuarterEnd = false;
+let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
+let cheerleaders = [];
+let defScheme = 'base'; // randomized each formation: 'base','cover2','cover3','man','prevent'
 let simIntervalTimer;
 
 const HUMAN_SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d, 0xffdbac, 0x4a3123];
@@ -1077,23 +1144,50 @@ class Player {
             let targetPos = null;
             let speedMul = 1.0;
             if (GAME_STATE === 'POST_CATCH') {
-                if (isRunPlay && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS') && this.runReactTimer > 0) {
+                if (isRunPlay && this.role === 'DL') {
+                    if (this.runReactTimer > 0) {
+                        // Still fighting off a block — feet churning, no forward progress
+                        this.runReactTimer -= dt;
+                        // targetPos stays null → player stays put (code below skips movement)
+                    } else {
+                        // Gap-fill: target a point ahead of the carrier along their run path
+                        // so DL try to cut off the lane rather than just chase from behind
+                        const c = activeReceiver;
+                        const rdx = c.autoRunDir ? c.autoRunDir.x : 0;
+                        const rdz = c.autoRunDir ? c.autoRunDir.z : -1;
+                        targetPos = new THREE.Vector3(
+                            c.group.position.x + rdx * 5,
+                            0,
+                            c.group.position.z + rdz * 5
+                        );
+                        speedMul = this.runFlowSpeed || 0.85;
+                    }
+                } else if (isRunPlay && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS') && this.runReactTimer > 0) {
                     this.runReactTimer -= dt;
-                    // Still in coverage — follow the WR (who is now coming to block them).
                     targetPos = this.targetPlayer ? this.targetPlayer.group.position.clone() : null;
                 } else {
                     targetPos = activeReceiver.group.position.clone();
                 }
             }
             else if (this.role === 'DL') {
-                // Pass rush: head straight for the QB. Collision with OL absorbs most rushers; some break
-                // through. If a rusher reaches the QB before the throw, it's a sack.
                 const qb = players.offense[0];
                 if (qb && !ball.velocity) {
-                    targetPos = qb.group.position.clone();
-                    speedMul = 0.85;
-                    if (this.group.position.distanceTo(qb.group.position) < 1.6) {
-                        triggerTackle(qb, this, "SACKED!");
+                    if (this.rushDelay > 0) {
+                        this.rushDelay -= dt;
+                    } else {
+                        // Rush toward assigned gap: blend toward QB but offset laterally
+                        const dist = this.group.position.distanceTo(qb.group.position);
+                        // Lane offset fades out as rusher closes on QB so they all converge for the sack
+                        const laneBlend = Math.min(1, dist / 8);
+                        targetPos = new THREE.Vector3(
+                            qb.group.position.x + (this.rushLaneOffX || 0) * laneBlend,
+                            0,
+                            qb.group.position.z
+                        );
+                        speedMul = this.rushSpeedMul || 0.85;
+                        // Brief burst when breaking free of the pocket (within 5 units)
+                        if (dist < 5) speedMul *= 1.18;
+                        if (dist < 1.6) triggerTackle(qb, this, "SACKED!");
                     }
                 }
             }
@@ -1103,10 +1197,12 @@ class Player {
                 let dir = new THREE.Vector3().subVectors(targetPos, this.group.position); dir.y = 0;
                 const distToTarget = dir.length();
                 // During pass coverage (PLAY state), shadow the WR at arm's-length — don't pile on.
-                const minCovDist = (GAME_STATE === 'PLAY' && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS')) ? 0.9 : 0.05;
+                const isCovDB = GAME_STATE === 'PLAY' && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS');
+                const minCovDist = isCovDB ? (this.trailDist || 0.9) : 0.05;
                 if (distToTarget < minCovDist) { this.animateLimbs(dt); return; }
                 if(distToTarget > 0) dir.normalize();
                 if (this.stunTimer > 0) { this.stunTimer -= dt; actualPlayerSpeed *= 0.2; }
+                if (isCovDB && this.covBreakDelay > 0) { this.covBreakDelay -= dt; actualPlayerSpeed *= 0.3; }
                 this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul;
             }
         }
@@ -1180,8 +1276,7 @@ class Player {
             camera.lookAt(this.group.position);
 
             if (this.group.position.z < -100) {
-                this.group.position.z = -100; // hold them in the end zone
-                // Wait until player has actually landed before celebrating
+                // Allow players to move freely through the whole endzone — trigger TD on landing
                 if (this.isJumping || this.group.position.y >= 0.5) return;
                 triggerTDCelebration(this);
                 return;
@@ -1230,7 +1325,7 @@ class Player {
         // don't run into the stadium walls. End zones run to z = -100; clamp slightly
         // beyond so the carrier can still cross for a TD before being clamped back.
         this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -50, 50);
-        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -105, 105);
+        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -118, 105);
 
         this.animateLimbs(dt);
     }
@@ -1256,6 +1351,7 @@ function startGame() {
 
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
     qtrScores = { off: [0,0,0,0], def: [0,0,0,0] };
+    timeoutsOff = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
     
     setupFormation();
 }
@@ -1314,6 +1410,7 @@ function makeRagdollParams(player) {
 function triggerTDCelebration(scorer) {
     if (GAME_STATE === 'TACKLED') return; // already celebrating or tackled
     GAME_STATE = 'TACKLED'; // freeze keyboard control, but poses still apply via setTimeout
+    addScore('off', 6); updateScoreboard(); // show +6 immediately during celebration
     triggerCheer();
     document.getElementById('instructions').innerText = "TOUCHDOWN!";
     document.getElementById('instructions').classList.remove('hidden');
@@ -1372,7 +1469,7 @@ function triggerTDCelebration(scorer) {
         );
     }, 1800);
     setTimeout(() => { dancer.group.position.y = 0; }, 2100);
-    setTimeout(() => { handlePlayResult("TOUCHDOWN", -100); }, 2800);
+    setTimeout(() => { triggerExtraPoint(); }, 2800);
 }
 
 function triggerTackle(ballCarrier, tackler, message) {
@@ -1435,7 +1532,10 @@ function _continueHandlePlayResult(msg, finalZ) {
     
     document.getElementById('instructions').innerText = msg; updateScoreboard();
 
-    if (isTurnover) {
+    if (pendingQuarterEnd) {
+        // Clock expired during this play — fire the quarter transition now that it's resolved
+        setTimeout(() => { _triggerQuarterTransition(); }, 1200);
+    } else if (isTurnover) {
         document.getElementById('instructions').innerText += `\nSIMULATING ${currentOpponent.id} DRIVE...`;
         setTimeout(() => { startOpponentDriveSim(); }, 1500);
     } else {
@@ -1471,14 +1571,27 @@ function setupFormation() {
     // Face offense toward the defense (−Z = downfield)
     players.offense.forEach(p => { p.group.rotation.y = Math.PI; });
 
+    // Pick a random defensive scheme for this formation
+    const schemes = ['base', 'cover2', 'cover3', 'man', 'prevent'];
+    defScheme = schemes[Math.floor(Math.random() * schemes.length)];
+    // Scheme depths: FS and SS starting z-offset from LOS, and CB cushion
+    const schemeDepths = {
+        base:    { fs: 18 + Math.random()*4,  ss: 14 + Math.random()*4,  cbOff: 2  },
+        cover2:  { fs: 22 + Math.random()*4,  ss: 22 + Math.random()*4,  cbOff: 2  },
+        cover3:  { fs: 30 + Math.random()*6,  ss: 14 + Math.random()*4,  cbOff: 6 + Math.random()*4 },
+        man:     { fs: 10 + Math.random()*4,  ss: 10 + Math.random()*4,  cbOff: 1  },
+        prevent: { fs: 40 + Math.random()*6,  ss: 34 + Math.random()*6,  cbOff: 12 + Math.random()*6 },
+    };
+    const sd = schemeDepths[defScheme];
+
     // Defense: 2 DE + 2 DT + 3 LB + 2 CB + 2 S = 11
-    let mlb  = new Player( 0,   lineOfScrimmageZ - 5,  'defense', 'LB', '55', isUserHome, currentOpponent);
-    let lolb = new Player(-5,   lineOfScrimmageZ - 5,  'defense', 'LB', '58', isUserHome, currentOpponent);
-    let rolb = new Player( 5,   lineOfScrimmageZ - 5,  'defense', 'LB', '50', isUserHome, currentOpponent);
-    let cb1  = new Player(-18,  lineOfScrimmageZ - 2,  'defense', 'CB', '7',  isUserHome, currentOpponent);
-    let cb2  = new Player( 18,  lineOfScrimmageZ - 2,  'defense', 'CB', '21', isUserHome, currentOpponent);
-    let fs   = new Player(-8,   lineOfScrimmageZ - 18, 'defense', 'FS', '28', isUserHome, currentOpponent);
-    let ss   = new Player( 8,   lineOfScrimmageZ - 14, 'defense', 'FS', '6',  isUserHome, currentOpponent);
+    let mlb  = new Player( 0,   lineOfScrimmageZ - 5,    'defense', 'LB', '55', isUserHome, currentOpponent);
+    let lolb = new Player(-5,   lineOfScrimmageZ - 5,    'defense', 'LB', '58', isUserHome, currentOpponent);
+    let rolb = new Player( 5,   lineOfScrimmageZ - 5,    'defense', 'LB', '50', isUserHome, currentOpponent);
+    let cb1  = new Player(-18,  lineOfScrimmageZ - sd.cbOff,  'defense', 'CB', '7',  isUserHome, currentOpponent);
+    let cb2  = new Player( 18,  lineOfScrimmageZ - sd.cbOff,  'defense', 'CB', '21', isUserHome, currentOpponent);
+    let fs   = new Player(-8,   lineOfScrimmageZ - sd.fs, 'defense', 'FS', '28', isUserHome, currentOpponent);
+    let ss   = new Player( 8,   lineOfScrimmageZ - sd.ss, 'defense', 'SS', '6',  isUserHome, currentOpponent);
     // Defensive line: 2 DEs + 2 DTs
     let lde  = new Player(-5.5, lineOfScrimmageZ - 1.5, 'defense', 'DL', '94', isUserHome, currentOpponent);
     let ldt  = new Player(-1.8, lineOfScrimmageZ - 1.5, 'defense', 'DL', '98', isUserHome, currentOpponent);
@@ -1492,9 +1605,11 @@ function setupFormation() {
     ball.position.set(0, 0.2, lineOfScrimmageZ); ball.velocity = null; ball.rotation.set(0,0,0);
     camera.position.set(0, 15, lineOfScrimmageZ + 25); camera.lookAt(0, 0, lineOfScrimmageZ);
 
+    const schemeNames = { base: 'BASE 4-3', cover2: 'COVER 2', cover3: 'COVER 3', man: 'MAN COVERAGE', prevent: 'PREVENT' };
+    document.getElementById('def-scheme-label').innerText = 'DEF: ' + (schemeNames[defScheme] || defScheme.toUpperCase());
     document.getElementById('playbook').classList.remove('hidden'); document.getElementById('right-hud').classList.remove('hidden');
     document.getElementById('btn-sim').classList.remove('hidden'); document.getElementById('vertical-power-meter').classList.add('hidden');
-    document.getElementById('instructions').innerText = "SELECT PLAY"; document.getElementById('instructions').classList.remove('hidden');
+    document.getElementById('instructions').classList.add('hidden');
     GAME_STATE = 'PLAYBOOK';
 }
 
@@ -1531,6 +1646,48 @@ function getRoutesForPlay(playType, los) {
         [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-2, 0, los - 28)],
         [new THREE.Vector3(  8, 0, los -  7), new THREE.Vector3(16, 0, los - 22)],
     ];
+    if (playType === 'hitches') return [
+        [new THREE.Vector3(-18, 0, los - 5), new THREE.Vector3(-18, 0, los - 2)],
+        [new THREE.Vector3( 18, 0, los - 5), new THREE.Vector3( 18, 0, los - 2)],
+        [new THREE.Vector3(-11, 0, los - 4), new THREE.Vector3(-11, 0, los - 1)],
+        [new THREE.Vector3(  8, 0, los - 4), new THREE.Vector3(  8, 0, los - 1)],
+    ];
+    if (playType === 'corners') return [
+        [new THREE.Vector3(-18, 0, los - 10), new THREE.Vector3(-34, 0, los - 35)],
+        [new THREE.Vector3( 18, 0, los - 10), new THREE.Vector3( 34, 0, los - 35)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-24, 0, los - 28)],
+        [new THREE.Vector3(  8, 0, los -  6), new THREE.Vector3( 20, 0, los - 20)],
+    ];
+    if (playType === 'outs') return [
+        [new THREE.Vector3(-18, 0, los - 10), new THREE.Vector3(-46, 0, los - 10)],
+        [new THREE.Vector3( 18, 0, los - 10), new THREE.Vector3( 46, 0, los - 10)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-38, 0, los -  8)],
+        [new THREE.Vector3(  8, 0, los -  8), new THREE.Vector3( 32, 0, los -  8)],
+    ];
+    if (playType === 'crossing') return [
+        [new THREE.Vector3(-18, 0, los -  8), new THREE.Vector3( 26, 0, los -  8)],
+        [new THREE.Vector3( 18, 0, los -  8), new THREE.Vector3(-26, 0, los -  8)],
+        [new THREE.Vector3(-11, 0, los -  4), new THREE.Vector3( 18, 0, los -  4)],
+        [new THREE.Vector3(  8, 0, los -  5), new THREE.Vector3(-16, 0, los -  5)],
+    ];
+    if (playType === 'digs') return [
+        [new THREE.Vector3(-18, 0, los - 12), new THREE.Vector3(  6, 0, los - 12)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( -6, 0, los - 12)],
+        [new THREE.Vector3(-11, 0, los -  9), new THREE.Vector3(  4, 0, los -  9)],
+        [new THREE.Vector3(  8, 0, los -  7), new THREE.Vector3( -6, 0, los -  7)],
+    ];
+    if (playType === 'comeback') return [
+        [new THREE.Vector3(-18, 0, los - 18), new THREE.Vector3(-18, 0, los - 10)],
+        [new THREE.Vector3( 18, 0, los - 18), new THREE.Vector3( 18, 0, los - 10)],
+        [new THREE.Vector3(-11, 0, los - 14), new THREE.Vector3(-11, 0, los -  7)],
+        [new THREE.Vector3(  8, 0, los - 12), new THREE.Vector3(  8, 0, los -  5)],
+    ];
+    if (playType === 'screen') return [
+        [new THREE.Vector3(-28, 0, los - 2)],
+        [new THREE.Vector3( 28, 0, los - 2)],
+        [new THREE.Vector3(-20, 0, los - 4)],
+        [new THREE.Vector3( 18, 0, los - 3)],
+    ];
     return [[], [], [], []];
 }
 
@@ -1562,7 +1719,7 @@ function selectPlay(playType) {
     document.getElementById('playbook').classList.add('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     currentPlay = playType;
 
-    if (playType === 'dive' || playType === 'sweepl' || playType === 'sweepr') {
+    if (playType === 'dive' || playType === 'sweepl' || playType === 'sweepr' || playType === 'draw') {
         isRunPlay = true;
         trajectoryLine.visible = false; landingMarker.visible = false;
         document.getElementById('hang-time-ui').classList.add('hidden');
@@ -1570,9 +1727,9 @@ function selectPlay(playType) {
         document.getElementById('instructions').innerText = "SPACE: SNAP"; document.getElementById('instructions').classList.remove('hidden');
         // Show directional arrow above the RB
         const rbPos = players.offense[5].group.position;
-        const arrowDir = playType === 'dive'   ? new THREE.Vector3( 0,    0, -1).normalize()
-                       : playType === 'sweepl' ? new THREE.Vector3(-0.85, 0, -0.53).normalize()
-                       :                         new THREE.Vector3( 0.85, 0, -0.53).normalize();
+        const arrowDir = playType === 'sweepl' ? new THREE.Vector3(-0.85, 0, -0.53).normalize()
+                       : playType === 'sweepr' ? new THREE.Vector3( 0.85, 0, -0.53).normalize()
+                       :                         new THREE.Vector3( 0,    0, -1).normalize(); // dive & draw
         runArrow.position.set(rbPos.x, 2.5, rbPos.z);
         runArrow.setDirection(arrowDir);
         runArrow.visible = true;
@@ -1588,13 +1745,49 @@ function selectPlay(playType) {
     drawRouteLines(routes, 0x00ff00);
 
     trajectoryLine.visible = true; landingMarker.visible = true; document.getElementById('hang-time-ui').classList.remove('hidden');
-    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = "UP/DOWN: POWER | SPACE: SNAP";
+    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = "Q/E: POWER | SPACE: SNAP";
     GAME_STATE = 'PRE_SNAP';
 }
 
 function snapBall() {
     if (GAME_STATE !== 'PRE_SNAP') return;
     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+
+    // Assign each DL a unique rush lane, speed, and stagger delay every snap
+    // Also assign run-pursuit properties used if it turns out to be a run play
+    const runXDir = currentPlay === 'sweepr' ? 1 : currentPlay === 'sweepl' ? -1 : 0;
+    players.defense.filter(p => p.role === 'DL').forEach(p => {
+        const sideBias = p.group.position.x * 0.45;
+        p.rushLaneOffX  = sideBias + (Math.random() - 0.5) * 5;
+        p.rushSpeedMul  = 0.72 + Math.random() * 0.33;
+        p.rushDelay     = Math.random() * 0.55;
+        // Run pursuit: DL on the play-side get sealed by OL and react slower;
+        // back-side DL shed blocks earlier and can flow to the ball faster
+        const onPlaySide = runXDir !== 0 && Math.sign(p.group.position.x) === runXDir;
+        p.runReactTimer = onPlaySide
+            ? 0.7 + Math.random() * 0.7   // sealed — 0.7–1.4s to shed block
+            : 0.1 + Math.random() * 0.45;  // free — 0.1–0.55s reaction
+        p.runFlowSpeed  = 0.78 + Math.random() * 0.32;
+    });
+
+    // Assign each CB/safety a coverage style, trail distance, and read delay every snap.
+    // Press chance and cushion depth vary by scheme picked at formation time.
+    const schemePressChance = { base: 0.45, cover2: 0.35, cover3: 0.25, man: 0.80, prevent: 0.05 };
+    players.defense.filter(p => p.role === 'CB' || p.role === 'FS' || p.role === 'SS').forEach(p => {
+        const isPress = Math.random() < (schemePressChance[defScheme] || 0.45);
+        // Press: tight trail, no read delay. Off: cushion + hesitation before breaking on ball.
+        if (defScheme === 'prevent') {
+            p.trailDist     = 2.2 + Math.random() * 1.0;
+            p.covBreakDelay = 0.4 + Math.random() * 0.35;
+        } else {
+            p.trailDist     = isPress ? 0.5 + Math.random() * 0.4 : 1.2 + Math.random() * 0.9;
+            p.covBreakDelay = isPress ? 0 : 0.2 + Math.random() * 0.45;
+        }
+        // Press coverage jams the receiver at the line
+        if (isPress && p.targetPlayer) {
+            p.targetPlayer.stunTimer = Math.max(p.targetPlayer.stunTimer || 0, 0.2 + Math.random() * 0.3);
+        }
+    });
 
     if (isRunPlay) {
         runArrow.visible = false;
@@ -1608,6 +1801,7 @@ function snapBall() {
             dive:   [ new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.6,0,-1), new THREE.Vector3(0,0,-1), new THREE.Vector3(0.6,0,-1),  new THREE.Vector3(1.2,0,-0.8) ],
             sweepl: [ new THREE.Vector3(-1.5,0,-0.5), new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.5,0,-1), new THREE.Vector3(0,0,-1),   new THREE.Vector3(0.3,0,-1)   ],
             sweepr: [ new THREE.Vector3(-0.3,0,-1),   new THREE.Vector3(0,0,-1),    new THREE.Vector3(0.5,0,-1),  new THREE.Vector3(1.2,0,-0.8), new THREE.Vector3(1.5,0,-0.5) ],
+            draw:   [ new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.6,0,-1), new THREE.Vector3(0,0,-1), new THREE.Vector3(0.6,0,-1),  new THREE.Vector3(1.2,0,-0.8) ],
         };
         const dirs = blockDirSets[currentPlay];
         olSorted.forEach((p, i) => { p.runBlockDir = dirs[i].clone().normalize(); });
@@ -1630,11 +1824,18 @@ function checkInputs(e) {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
+    if (e.code === 'Space' && GAME_STATE === 'EXTRA_POINT' && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     
+    if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
+
     if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') {
-        if (e.code === 'ArrowUp') passPower = Math.min(1.0, passPower + 0.1); if (e.code === 'ArrowDown') passPower = Math.max(0.1, passPower - 0.1);
+        if (e.code === 'KeyE' || e.code === 'ArrowUp')   passPower = Math.min(1.0, passPower + 0.1);
+        if (e.code === 'KeyQ' || e.code === 'ArrowDown')  passPower = Math.max(0.1, passPower - 0.1);
         document.getElementById('vertical-power-fill').style.height = (passPower * 100) + '%';
+        // Colour: green = floater, yellow = mid, red = bomb
+        const r = Math.round(passPower * 255); const g = Math.round((1 - passPower) * 255);
+        document.getElementById('vertical-power-fill').style.background = `rgb(${r},${g},0)`;
     }
 }
 function onMouseMove(e) {
@@ -1758,13 +1959,69 @@ function updateBallPhysics(dt) {
         players.defense.forEach(p => {
             const dist = p.group.position.distanceTo(ball.position);
             if (dist < 3.5 && ball.position.y > 2.5 && ball.position.y < 5.0 && !p.isJumping) { p.isJumping = true; p.yVelocity = 9; }
-            if (dist < 2.5 && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 2.0) {
+            // Tight coverage (small trailDist) → larger interception window; loose coverage → smaller
+            const interceptRange = 2.5 + Math.max(0, (1.5 - (p.trailDist || 1.0))) * 0.9;
+            if (dist < interceptRange && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 2.0) {
                 attachBallToCarrier(p); // defender carries the ball in tucked position
                 targetedReceiver = null; triggerBoo(); handlePlayResult("INTERCEPTED", p.group.position.z);
             }
         });
 
         if (ball.position.y <= 0.2) { targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("INCOMPLETE", lineOfScrimmageZ); }
+        // Ball behind the back of the end zone or out of bounds laterally
+        if (ball.position.z < -120 || Math.abs(ball.position.x) > 54) { targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("OUT OF BOUNDS", lineOfScrimmageZ); }
+    }
+}
+
+/**
+ * EXTRA POINT / 2-POINT CONVERSION
+ */
+function triggerExtraPoint() {
+    GAME_STATE = 'EXTRA_POINT';
+    patMeterPos = 0; patMeterDir = 1; patActive = true;
+    document.getElementById('extra-point-screen').classList.remove('hidden');
+}
+
+function attemptExtraPointKick() {
+    if (!patActive || GAME_STATE !== 'EXTRA_POINT') return;
+    patActive = false;
+    const isGood = patMeterPos >= 0.35 && patMeterPos <= 0.65;
+    document.getElementById('extra-point-screen').classList.add('hidden');
+    if (isGood) {
+        addScore('off', 1); triggerCheer();
+        document.getElementById('instructions').innerText = 'EXTRA POINT GOOD! +1';
+    } else {
+        triggerBoo();
+        document.getElementById('instructions').innerText = 'KICK NO GOOD!';
+    }
+    document.getElementById('instructions').classList.remove('hidden');
+    setTimeout(finalizeTouchdown, 1800);
+}
+
+function goForTwo() {
+    if (GAME_STATE !== 'EXTRA_POINT') return;
+    patActive = false;
+    document.getElementById('extra-point-screen').classList.add('hidden');
+    const success = Math.random() < 0.45;
+    if (success) {
+        addScore('off', 2); triggerCheer();
+        document.getElementById('instructions').innerText = '2-POINT CONVERSION! +2';
+    } else {
+        triggerBoo();
+        document.getElementById('instructions').innerText = '2-POINT ATTEMPT FAILED!';
+    }
+    document.getElementById('instructions').classList.remove('hidden');
+    setTimeout(finalizeTouchdown, 1800);
+}
+
+function finalizeTouchdown() {
+    document.getElementById('instructions').classList.add('hidden');
+    if (pendingQuarterEnd) {
+        _triggerQuarterTransition();
+    } else {
+        document.getElementById('instructions').innerText = `SIMULATING ${currentOpponent.id} DRIVE...`;
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(startOpponentDriveSim, 1200);
     }
 }
 
@@ -1983,6 +2240,10 @@ function advanceWeek() {
 }
 
 function goToMainMenu() {
+    clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
+    document.getElementById('quarter-break').classList.add('hidden');
+    document.getElementById('halftime-screen').classList.add('hidden');
+    document.getElementById('extra-point-screen').classList.add('hidden');
     document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden');
     document.getElementById('scoreboard').classList.add('hidden'); document.getElementById('playbook').classList.add('hidden');
     document.getElementById('right-hud').classList.add('hidden'); document.getElementById('instructions').classList.add('hidden');
@@ -1995,16 +2256,176 @@ function goToMainMenu() {
 function resumeGame() { document.getElementById('pause-menu').classList.add('hidden'); GAME_STATE = currentPlay ? (ball.velocity ? 'PLAY' : 'PRE_SNAP') : 'PLAYBOOK'; }
 
 function updateClockDOM() {
-    // Only burn clock while a play is live.
     const liveStates = new Set(['PLAY', 'POST_CATCH', 'TACKLED', 'GETTING_UP', 'WALKOFF']);
     if (!liveStates.has(GAME_STATE)) return;
-    if(gameTime > 0) {
-        gameTime--; 
-    } else {
-        if (currentQuarter < 4) { currentQuarter++; gameTime = 120; } 
-        else { endGame(); }
+    if (gameTime > 0) {
+        gameTime--;
+    } else if (!pendingQuarterEnd) {
+        // Clock hit 0 mid-play — set flag and let the play finish naturally
+        pendingQuarterEnd = true;
     }
-    updateScoreboard(); 
+    updateScoreboard();
+}
+
+function _triggerQuarterTransition() {
+    pendingQuarterEnd = false;
+    if (currentQuarter === 2) {
+        triggerHalftime();
+    } else if (currentQuarter < 4) {
+        triggerQuarterBreak();
+    } else {
+        endGame();
+    }
+}
+
+/**
+ * QUARTER BREAKS & HALFTIME
+ */
+function triggerQuarterBreak() {
+    GAME_STATE = 'QUARTER_BREAK';
+    currentQuarter++;
+    gameTime = 120;
+    updateScoreboard();
+
+    const txt = document.getElementById('quarter-break-text');
+    txt.innerText = `END OF Q${currentQuarter - 1}\nQ${currentQuarter} BEGINS`;
+    document.getElementById('quarter-break').classList.remove('hidden');
+
+    setTimeout(() => {
+        document.getElementById('quarter-break').classList.add('hidden');
+        camera.position.set(0, 15, lineOfScrimmageZ + 25);
+        camera.lookAt(0, 0, lineOfScrimmageZ);
+        setupFormation();
+    }, 4000);
+}
+
+function triggerHalftime() {
+    GAME_STATE = 'HALFTIME';
+    currentQuarter++;
+    gameTime = 120;
+    updateScoreboard();
+
+    document.getElementById('halftime-score').innerText =
+        `${MY_TEAM.id} ${scoreOff}  —  ${currentOpponent ? currentOpponent.id : 'OPP'} ${scoreDef}`;
+    document.getElementById('halftime-screen').classList.remove('hidden');
+    spawnCheerleaders();
+}
+
+function resumeFromHalftime() {
+    clearCheerleaders();
+    document.getElementById('halftime-screen').classList.add('hidden');
+    timeoutsOff = 3;
+    updateTimeoutDisplay();
+    camera.position.set(0, 15, lineOfScrimmageZ + 25);
+    camera.lookAt(0, 0, lineOfScrimmageZ);
+    setupFormation();
+}
+
+class CheerleaderModel {
+    constructor(x, z) {
+        this.group = new THREE.Group();
+        this.group.position.set(x, 0, z);
+        this.phase = Math.random() * Math.PI * 2;
+
+        const cheerColor = [0xff4488, 0xffcc00, 0xff2255][Math.floor(Math.random() * 3)];
+        const skinTone = HUMAN_SKIN_TONES[Math.floor(Math.random() * HUMAN_SKIN_TONES.length)];
+        const jMat  = new THREE.MeshLambertMaterial({ color: cheerColor });
+        const sMat  = new THREE.MeshLambertMaterial({ color: skinTone });
+        const legMat = new THREE.MeshLambertMaterial({ color: skinTone });
+
+        // Body
+        this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.38), jMat);
+        this.torso.position.y = 1.5; this.group.add(this.torso);
+
+        // Skirt
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.35, 0.6, 10), jMat);
+        skirt.position.y = 0.92; this.group.add(skirt);
+
+        // Head
+        this.head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), sMat);
+        this.head.position.y = 2.18; this.group.add(this.head);
+
+        // Arms (pivot objects for rotation)
+        this.leftArm  = new THREE.Object3D(); this.leftArm.position.set(-0.42, 1.85, 0); this.group.add(this.leftArm);
+        this.rightArm = new THREE.Object3D(); this.rightArm.position.set( 0.42, 1.85, 0); this.group.add(this.rightArm);
+        const armGeo = new THREE.BoxGeometry(0.16, 0.58, 0.16); armGeo.translate(0, -0.29, 0);
+        this.leftArm.add(new THREE.Mesh(armGeo, sMat));
+        this.rightArm.add(new THREE.Mesh(armGeo.clone(), sMat));
+
+        // Pom poms
+        const pomMat = new THREE.MeshLambertMaterial({ color: MY_TEAM ? MY_TEAM.color : 0xffcc00 });
+        this.leftPom  = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), pomMat);
+        this.leftPom.position.set(-0.42, 1.2, 0); this.group.add(this.leftPom);
+        this.rightPom = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), pomMat);
+        this.rightPom.position.set( 0.42, 1.2, 0); this.group.add(this.rightPom);
+
+        // Legs
+        const legGeo = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+        const ll = new THREE.Mesh(legGeo, legMat); ll.position.set(-0.14, 0.4, 0); this.group.add(ll);
+        const rl = new THREE.Mesh(legGeo, legMat); rl.position.set( 0.14, 0.4, 0); this.group.add(rl);
+
+        this.group.rotation.y = Math.PI; // face toward camera
+        scene.add(this.group);
+    }
+
+    animate(elapsed) {
+        const t = elapsed + this.phase;
+        // Arms wave alternately
+        this.leftArm.rotation.z  =  Math.sin(t * 4.5) * 1.1 + 0.4;
+        this.rightArm.rotation.z = -Math.sin(t * 4.5) * 1.1 - 0.4;
+        // Pom poms follow
+        this.leftPom.position.y  = 1.2 + Math.sin(t * 4.5) * 0.45;
+        this.leftPom.position.x  = -0.42 - Math.sin(t * 4.5) * 0.1;
+        this.rightPom.position.y = 1.2 - Math.sin(t * 4.5) * 0.45;
+        this.rightPom.position.x =  0.42 + Math.sin(t * 4.5) * 0.1;
+        // Slight bounce and sway
+        this.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.25;
+        this.group.rotation.y = Math.PI + Math.sin(t * 1.2) * 0.25;
+    }
+}
+
+function spawnCheerleaders() {
+    clearCheerleaders();
+    [-24, -14, -5, 5, 14, 24].forEach(x => {
+        cheerleaders.push(new CheerleaderModel(x, -108));
+    });
+}
+
+function clearCheerleaders() {
+    cheerleaders.forEach(c => scene.remove(c.group));
+    cheerleaders = [];
+}
+
+/**
+ * TIMEOUTS
+ */
+function callTimeout() {
+    if (timeoutsOff <= 0) return;
+    const validStates = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH']);
+    if (!validStates.has(GAME_STATE)) return;
+
+    timeoutsOff--;
+    updateTimeoutDisplay();
+
+    const wasLive = GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH';
+    document.getElementById('instructions').innerText = `TIMEOUT! (${timeoutsOff} left)`;
+    document.getElementById('instructions').classList.remove('hidden');
+
+    if (wasLive) {
+        setTimeout(() => setupFormation(), 1500);
+    } else {
+        // Already between plays — just return to playbook
+        document.getElementById('playbook').classList.remove('hidden');
+        document.getElementById('btn-sim').classList.remove('hidden');
+        document.getElementById('vertical-power-meter').classList.add('hidden');
+        GAME_STATE = 'PLAYBOOK';
+    }
+}
+
+function updateTimeoutDisplay() {
+    const dots = '●'.repeat(timeoutsOff) + '○'.repeat(Math.max(0, 3 - timeoutsOff));
+    const el = document.getElementById('timeout-display');
+    if (el) el.innerText = `TO: ${dots}`;
 }
 
 function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
@@ -2018,7 +2439,31 @@ function animate() {
         menuPlayerModel.group.rotation.y += dt * 0.5;
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER') {
+    // Drone camera orbit during quarter break
+    if (GAME_STATE === 'QUARTER_BREAK') {
+        const a = clock.getElapsedTime() * 0.45;
+        camera.position.set(Math.cos(a) * 55, 58, Math.sin(a) * 55);
+        camera.lookAt(0, 0, 0);
+    }
+
+    // Halftime: slow orbit over the endzone + animate cheerleaders
+    if (GAME_STATE === 'HALFTIME') {
+        const elapsed = clock.getElapsedTime();
+        const a = elapsed * 0.28;
+        camera.position.set(Math.cos(a) * 48, 42, Math.sin(a) * 48 - 25);
+        camera.lookAt(0, 0, -55);
+        cheerleaders.forEach(c => c.animate(elapsed));
+    }
+
+    // PAT meter oscillation
+    if (GAME_STATE === 'EXTRA_POINT' && patActive) {
+        patMeterPos += patMeterDir * 1.4 * dt;
+        if (patMeterPos >= 1) { patMeterPos = 1; patMeterDir = -1; }
+        if (patMeterPos <= 0) { patMeterPos = 0; patMeterDir =  1; }
+        document.getElementById('pat-meter-indicator').style.left = (patMeterPos * 96).toFixed(1) + '%';
+    }
+
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
