@@ -358,14 +358,17 @@ let timeoutsOff = 3; let pendingQuarterEnd = false;
 let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
 let isTwoPointAttempt = false;
 let blimpGroup = null;
+let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
 let kickoffBallActive = false;
 let kickAnimKicker = null;
 let kickAnimReturner = null;
+let kickAnimFormation = [];
 let kickAnimPhase = 'idle';
 let kickAnimElapsed = 0;
 let kickAnimType = 'kickoff';
+let kickReturnEndZ = 0;
 let droneSimPlayers = [];
 let droneSimLine = 0;
 let droneSimPlayElapsed = 0;
@@ -897,6 +900,32 @@ function buildBlimp() {
 
     blimpGroup.position.set(80, 35, 0);
     scene.add(blimpGroup);
+
+    // Second blimp — opposite side, SAWYER in big text
+    blimpGroup2 = new THREE.Group();
+    const bc2 = document.createElement('canvas').getContext('2d');
+    bc2.canvas.width = 1024; bc2.canvas.height = 256;
+    bc2.fillStyle = '#001a44'; bc2.fillRect(0, 0, 1024, 256);
+    bc2.fillStyle = '#ffcc00'; bc2.fillRect(0, 48, 1024, 160);
+    bc2.fillStyle = '#001a44';
+    bc2.font = 'bold 140px Arial Black, Arial';
+    bc2.textAlign = 'center'; bc2.textBaseline = 'middle';
+    bc2.fillText('SAWYER', 512, 128);
+    const tex2 = new THREE.CanvasTexture(bc2.canvas);
+    const env2 = new THREE.Mesh(
+        new THREE.SphereGeometry(3, 32, 20),
+        new THREE.MeshLambertMaterial({ map: tex2 })
+    );
+    env2.scale.set(4, 1, 1);
+    blimpGroup2.add(env2);
+    const gon2 = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 0.6, 1.2),
+        new THREE.MeshLambertMaterial({ color: 0x444444 })
+    );
+    gon2.position.set(0, -1.5, 0);
+    blimpGroup2.add(gon2);
+    blimpGroup2.position.set(-80, 35, 0);
+    scene.add(blimpGroup2);
 }
 
 class Player {
@@ -1758,8 +1787,9 @@ function _continueHandlePlayResult(msg, finalZ) {
         setTimeout(() => { _triggerQuarterTransition(); }, 1200);
     } else if (isTurnover) {
         if (msg.includes("INTERCEPT")) {
-            // Defense already has the ball at the interception spot — no kick needed
+            // Opponent has the ball at the intercept spot — drive sim starts there
             document.getElementById('instructions').innerText = 'INTERCEPTED! OPPONENT BALL.';
+            droneSimLine = finalZ; // opponent drives from where they caught it
             setTimeout(startDroneDriveSim, 1600);
         } else {
             // Turnover on downs or fumble — user punts it away
@@ -2280,34 +2310,72 @@ function startKickReturnAnim(type) {
     kickAnimElapsed = 0;
     kickoffBallActive = false;
 
-    if (kickAnimKicker) { scene.remove(kickAnimKicker.group); kickAnimKicker = null; }
+    if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
     if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
+    kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
     droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
 
-    detachBallToScene();
-    ball.velocity = null;
-    ball.rotation.set(0, 0, 0);
+    detachBallToScene(); ball.velocity = null; ball.rotation.set(0, 0, 0);
 
     if (type === 'kickoff') {
-        // Opponent kicker at midfield, user returner deep
-        kickAnimKicker   = new Player( 0,  6, 'defense', 'QB', '1',  isUserHome, currentOpponent);
-        kickAnimReturner = new Player( 0, -88,'offense', 'WR', '14', isUserHome, currentOpponent);
-        ball.position.set(0, 0.5, 0);
-        camera.position.set(52, 24, 22);
-        camera.lookAt(0, 6, -12);
+        // User just scored — user kicks from +35 deep into opponent territory
+        kickAnimKicker   = new Player( 0, 40, 'offense', 'QB', '1',  isUserHome, currentOpponent);
+        kickAnimReturner = new Player( 0, -82,'defense', 'WR', '14', isUserHome, currentOpponent);
+        ball.position.set(0, 0.5, 35);
+        kickAnimKicker.group.rotation.y = Math.PI;   // faces -Z (downfield)
+        kickAnimReturner.group.rotation.y = Math.PI; // returner faces +Z (to look at incoming ball)
+        // 4 coverage players lined up on both sides
+        [-22, -11, 11, 22].forEach(x => {
+            const p = new Player(x, 35, 'offense', 'LB', '55', isUserHome, currentOpponent);
+            p.group.rotation.y = Math.PI;
+            kickAnimFormation.push(p);
+        });
+        kickReturnEndZ = -(28 + Math.random() * 18); // opponent drive starts ~-28 to -46
+        camera.position.set(50, 22, 55); camera.lookAt(0, 6, -5);
         document.getElementById('instructions').innerText = 'KICKOFF!';
-    } else {
-        // User punter at current LOS, opponent returner downfield
-        const pz = Math.max(lineOfScrimmageZ + 7, 20);
-        kickAnimKicker   = new Player( 0, pz,      'offense', 'QB', '1',  isUserHome, currentOpponent);
-        kickAnimReturner = new Player( 0, pz - 42, 'defense', 'WR', '11', isUserHome, currentOpponent);
-        ball.position.set(0, 0.5, pz - 1);
-        camera.position.set(52, 24, pz + 12);
-        camera.lookAt(0, 6, pz - 22);
+
+    } else if (type === 'opp_kickoff') {
+        // Opponent just scored — they kick from -35 all the way to user's end zone
+        kickAnimKicker   = new Player( 0, -40, 'defense', 'QB', '1',  isUserHome, currentOpponent);
+        kickAnimReturner = new Player( 0,  82, 'offense', 'WR', '14', isUserHome, currentOpponent);
+        ball.position.set(0, 0.5, -35);
+        kickAnimKicker.group.rotation.y = 0;         // faces +Z (toward user EZ)
+        kickAnimReturner.group.rotation.y = 0;       // returner faces -Z to see ball coming
+        [-22, -11, 11, 22].forEach(x => {
+            const p = new Player(x, -35, 'defense', 'LB', '55', isUserHome, currentOpponent);
+            p.group.rotation.y = 0;
+            kickAnimFormation.push(p);
+        });
+        kickReturnEndZ = 48 + Math.random() * 18; // user LOS after return ~48-66
+        camera.position.set(50, 22, -55); camera.lookAt(0, 6, 5);
+        document.getElementById('instructions').innerText = 'OPPONENT KICKS OFF!';
+
+    } else if (type === 'punt') {
+        // User punts on turnover — simple kicker animation, no formation
+        const pz = Math.max(lineOfScrimmageZ + 5, 18);
+        kickAnimKicker   = new Player( 0, pz + 4,      'offense', 'QB', '1',  isUserHome, currentOpponent);
+        kickAnimReturner = new Player( 0, pz - 50,     'defense', 'WR', '11', isUserHome, currentOpponent);
+        ball.position.set(0, 0.5, pz);
+        kickAnimKicker.group.rotation.y = Math.PI; // faces -Z
+        kickAnimReturner.group.rotation.y = 0;     // returner waits facing +Z
+        kickReturnEndZ = lineOfScrimmageZ - 48 - Math.random() * 10; // opponent ~48-58 units downfield
+        camera.position.set(52, 22, pz + 16); camera.lookAt(0, 6, pz - 22);
         document.getElementById('instructions').innerText = 'PUNT!';
+
+    } else if (type === 'opp_punt') {
+        // Opponent drive stalled — they punt back to user
+        const pz = droneSimLine - 5;
+        const landZ = Math.min(pz + 52 + Math.random() * 16, 80);
+        kickAnimKicker   = new Player( 0, pz - 3, 'defense', 'QB', '1',  isUserHome, currentOpponent);
+        kickAnimReturner = new Player( 0, landZ,  'offense', 'WR', '14', isUserHome, currentOpponent);
+        ball.position.set(0, 0.5, pz);
+        kickAnimKicker.group.rotation.y = 0;         // faces +Z (toward user)
+        kickAnimReturner.group.rotation.y = Math.PI; // faces -Z (ready to run downfield)
+        kickReturnEndZ = Math.max(10, landZ - 15); // user gets ball ~15 units past landing
+        camera.position.set(52, 22, pz - 14); camera.lookAt(0, 6, pz + 28);
+        document.getElementById('instructions').innerText = 'OPPONENT PUNTS...';
     }
-    kickAnimKicker.group.rotation.y = Math.PI;
-    kickAnimReturner.group.rotation.y = 0;
+
     document.getElementById('instructions').classList.remove('hidden');
 }
 
@@ -2317,32 +2385,28 @@ function startDroneDriveSim() {
     kickoffBallActive = false;
     ball.velocity = null;
     document.getElementById('instructions').classList.add('hidden');
-
-    // Remove any lingering kick anim players
-    if (kickAnimKicker) { scene.remove(kickAnimKicker.group); kickAnimKicker = null; }
+    if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
     if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
+    kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
 
-    // Create 3 offense (opponent drives) + 3 defense (user's team defends)
+    // droneSimLine was already set by the caller (kickReturnEndZ → droneSimLine)
+    droneSimLine = Math.max(-90, Math.min(50, droneSimLine));
+    droneSimPlayPhase = 0; droneSimPlayElapsed = 0; droneSimPlayYards = 0;
+
     droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
-    droneSimLine = kickAnimType === 'kickoff' ? -22 : (lineOfScrimmageZ - 38);
-    droneSimLine = Math.max(-78, Math.min(55, droneSimLine));
-    droneSimPlayPhase = 0;
-    droneSimPlayElapsed = 0;
-    droneSimPlayYards = 0;
-
-    const dsQB  = new Player( 0,    droneSimLine + 7, 'defense', 'QB', '1',  isUserHome, currentOpponent);
-    const dsWR  = new Player(-12,   droneSimLine,     'defense', 'WR', '11', isUserHome, currentOpponent);
-    const dsRB  = new Player( 0,    droneSimLine + 11,'defense', 'RB', '22', isUserHome, currentOpponent);
-    const dsDef1= new Player(-5,    droneSimLine - 9, 'offense', 'LB', '55', isUserHome, currentOpponent);
-    const dsDef2= new Player( 5,    droneSimLine - 9, 'offense', 'LB', '58', isUserHome, currentOpponent);
-    const dsDef3= new Player(-12,   droneSimLine - 14,'offense', 'CB', '7',  isUserHome, currentOpponent);
+    const L = droneSimLine;
+    const dsQB  = new Player( 0,   L + 7, 'defense', 'QB', '1',  isUserHome, currentOpponent);
+    const dsWR  = new Player(-12,  L,     'defense', 'WR', '11', isUserHome, currentOpponent);
+    const dsRB  = new Player( 0,   L + 11,'defense', 'RB', '22', isUserHome, currentOpponent);
+    const dsDef1= new Player(-5,   L - 9, 'offense', 'LB', '55', isUserHome, currentOpponent);
+    const dsDef2= new Player( 5,   L - 9, 'offense', 'LB', '58', isUserHome, currentOpponent);
+    const dsDef3= new Player(-12,  L - 14,'offense', 'CB', '7',  isUserHome, currentOpponent);
     droneSimPlayers = [dsQB, dsWR, dsRB, dsDef1, dsDef2, dsDef3];
     droneSimPlayers.slice(0, 3).forEach(p => { p.group.rotation.y = Math.PI; });
     droneSimPlayers.slice(3).forEach(p => { p.group.rotation.y = 0; });
 
-    const overlay = document.getElementById('drone-overlay');
     const log = document.getElementById('drone-play-log');
-    overlay.classList.remove('hidden');
+    document.getElementById('drone-overlay').classList.remove('hidden');
     log.innerHTML = `<span style="color:#ffcc00;">${currentOpponent.id} takes possession...</span>`;
 
     const numPlays = Math.floor(Math.random() * 3) + 3;
@@ -2350,23 +2414,52 @@ function startDroneDriveSim() {
 
     function runNextDronePlay() {
         if (GAME_STATE !== 'DRONE_SIM') return;
+
         if (playNum >= numPlays) {
-            log.innerHTML += `<br><span style="color:#00aaff;">${currentOpponent.id} punts — YOUR BALL</span>`;
-            droneSimTimer = setTimeout(stopDroneSim, 2500);
+            // Drive stalls — opponent punts back to user
+            log.innerHTML += `<br><span style="color:#00aaff;">${currentOpponent.id} punts it away...</span>`;
+            log.scrollTop = log.scrollHeight;
+            droneSimTimer = setTimeout(() => {
+                document.getElementById('drone-overlay').classList.add('hidden');
+                droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
+                startKickReturnAnim('opp_punt');
+            }, 2200);
             return;
         }
+
         playNum++;
         let timeBurned = Math.floor(Math.random() * 12 + 6);
         gameTime = Math.max(0, gameTime - timeBurned);
         let ts = `Q${currentQuarter} ${Math.floor(gameTime/60)}:${(gameTime%60)<10?'0':''}${gameTime%60}`;
         let r = Math.random(); let desc = ''; let yg = 0;
+
         if (r < 0.08) {
+            // Opponent TD — they kick off to the user afterward
             addScore('def', 7); updateScoreboard();
             desc = `<span style="color:#ff4444;">${currentOpponent.id} SCORES! TD +7</span>`;
-            playNum = numPlays; yg = 30;
-        } else if (r < 0.14) {
-            desc = `<span style="color:#00ff88;">INTERCEPTED! Ball back to you!</span>`;
             playNum = numPlays;
+            log.innerHTML += `<br><span style="color:#888;">[${ts}]</span> ${desc}`;
+            log.scrollTop = log.scrollHeight;
+            droneSimTimer = setTimeout(() => {
+                document.getElementById('drone-overlay').classList.add('hidden');
+                droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
+                startKickReturnAnim('opp_kickoff');
+            }, 3200);
+            return;
+
+        } else if (r < 0.14) {
+            // Interception — user gets ball right at the intercept spot
+            desc = `<span style="color:#00ff88;">INTERCEPTED! Your ball!</span>`;
+            playNum = numPlays;
+            log.innerHTML += `<br><span style="color:#888;">[${ts}]</span> ${desc}`;
+            log.scrollTop = log.scrollHeight;
+            droneSimTimer = setTimeout(() => {
+                lineOfScrimmageZ = droneSimLine; // user gets ball where opponent was
+                yardsToGo = 10; currentDown = 1;
+                stopDroneSim();
+            }, 2000);
+            return;
+
         } else if (r < 0.32) {
             desc = `Pass incomplete.`;
         } else if (r < 0.52) {
@@ -2379,8 +2472,9 @@ function startDroneDriveSim() {
             yg = Math.floor(Math.random() * 12 + 4);
             desc = `Pass complete, ${yg} yds.`;
         }
+
         droneSimPlayYards = yg;
-        droneSimPlayPhase = 1; // trigger movement
+        droneSimPlayPhase = 1;
         droneSimPlayElapsed = 0;
         log.innerHTML += `<br><span style="color:#888;">[${ts}]</span> ${desc}`;
         log.scrollTop = log.scrollHeight;
@@ -2391,10 +2485,13 @@ function startDroneDriveSim() {
 }
 
 function stopDroneSim() {
+    // Called after interception (lineOfScrimmageZ already set) or as fallback
     clearTimeout(droneSimTimer);
     document.getElementById('drone-overlay').classList.add('hidden');
-    droneSimPlayers.forEach(p => scene.remove(p.group));
-    droneSimPlayers = [];
+    droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
+    if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
+    if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
+    kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
     setupFormation();
 }
 
@@ -2846,11 +2943,16 @@ function animate() {
         cheerleaders.forEach(c => c.animate(elapsed));
     }
 
-    // Blimp orbits the stadium
+    // Blimps orbit the stadium in opposite directions
     if (blimpGroup) {
         const bt = clock.getElapsedTime() * 0.08;
         blimpGroup.position.set(Math.cos(bt) * 70, 35, Math.sin(bt) * 70);
         blimpGroup.rotation.y = -bt - Math.PI / 2;
+    }
+    if (blimpGroup2) {
+        const bt2 = clock.getElapsedTime() * 0.08 + Math.PI; // opposite phase
+        blimpGroup2.position.set(Math.cos(bt2) * 70, 38, Math.sin(bt2) * 70);
+        blimpGroup2.rotation.y = -bt2 - Math.PI / 2;
     }
 
     // PAT / kickoff / punt meter oscillation
@@ -2861,7 +2963,7 @@ function animate() {
         document.getElementById('pat-meter-indicator').style.left = (patMeterPos * 96).toFixed(1) + '%';
     }
 
-    // Kick + return animation (kickoff or punt)
+    // Kick + return animation (kickoff or punt — 4 types)
     if (GAME_STATE === 'KICK_PLAY') {
         kickAnimElapsed += dt;
 
@@ -2870,21 +2972,22 @@ function animate() {
             const bp = ball.position;
             const dx = bp.x - kp.x; const dz = bp.z - kp.z;
             const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist > 1.6) {
-                const sp = 7 * dt;
-                kp.x += (dx / dist) * sp; kp.z += (dz / dist) * sp;
+            if (dist > 1.5) {
+                kp.x += (dx / dist) * 7 * dt; kp.z += (dz / dist) * 7 * dt;
                 kickAnimKicker.group.lookAt(bp.x, 0, bp.z);
                 kickAnimKicker.currentMoveSpeed = 7;
             } else {
-                kickAnimPhase = 'ball_fly';
-                kickAnimElapsed = 0;
+                // ---- KICK ----
+                kickAnimPhase = 'ball_fly'; kickAnimElapsed = 0;
                 kickAnimKicker.currentMoveSpeed = 0;
                 const rp = kickAnimReturner.group.position;
-                const tTime = 3.6;
+                const isKickoff = (kickAnimType === 'kickoff' || kickAnimType === 'opp_kickoff');
+                const vy = isKickoff ? 36 : 28;
+                const flightTime = 2 * vy / 30; // physics: t = 2*vy/g
                 ball.velocity = new THREE.Vector3(
-                    (rp.x - bp.x) / tTime,
-                    27,
-                    (rp.z - bp.z) / tTime
+                    (rp.x - bp.x) / flightTime,
+                    vy,
+                    (rp.z - bp.z) / flightTime
                 );
             }
             kickAnimKicker.animateLimbs(dt);
@@ -2893,29 +2996,37 @@ function animate() {
             ball.position.addScaledVector(ball.velocity, dt);
             ball.velocity.y -= 30 * dt;
             ball.lookAt(ball.position.clone().add(ball.velocity));
-            ball.rotateZ(-22 * dt);
+            ball.rotateZ(-25 * dt);
 
-            // Camera wide sideline track
-            camera.position.x = THREE.MathUtils.lerp(camera.position.x, ball.position.x * 0.3 + 48, 0.03);
-            camera.position.y = THREE.MathUtils.lerp(camera.position.y, Math.max(ball.position.y + 14, 22), 0.04);
-            camera.position.z = THREE.MathUtils.lerp(camera.position.z, ball.position.z + 28, 0.03);
+            // Formation players run downfield while ball is in the air
+            const formDir = (kickAnimType === 'opp_kickoff') ? 1 : -1; // +Z for opp kick, -Z for user kick
+            kickAnimFormation.forEach(p => {
+                p.group.position.z += formDir * 9 * dt;
+                p.group.rotation.y = formDir > 0 ? 0 : Math.PI;
+                p.currentMoveSpeed = 9; p.animateLimbs(dt);
+            });
+
+            // Camera — wide sideline sweeps with the ball
+            const camZTarget = ball.position.z + (kickAnimType === 'opp_kickoff' ? -30 : 30);
+            camera.position.x = THREE.MathUtils.lerp(camera.position.x, 50, 0.03);
+            camera.position.y = THREE.MathUtils.lerp(camera.position.y, Math.max(ball.position.y + 16, 24), 0.04);
+            camera.position.z = THREE.MathUtils.lerp(camera.position.z, camZTarget, 0.03);
             camera.lookAt(ball.position);
 
-            // Returner tracks predicted landing
-            if (kickAnimReturner && ball.velocity.y < 0 && ball.position.y > 1) {
-                const vy = ball.velocity.y; const y0 = ball.position.y;
-                const disc = vy * vy + 2 * (y0 - 0.5) * 30;
+            // Returner drifts toward predicted landing
+            if (kickAnimReturner && ball.velocity.y < 2 && ball.position.y > 1) {
+                const vy2 = ball.velocity.y; const y0 = ball.position.y;
+                const disc = vy2 * vy2 + 2 * (y0 - 0.5) * 30;
                 if (disc >= 0) {
-                    const tLand = (-vy - Math.sqrt(disc)) / (-30);
-                    if (tLand > 0) {
-                        const lx = ball.position.x + ball.velocity.x * tLand;
-                        const lz = ball.position.z + ball.velocity.z * tLand;
+                    const tL = (-vy2 - Math.sqrt(disc)) / (-30);
+                    if (tL > 0) {
+                        const lx = ball.position.x + ball.velocity.x * tL;
+                        const lz = ball.position.z + ball.velocity.z * tL;
                         const rp = kickAnimReturner.group.position;
                         const rdx = lx - rp.x; const rdz = lz - rp.z;
                         const rd = Math.sqrt(rdx * rdx + rdz * rdz);
-                        if (rd > 2.5) {
-                            const sp = 9 * dt;
-                            rp.x += (rdx / rd) * sp; rp.z += (rdz / rd) * sp;
+                        if (rd > 3) {
+                            rp.x += (rdx / rd) * 9 * dt; rp.z += (rdz / rd) * 9 * dt;
                             kickAnimReturner.group.lookAt(lx, 0, lz);
                             kickAnimReturner.currentMoveSpeed = 9;
                         }
@@ -2927,7 +3038,7 @@ function animate() {
             if (ball.position.y <= 0.5 && ball.velocity.y < 0) {
                 ball.velocity = null; ball.position.y = 0.5;
                 kickAnimPhase = 'catch'; kickAnimElapsed = 0;
-                if (kickAnimReturner) { kickAnimReturner.isJumping = true; kickAnimReturner.yVelocity = 5; }
+                if (kickAnimReturner) { kickAnimReturner.isJumping = true; kickAnimReturner.yVelocity = 6; }
             }
 
         } else if (kickAnimPhase === 'catch') {
@@ -2939,28 +3050,43 @@ function animate() {
                         kickAnimReturner.group.position.y = 0; kickAnimReturner.isJumping = false;
                     }
                 }
-                kickAnimReturner.currentMoveSpeed = 0;
-                kickAnimReturner.animateLimbs(dt);
+                kickAnimReturner.currentMoveSpeed = 0; kickAnimReturner.animateLimbs(dt);
             }
-            if (kickAnimElapsed > 0.9) { kickAnimPhase = 'run_back'; kickAnimElapsed = 0; }
+            if (kickAnimElapsed > 0.8) { kickAnimPhase = 'run_back'; kickAnimElapsed = 0; }
 
         } else if (kickAnimPhase === 'run_back') {
             if (kickAnimReturner) {
-                // Run upfield (+Z = toward user's end zone)
-                kickAnimReturner.group.position.z += 9 * dt;
-                kickAnimReturner.group.rotation.y = 0;
-                kickAnimReturner.currentMoveSpeed = 9;
-                kickAnimReturner.animateLimbs(dt);
-                // Camera follows returner
-                camera.position.x = THREE.MathUtils.lerp(camera.position.x, kickAnimReturner.group.position.x + 35, 0.04);
-                camera.position.y = THREE.MathUtils.lerp(camera.position.y, 20, 0.05);
-                camera.position.z = THREE.MathUtils.lerp(camera.position.z, kickAnimReturner.group.position.z + 16, 0.04);
+                // user returner (opp_kickoff/opp_punt) runs toward -Z (their scoring end)
+                // opp returner (kickoff/punt) runs toward +Z (away from the -100 end zone)
+                const runDir = (kickAnimType === 'opp_kickoff' || kickAnimType === 'opp_punt') ? -1 : 1;
+                kickAnimReturner.group.position.z += runDir * 10 * dt;
+                kickAnimReturner.group.rotation.y = runDir > 0 ? 0 : Math.PI;
+                kickAnimReturner.currentMoveSpeed = 10; kickAnimReturner.animateLimbs(dt);
+                // Chase cam slightly behind the runner
+                const camBehind = runDir > 0 ? 18 : -18;
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, kickAnimReturner.group.position.x + 32, 0.05);
+                camera.position.y = THREE.MathUtils.lerp(camera.position.y, 18, 0.06);
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, kickAnimReturner.group.position.z + camBehind, 0.05);
                 camera.lookAt(kickAnimReturner.group.position);
             }
-            if (kickAnimElapsed > 2.0) {
+            if (kickAnimElapsed > 2.2) {
                 kickAnimPhase = 'idle';
                 document.getElementById('instructions').classList.add('hidden');
-                startDroneDriveSim();
+                // Clean up all animation players
+                if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
+                if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
+                kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
+                // Route to next game state based on who had the ball
+                if (kickAnimType === 'kickoff' || kickAnimType === 'punt') {
+                    // Opponent got the ball — drone drive sim
+                    droneSimLine = kickReturnEndZ;
+                    startDroneDriveSim();
+                } else {
+                    // User got the ball — set LOS and play
+                    lineOfScrimmageZ = kickReturnEndZ;
+                    yardsToGo = 10; currentDown = 1;
+                    setupFormation();
+                }
             }
         }
     }
