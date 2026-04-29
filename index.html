@@ -374,6 +374,13 @@ let droneSimLine = 0;
 let droneSimPlayElapsed = 0;
 let droneSimPlayPhase = 0;
 let droneSimPlayYards = 0;
+let droneExitElapsed = 0;
+let droneExitCb = null;
+let xpAnimPhase = 'idle';
+let xpAnimElapsed = 0;
+let xpAnimKicker = null;
+let xpAnimHolder = null;
+let xpAnimResult = false;
 let cheerleaders = [];
 let defScheme = 'base'; // randomized each formation: 'base','cover2','cover3','man','prevent'
 let simIntervalTimer;
@@ -2264,15 +2271,7 @@ function attemptExtraPointKick() {
 
     if (GAME_STATE === 'EXTRA_POINT') {
         const isGood = patMeterPos >= 0.35 && patMeterPos <= 0.65;
-        if (isGood) {
-            addScore('off', 1); triggerCheer();
-            document.getElementById('instructions').innerText = 'EXTRA POINT GOOD! +1';
-        } else {
-            triggerBoo();
-            document.getElementById('instructions').innerText = 'KICK NO GOOD!';
-        }
-        document.getElementById('instructions').classList.remove('hidden');
-        setTimeout(() => startKickReturnAnim('kickoff'), 1800);
+        startXPAnim(isGood);
     } else if (GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') {
         const goodKick = patMeterPos >= 0.3 && patMeterPos <= 0.7;
         const label = GAME_STATE === 'KICKOFF' ? (goodKick ? 'DEEP KICKOFF!' : 'SHORT KICKOFF') : (goodKick ? 'GREAT PUNT!' : 'SHORT PUNT');
@@ -2292,6 +2291,33 @@ function goForTwo() {
     document.getElementById('instructions').innerText = 'GO FOR 2 — SCORE TO CONVERT!';
     document.getElementById('instructions').classList.remove('hidden');
     setTimeout(() => { document.getElementById('instructions').classList.add('hidden'); setupFormation(); }, 1200);
+}
+
+function startXPAnim(isGood) {
+    GAME_STATE = 'XP_ANIM';
+    xpAnimPhase = 'approach';
+    xpAnimElapsed = 0;
+    xpAnimResult = isGood;
+
+    players.offense.forEach(p => scene.remove(p.group)); players.offense = [];
+    players.defense.forEach(p => scene.remove(p.group)); players.defense = [];
+    detachBallToScene();
+    ball.velocity = null;
+    ball.position.set(5, 0.25, -95);
+    ball.rotation.set(0, 0, 0);
+
+    // Holder kneels at ball spot
+    xpAnimHolder = new Player(5, -93, 'offense', 'QB', '7', isUserHome, currentOpponent);
+    xpAnimHolder.group.rotation.y = Math.PI;
+
+    // Kicker lines up a few steps back
+    xpAnimKicker = new Player(3, -88, 'offense', 'QB', '3', isUserHome, currentOpponent);
+    xpAnimKicker.group.rotation.y = Math.PI;
+
+    camera.position.set(38, 14, -72);
+    camera.lookAt(5, 6, -122);
+    document.getElementById('instructions').innerText = 'EXTRA POINT ATTEMPT!';
+    document.getElementById('instructions').classList.remove('hidden');
 }
 
 function finalizeTouchdown() {
@@ -2398,12 +2424,14 @@ function startDroneDriveSim() {
     const dsQB  = new Player( 0,   L + 7, 'defense', 'QB', '1',  isUserHome, currentOpponent);
     const dsWR  = new Player(-12,  L,     'defense', 'WR', '11', isUserHome, currentOpponent);
     const dsRB  = new Player( 0,   L + 11,'defense', 'RB', '22', isUserHome, currentOpponent);
+    const dsTE  = new Player( 12,  L,     'defense', 'TE', '88', isUserHome, currentOpponent);
     const dsDef1= new Player(-5,   L - 9, 'offense', 'LB', '55', isUserHome, currentOpponent);
     const dsDef2= new Player( 5,   L - 9, 'offense', 'LB', '58', isUserHome, currentOpponent);
     const dsDef3= new Player(-12,  L - 14,'offense', 'CB', '7',  isUserHome, currentOpponent);
-    droneSimPlayers = [dsQB, dsWR, dsRB, dsDef1, dsDef2, dsDef3];
-    droneSimPlayers.slice(0, 3).forEach(p => { p.group.rotation.y = Math.PI; });
-    droneSimPlayers.slice(3).forEach(p => { p.group.rotation.y = 0; });
+    const dsDef4= new Player( 12,  L - 14,'offense', 'FS', '23', isUserHome, currentOpponent);
+    droneSimPlayers = [dsQB, dsWR, dsRB, dsTE, dsDef1, dsDef2, dsDef3, dsDef4];
+    droneSimPlayers.slice(0, 4).forEach(p => { p.group.rotation.y = Math.PI; });
+    droneSimPlayers.slice(4).forEach(p => { p.group.rotation.y = 0; });
 
     const log = document.getElementById('drone-play-log');
     document.getElementById('drone-overlay').classList.remove('hidden');
@@ -2420,9 +2448,7 @@ function startDroneDriveSim() {
             log.innerHTML += `<br><span style="color:#00aaff;">${currentOpponent.id} punts it away...</span>`;
             log.scrollTop = log.scrollHeight;
             droneSimTimer = setTimeout(() => {
-                document.getElementById('drone-overlay').classList.add('hidden');
-                droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
-                startKickReturnAnim('opp_punt');
+                startDroneExit(() => startKickReturnAnim('opp_punt'));
             }, 2200);
             return;
         }
@@ -2441,9 +2467,7 @@ function startDroneDriveSim() {
             log.innerHTML += `<br><span style="color:#888;">[${ts}]</span> ${desc}`;
             log.scrollTop = log.scrollHeight;
             droneSimTimer = setTimeout(() => {
-                document.getElementById('drone-overlay').classList.add('hidden');
-                droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
-                startKickReturnAnim('opp_kickoff');
+                startDroneExit(() => startKickReturnAnim('opp_kickoff'));
             }, 3200);
             return;
 
@@ -2484,15 +2508,20 @@ function startDroneDriveSim() {
     droneSimTimer = setTimeout(runNextDronePlay, 1200);
 }
 
+function startDroneExit(cb) {
+    GAME_STATE = 'DRONE_EXIT';
+    droneExitElapsed = 0;
+    droneExitCb = cb;
+    document.getElementById('drone-overlay').classList.add('hidden');
+}
+
 function stopDroneSim() {
     // Called after interception (lineOfScrimmageZ already set) or as fallback
     clearTimeout(droneSimTimer);
-    document.getElementById('drone-overlay').classList.add('hidden');
-    droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
     if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
     if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
     kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
-    setupFormation();
+    startDroneExit(() => setupFormation());
 }
 
 /**
@@ -2977,13 +3006,12 @@ function animate() {
                 kickAnimKicker.group.lookAt(bp.x, 0, bp.z);
                 kickAnimKicker.currentMoveSpeed = 7;
             } else {
-                // ---- KICK ----
                 kickAnimPhase = 'ball_fly'; kickAnimElapsed = 0;
                 kickAnimKicker.currentMoveSpeed = 0;
                 const rp = kickAnimReturner.group.position;
                 const isKickoff = (kickAnimType === 'kickoff' || kickAnimType === 'opp_kickoff');
                 const vy = isKickoff ? 36 : 28;
-                const flightTime = 2 * vy / 30; // physics: t = 2*vy/g
+                const flightTime = 2 * vy / 30;
                 ball.velocity = new THREE.Vector3(
                     (rp.x - bp.x) / flightTime,
                     vy,
@@ -2999,14 +3027,13 @@ function animate() {
             ball.rotateZ(-25 * dt);
 
             // Formation players run downfield while ball is in the air
-            const formDir = (kickAnimType === 'opp_kickoff') ? 1 : -1; // +Z for opp kick, -Z for user kick
+            const formDir = (kickAnimType === 'opp_kickoff') ? 1 : -1;
             kickAnimFormation.forEach(p => {
                 p.group.position.z += formDir * 9 * dt;
                 p.group.rotation.y = formDir > 0 ? 0 : Math.PI;
                 p.currentMoveSpeed = 9; p.animateLimbs(dt);
             });
 
-            // Camera — wide sideline sweeps with the ball
             const camZTarget = ball.position.z + (kickAnimType === 'opp_kickoff' ? -30 : 30);
             camera.position.x = THREE.MathUtils.lerp(camera.position.x, 50, 0.03);
             camera.position.y = THREE.MathUtils.lerp(camera.position.y, Math.max(ball.position.y + 16, 24), 0.04);
@@ -3039,6 +3066,8 @@ function animate() {
                 ball.velocity = null; ball.position.y = 0.5;
                 kickAnimPhase = 'catch'; kickAnimElapsed = 0;
                 if (kickAnimReturner) { kickAnimReturner.isJumping = true; kickAnimReturner.yVelocity = 6; }
+                // Stop formation in place — they'll chase in run_back
+                kickAnimFormation.forEach(p => { p.currentMoveSpeed = 0; });
             }
 
         } else if (kickAnimPhase === 'catch') {
@@ -3050,43 +3079,142 @@ function animate() {
                         kickAnimReturner.group.position.y = 0; kickAnimReturner.isJumping = false;
                     }
                 }
+                // Ball snaps to returner's hands
+                ball.position.set(
+                    kickAnimReturner.group.position.x + 0.6,
+                    kickAnimReturner.group.position.y + 1.1,
+                    kickAnimReturner.group.position.z
+                );
                 kickAnimReturner.currentMoveSpeed = 0; kickAnimReturner.animateLimbs(dt);
             }
-            if (kickAnimElapsed > 0.8) { kickAnimPhase = 'run_back'; kickAnimElapsed = 0; }
+            if (kickAnimElapsed > 0.7) { kickAnimPhase = 'run_back'; kickAnimElapsed = 0; }
 
         } else if (kickAnimPhase === 'run_back') {
+            const runDir = (kickAnimType === 'opp_kickoff' || kickAnimType === 'opp_punt') ? -1 : 1;
             if (kickAnimReturner) {
-                // user returner (opp_kickoff/opp_punt) runs toward -Z (their scoring end)
-                // opp returner (kickoff/punt) runs toward +Z (away from the -100 end zone)
-                const runDir = (kickAnimType === 'opp_kickoff' || kickAnimType === 'opp_punt') ? -1 : 1;
                 kickAnimReturner.group.position.z += runDir * 10 * dt;
                 kickAnimReturner.group.rotation.y = runDir > 0 ? 0 : Math.PI;
                 kickAnimReturner.currentMoveSpeed = 10; kickAnimReturner.animateLimbs(dt);
-                // Chase cam slightly behind the runner
+                // Ball carried in hands
+                ball.position.set(
+                    kickAnimReturner.group.position.x + (runDir > 0 ? 0.6 : -0.6),
+                    kickAnimReturner.group.position.y + 1.1,
+                    kickAnimReturner.group.position.z + runDir * 0.5
+                );
+                // Chase cam behind runner
                 const camBehind = runDir > 0 ? 18 : -18;
-                camera.position.x = THREE.MathUtils.lerp(camera.position.x, kickAnimReturner.group.position.x + 32, 0.05);
-                camera.position.y = THREE.MathUtils.lerp(camera.position.y, 18, 0.06);
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, kickAnimReturner.group.position.x + 28, 0.05);
+                camera.position.y = THREE.MathUtils.lerp(camera.position.y, 16, 0.06);
                 camera.position.z = THREE.MathUtils.lerp(camera.position.z, kickAnimReturner.group.position.z + camBehind, 0.05);
                 camera.lookAt(kickAnimReturner.group.position);
             }
-            if (kickAnimElapsed > 2.2) {
+            // Coverage players chase the returner
+            kickAnimFormation.forEach(p => {
+                if (!kickAnimReturner) return;
+                const tx = kickAnimReturner.group.position.x - p.group.position.x;
+                const tz = kickAnimReturner.group.position.z - p.group.position.z;
+                const td = Math.sqrt(tx * tx + tz * tz);
+                if (td > 2.5) {
+                    p.group.position.x += (tx / td) * 11 * dt;
+                    p.group.position.z += (tz / td) * 11 * dt;
+                    p.group.lookAt(kickAnimReturner.group.position.x, 0, kickAnimReturner.group.position.z);
+                    p.currentMoveSpeed = 11;
+                } else {
+                    p.currentMoveSpeed = 0;
+                }
+                p.animateLimbs(dt);
+            });
+            // Tackle at ~1.6s into run
+            if (kickAnimElapsed > 1.6 && kickAnimPhase === 'run_back') {
+                kickAnimPhase = 'tackle'; kickAnimElapsed = 0;
+                if (kickAnimReturner) kickAnimReturner.currentMoveSpeed = 0;
+                kickAnimFormation.forEach(p => { p.currentMoveSpeed = 0; });
+                document.getElementById('instructions').innerText = 'TACKLED!';
+            }
+
+        } else if (kickAnimPhase === 'tackle') {
+            // Returner stopped, one tackler dives in
+            if (kickAnimReturner) {
+                ball.position.set(
+                    kickAnimReturner.group.position.x,
+                    kickAnimReturner.group.position.y + 0.8,
+                    kickAnimReturner.group.position.z
+                );
+                kickAnimReturner.animateLimbs(dt);
+            }
+            kickAnimFormation.forEach(p => p.animateLimbs(dt));
+            if (kickAnimElapsed > 0.9) {
                 kickAnimPhase = 'idle';
                 document.getElementById('instructions').classList.add('hidden');
-                // Clean up all animation players
                 if (kickAnimKicker)   { scene.remove(kickAnimKicker.group);   kickAnimKicker = null; }
                 if (kickAnimReturner) { scene.remove(kickAnimReturner.group); kickAnimReturner = null; }
                 kickAnimFormation.forEach(p => scene.remove(p.group)); kickAnimFormation = [];
-                // Route to next game state based on who had the ball
                 if (kickAnimType === 'kickoff' || kickAnimType === 'punt') {
-                    // Opponent got the ball — drone drive sim
                     droneSimLine = kickReturnEndZ;
                     startDroneDriveSim();
                 } else {
-                    // User got the ball — set LOS and play
                     lineOfScrimmageZ = kickReturnEndZ;
                     yardsToGo = 10; currentDown = 1;
                     setupFormation();
                 }
+            }
+        }
+    }
+
+    // XP field goal animation
+    if (GAME_STATE === 'XP_ANIM') {
+        xpAnimElapsed += dt;
+
+        if (xpAnimPhase === 'approach') {
+            if (xpAnimKicker) {
+                const kp = xpAnimKicker.group.position;
+                const targetZ = -94;
+                const dz = targetZ - kp.z;
+                if (Math.abs(dz) > 1.2) {
+                    kp.z += (dz / Math.abs(dz)) * 8 * dt;
+                    xpAnimKicker.currentMoveSpeed = 8;
+                } else {
+                    // Kick!
+                    xpAnimPhase = 'in_flight'; xpAnimElapsed = 0;
+                    xpAnimKicker.currentMoveSpeed = 0;
+                    const goalZ = -120;
+                    const dGoal = goalZ - ball.position.z;
+                    const flightTime = 1.5;
+                    const vy = 24;
+                    ball.velocity = new THREE.Vector3(0, vy, dGoal / flightTime);
+                    document.getElementById('instructions').innerText = xpAnimResult ? 'IT\'S GOOD!' : 'NO GOOD!';
+                }
+                xpAnimKicker.animateLimbs(dt);
+            }
+
+        } else if (xpAnimPhase === 'in_flight') {
+            if (ball.velocity) {
+                ball.position.addScaledVector(ball.velocity, dt);
+                ball.velocity.y -= 30 * dt;
+                ball.lookAt(ball.position.clone().add(ball.velocity));
+                ball.rotateZ(-20 * dt);
+            }
+            // Camera slowly pans to follow ball toward uprights
+            camera.position.x = THREE.MathUtils.lerp(camera.position.x, 36, 0.04);
+            camera.position.y = THREE.MathUtils.lerp(camera.position.y, Math.max(ball.position.y + 12, 18), 0.04);
+            camera.position.z = THREE.MathUtils.lerp(camera.position.z, -80, 0.04);
+            camera.lookAt(0, 10, -120);
+
+            if ((ball.velocity && ball.position.y <= 0.3) || xpAnimElapsed > 2.2) {
+                if (ball.velocity) { ball.velocity = null; ball.position.y = 0.3; }
+                xpAnimPhase = 'result'; xpAnimElapsed = 0;
+                if (xpAnimResult) { addScore('off', 1); triggerCheer(); }
+                else { triggerBoo(); }
+            }
+
+        } else if (xpAnimPhase === 'result') {
+            if (xpAnimElapsed > 2.0) {
+                xpAnimPhase = 'idle';
+                if (xpAnimKicker) { scene.remove(xpAnimKicker.group); xpAnimKicker = null; }
+                if (xpAnimHolder) { scene.remove(xpAnimHolder.group); xpAnimHolder = null; }
+                ball.velocity = null;
+                document.getElementById('instructions').classList.add('hidden');
+                startKickReturnAnim('kickoff');
             }
         }
     }
@@ -3103,48 +3231,58 @@ function animate() {
 
         // Animate drone players each play
         droneSimPlayElapsed += dt;
-        if (droneSimPlayPhase === 1 && droneSimPlayers.length === 6) {
-            const [qb, wr, rb, def1, def2, def3] = droneSimPlayers;
-            // WR runs downfield (toward -Z)
-            if (wr.group.position.z > droneSimLine - 18) {
-                wr.group.position.z -= 8 * dt;
-                wr.group.rotation.y = Math.PI;
-                wr.currentMoveSpeed = 8;
-            } else { wr.currentMoveSpeed = 0; }
-            // QB steps up slightly
+        if (droneSimPlayPhase === 1 && droneSimPlayers.length === 8) {
+            const [qb, wr, rb, te, def1, def2, def3, def4] = droneSimPlayers;
+            // WR and TE run routes downfield (toward -Z)
+            [wr, te].forEach((r, i) => {
+                if (r.group.position.z > droneSimLine - 18) {
+                    r.group.position.z -= (7 + i) * dt;
+                    r.group.rotation.y = Math.PI;
+                    r.currentMoveSpeed = 7 + i;
+                } else { r.currentMoveSpeed = 0; }
+            });
+            // QB steps up
             if (droneSimPlayElapsed > 0.4 && qb.group.position.z > droneSimLine - 4) {
                 qb.group.position.z -= 4 * dt;
                 qb.currentMoveSpeed = 4;
             } else { qb.currentMoveSpeed = 0; }
-            // Defenders chase WR
-            [def1, def2, def3].forEach(def => {
-                const dx = wr.group.position.x - def.group.position.x;
-                const dz = wr.group.position.z - def.group.position.z;
+            // RB drifts to side
+            if (droneSimPlayElapsed < 1.0) {
+                rb.group.position.x += 4 * dt;
+                rb.currentMoveSpeed = 4;
+            } else { rb.currentMoveSpeed = 0; }
+            // Defenders chase nearest receiver
+            const chaseTarget = wr;
+            [def1, def2, def3, def4].forEach(def => {
+                const dx = chaseTarget.group.position.x - def.group.position.x;
+                const dz = chaseTarget.group.position.z - def.group.position.z;
                 const dd = Math.sqrt(dx * dx + dz * dz);
                 if (dd > 3.5) {
                     def.group.position.x += (dx / dd) * 7 * dt;
                     def.group.position.z += (dz / dd) * 7 * dt;
-                    def.group.lookAt(wr.group.position.x, 0, wr.group.position.z);
+                    def.group.lookAt(chaseTarget.group.position.x, 0, chaseTarget.group.position.z);
                     def.currentMoveSpeed = 7;
                 } else { def.currentMoveSpeed = 0; }
             });
             droneSimPlayers.forEach(p => p.animateLimbs(dt));
 
-            // After 2s: "tackle" and advance the line
+            // After 2.1s: "tackle" and advance the line
             if (droneSimPlayElapsed > 2.1) {
                 droneSimPlayPhase = 0;
                 droneSimLine -= Math.max(0, droneSimPlayYards * 2);
                 droneSimLine = Math.max(-98, droneSimLine);
                 // Reset formation to new line
-                if (droneSimPlayers.length === 6) {
+                if (droneSimPlayers.length === 8) {
                     droneSimPlayers[0].group.position.set( 0,   0, droneSimLine + 7);
                     droneSimPlayers[1].group.position.set(-12,  0, droneSimLine);
                     droneSimPlayers[2].group.position.set( 0,   0, droneSimLine + 11);
-                    droneSimPlayers[3].group.position.set(-5,   0, droneSimLine - 9);
-                    droneSimPlayers[4].group.position.set( 5,   0, droneSimLine - 9);
-                    droneSimPlayers[5].group.position.set(-12,  0, droneSimLine - 14);
-                    droneSimPlayers.slice(0, 3).forEach(p => { p.group.rotation.y = Math.PI; p.currentMoveSpeed = 0; });
-                    droneSimPlayers.slice(3).forEach(p => { p.group.rotation.y = 0; p.currentMoveSpeed = 0; });
+                    droneSimPlayers[3].group.position.set( 12,  0, droneSimLine);
+                    droneSimPlayers[4].group.position.set(-5,   0, droneSimLine - 9);
+                    droneSimPlayers[5].group.position.set( 5,   0, droneSimLine - 9);
+                    droneSimPlayers[6].group.position.set(-12,  0, droneSimLine - 14);
+                    droneSimPlayers[7].group.position.set( 12,  0, droneSimLine - 14);
+                    droneSimPlayers.slice(0, 4).forEach(p => { p.group.rotation.y = Math.PI; p.currentMoveSpeed = 0; });
+                    droneSimPlayers.slice(4).forEach(p => { p.group.rotation.y = 0; p.currentMoveSpeed = 0; });
                 }
             }
         } else {
@@ -3152,7 +3290,23 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICK_PLAY' && GAME_STATE !== 'DRONE_SIM') {
+    // Drone exit — players jog to sidelines before user play starts
+    if (GAME_STATE === 'DRONE_EXIT') {
+        droneExitElapsed += dt;
+        droneSimPlayers.forEach((p, i) => {
+            const dir = (i % 2 === 0) ? -1 : 1;
+            p.group.position.x += dir * 12 * dt;
+            p.currentMoveSpeed = 12;
+            p.animateLimbs(dt);
+        });
+        if (droneExitElapsed > 0.85) {
+            droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
+            const cb = droneExitCb; droneExitCb = null;
+            if (cb) cb();
+        }
+    }
+
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICK_PLAY' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
