@@ -638,15 +638,61 @@ function init() {
     setInterval(updateClockDOM, 1000);
 }
 
+// Player names keyed by role+number — used on jersey back textures
+const PLAYER_NAME_MAP = {
+    'QB1':'HURTS','WR11':'A.BROWN','WR6':'J.SMITH','WR14':'D.SMITH',
+    'TE88':'GOEDERT','RB22':'SANDERS','OL60':'KELCE','OL63':'MAILATA',
+    'OL69':'JURGENS','OL78':'JOHNSON','OL70':'SEUMALO',
+    'LB55':'GRAHAM','LB58':'SWEAT','LB50':'GERRY',
+    'CB7':'BRADBERRY','CB21':'SLAY','FS28':'GARDNER','SS6':'AVERY',
+    'DL94':'REDDICK','DL98':'DAVIS','DL99':'COX','DL91':'CARTER'
+};
+
+function _jerseyTextColor(hex) {
+    if (!hex || hex.length < 6) return '#ffffff';
+    const h = hex.replace('#','');
+    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+    return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.55 ? '#111111' : '#ffffff';
+}
+
+function createJerseyTexture(number, name, jerseyHex) {
+    const tc = _jerseyTextColor(jerseyHex);
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 128;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = jerseyHex || '#004c54'; ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 54px Arial'; ctx.fillText(number, 64, 52);
+    ctx.font = 'bold 16px Arial'; ctx.fillText(name || '', 64, 96);
+    return new THREE.CanvasTexture(cv);
+}
+
 function createFieldTexture() {
     const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 2048; const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#2d5a27'; ctx.fillRect(0,0,1024,2048);
     for(let i=0; i<30000; i++) {
         ctx.fillStyle = Math.random() > 0.5 ? '#244c1e' : '#3a7233'; ctx.fillRect(Math.random() * 1024, Math.random() * 2048, 2, 10 + Math.random() * 20);
     }
+    // NFL shield logo at the 50-yard line (canvas center y=1024)
+    const lx = 512, ly = 1024;
+    ctx.save();
+    // Blue shield
+    ctx.fillStyle = '#013369';
+    ctx.beginPath(); ctx.ellipse(lx, ly, 70, 90, 0, 0, Math.PI * 2); ctx.fill();
+    // Red bottom half
+    ctx.fillStyle = '#D50A0A';
+    ctx.beginPath(); ctx.ellipse(lx, ly + 22, 70, 68, 0, 0, Math.PI * 2); ctx.fill();
+    // Football silhouette
+    ctx.fillStyle = '#5c3a1e';
+    ctx.beginPath(); ctx.ellipse(lx, ly - 12, 18, 32, Math.PI/8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx - 8, ly - 12); ctx.lineTo(lx + 8, ly - 12); ctx.stroke();
+    // "NFL" text
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('NFL', lx, ly + 54);
+    ctx.restore();
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 80px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for(let i=0; i<=100; i+=10) {
-        let y = (i / 100) * 2048; ctx.fillRect(0, y - 4, 1024, 8); 
+        let y = (i / 100) * 2048; ctx.fillRect(0, y - 4, 1024, 8);
         if(i > 0 && i < 100) {
             let number = i <= 50 ? i : 100 - i;
             ctx.save(); ctx.translate(150, y); ctx.rotate(-Math.PI/2); ctx.fillText(number, 0, 0); ctx.restore();
@@ -862,6 +908,16 @@ class Player {
         // Torso
         this.torso = new THREE.Mesh(new THREE.BoxGeometry(isLineman ? 1.3 : 0.9, isLineman ? 1.05 : 0.9, isLineman ? 0.75 : 0.55), jMat);
         this.torso.position.y = 1.65; this.torso.castShadow = true; this.group.add(this.torso);
+        // Jersey number + name textures (front and back)
+        const playerName = PLAYER_NAME_MAP[role + number] || '';
+        const jerseyTex = createJerseyTexture(number, playerName, jerseyColor);
+        const jNumMat = new THREE.MeshBasicMaterial({ map: jerseyTex, transparent: true });
+        const planeW = isLineman ? 0.85 : 0.65, planeH = isLineman ? 0.75 : 0.60;
+        const tz = isLineman ? 0.39 : 0.30;
+        const jFront = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), jNumMat);
+        jFront.position.set(0, 1.65, tz); this.group.add(jFront);
+        const jBack = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), jNumMat);
+        jBack.position.set(0, 1.65, -tz); jBack.rotation.y = Math.PI; this.group.add(jBack);
 
         // Belly for linemen — a round gut poking out in front of the torso
         if (isLineman) {
@@ -933,13 +989,18 @@ class Player {
             addCageBar(    0,        top,            fz,    0,           bot,          botZ);
             addCageBar( hw/2,        top,            fz,    hw/2-0.04,   bot,          botZ);
         } else {
-            const fz = 0.37, hw = 0.20, top = 0.05, bot = -0.27, botZ = fz - 0.09;
-            addCageBar(-hw,     top,  fz,      hw,     top,  fz);
-            addCageBar(-hw+0.04, bot, botZ,   hw-0.04, bot, botZ);
-            addCageBar(-hw,     top,  fz,    -hw+0.04, bot, botZ);
-            addCageBar(    0,   top,  fz,     0,       bot, botZ);
-            addCageBar( hw,     top,  fz,     hw-0.04, bot, botZ);
+            // Speedflex-style facemask: eyebrow bar, chin bar, two side uprights, center bar
+            const fz = 0.38, hw = 0.20, top = 0.07, mid = -0.10, bot = -0.26, botZ = fz - 0.11;
+            addCageBar(-hw, top, fz, hw, top, fz);               // eyebrow (top horizontal)
+            addCageBar(-hw, mid, fz - 0.01, hw, mid, fz - 0.01); // chin bar (mid horizontal)
+            addCageBar(-hw, top, fz, -hw, bot, botZ);             // left upright
+            addCageBar( hw, top, fz,  hw, bot, botZ);             // right upright
+            addCageBar(  0, top, fz,   0, bot, botZ);             // center bar
+            addCageBar(-hw, bot, botZ, hw, bot, botZ);            // bottom rail
         }
+        // Speedflex crown flex-panel — slightly darker strip across the top
+        const flexMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(helmetColor).multiplyScalar(0.55) });
+        shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR + 0.01, 20, 4, 0, Math.PI * 2, 0, 0.32), flexMat));
         this.head.position.y = isLineman ? 2.55 : 2.45; this.head.castShadow = true; this.group.add(this.head);
 
         // Arms: shoulder pivot -> upper arm -> elbow pivot -> lower arm -> hand sphere.
@@ -978,7 +1039,7 @@ class Player {
     }
 
     animateLimbs(dt) {
-        if (GAME_STATE === 'TACKLED') return;
+        if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TIMEOUT') return;
 
         // QB throw animation — highest priority, overrides everything.
         if (this.throwTimer > 0) {
@@ -2557,18 +2618,37 @@ function callTimeout() {
     updateTimeoutDisplay();
 
     const wasLive = GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH';
+    GAME_STATE = 'TIMEOUT';
     document.getElementById('instructions').innerText = `TIMEOUT! (${timeoutsOff} left)`;
     document.getElementById('instructions').classList.remove('hidden');
 
-    if (wasLive) {
-        setTimeout(() => setupFormation(), 1500);
-    } else {
-        // Already between plays — just return to playbook
-        document.getElementById('playbook').classList.remove('hidden');
-        document.getElementById('btn-sim').classList.remove('hidden');
-        document.getElementById('vertical-power-meter').classList.add('hidden');
-        GAME_STATE = 'PLAYBOOK';
-    }
+    formHuddle();
+
+    setTimeout(() => {
+        document.getElementById('instructions').classList.add('hidden');
+        if (wasLive) {
+            setupFormation();
+        } else {
+            document.getElementById('playbook').classList.remove('hidden');
+            document.getElementById('btn-sim').classList.remove('hidden');
+            document.getElementById('vertical-power-meter').classList.add('hidden');
+            GAME_STATE = 'PLAYBOOK';
+        }
+    }, 3000);
+}
+
+function formHuddle() {
+    if (!players.offense.length) return;
+    const qb = players.offense[0];
+    const cx = qb.group.position.x, cz = qb.group.position.z;
+    // QB stays put; other 10 players form a tight circle around them
+    players.offense.slice(1).forEach((p, i) => {
+        const angle = (i / 10) * Math.PI * 2;
+        p.group.position.set(cx + Math.cos(angle) * 2.2, 0, cz + Math.sin(angle) * 2.2);
+        p.group.lookAt(cx, 0, cz);
+    });
+    // Defense loosely mills around on their side
+    players.defense.forEach(p => { p.group.position.y = 0; });
 }
 
 function updateTimeoutDisplay() {
@@ -2619,7 +2699,7 @@ function animate() {
         document.getElementById('pat-meter-indicator').style.left = (patMeterPos * 96).toFixed(1) + '%';
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
