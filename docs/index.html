@@ -1,0 +1,2958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantastic Football</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body { margin: 0; overflow: hidden; font-family: 'Press Start 2P', monospace; background-color: #000; user-select: none; }
+        canvas { display: block; }
+        
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
+        
+        .menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 10, 20, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 100; color: white;}
+        .menu h1 { font-size: 3rem; margin-bottom: 10px; color: #ffcc00; text-shadow: 4px 4px 0 #e31837; text-align: center; line-height: 1.4;}
+        .menu p { font-size: 0.8rem; margin-bottom: 30px; text-align: center; color: #aaa; line-height: 1.5;}
+        
+        .btn-retro { padding: 15px 30px; font-size: 1rem; font-family: 'Press Start 2P', monospace; cursor: pointer; background: #e31837; color: white; border: 4px solid #fff; border-radius: 0; text-transform: uppercase; margin-top: 15px; box-shadow: inset -4px -4px 0px rgba(0,0,0,0.5); transition: transform 0.1s; }
+        .btn-retro:active { box-shadow: inset 4px 4px 0px rgba(0,0,0,0.5); transform: translateY(4px); }
+        .hidden { display: none !important; }
+
+        .controls-list { font-size: 0.7rem; background: #002244; padding: 20px; border: 4px solid #ffcc00; text-align: left; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; line-height: 1.5; color: #fff;}
+        .controls-list span { color: #ffcc00; }
+
+        #scoreboard { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: #002244; color: white; display: flex; flex-direction: column; align-items: center; padding: 15px 30px; border: 4px solid #ffcc00; pointer-events: auto; box-shadow: 4px 4px 0px rgba(0,0,0,0.5); z-index: 50;}
+        .score-row { display: flex; align-items: center; gap: 20px; font-size: 1rem; text-transform: uppercase; }
+        .team-name { color: #00aaff; }
+        .team-name.def { color: #e31837; }
+        .score { font-size: 1.5rem; color: #fff; }
+        .clock { margin: 0 20px; color: #ffcc00; display: flex; align-items: center; font-size: 1.2rem; }
+        #down-distance { font-size: 0.8rem; margin-top: 15px; color: #fff; letter-spacing: 1px; }
+
+        #playbook { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); pointer-events: auto; width: 680px; max-height: 270px; overflow-y: auto; z-index: 50; background: rgba(0,8,22,0.92); border: 4px solid #ffcc00; padding: 10px; box-sizing: border-box; }
+        #playbook::-webkit-scrollbar { width: 8px; } #playbook::-webkit-scrollbar-track { background: #001133; } #playbook::-webkit-scrollbar-thumb { background: #ffcc00; }
+        .playbook-inner { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .play-card { background: #002244; border: 3px solid #ffcc00; padding: 10px 8px; color: white; cursor: pointer; text-align: center; font-size: 0.6rem; line-height: 1.5; width: 118px; box-shadow: inset -3px -3px 0px rgba(0,0,0,0.5); }
+        .play-card:active { box-shadow: inset 3px 3px 0px rgba(0,0,0,0.5); transform: translateY(3px); }
+        .play-divider { width: 100%; text-align: center; color: #e31837; font-size: 0.5rem; padding: 3px 0; letter-spacing: 2px; }
+
+        /* Quarter break overlay */
+        #quarter-break { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: none; z-index: 150; }
+        #quarter-break-text { color: #ffcc00; font-family: 'Press Start 2P', monospace; font-size: 2.2rem; text-shadow: 4px 4px 0 #000, 0 0 30px rgba(255,204,0,0.6); text-align: center; line-height: 1.8; }
+
+        /* Halftime overlay */
+        #halftime-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 160; background: rgba(0,0,0,0.55); color: white; }
+
+        /* Timeout display */
+        #timeout-display { font-size: 0.55rem; color: #00ffcc; margin-top: 6px; letter-spacing: 2px; cursor: pointer; pointer-events: auto; }
+
+        /* Extra point screen */
+        #extra-point-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 175; background: rgba(0,0,0,0.78); color: white; }
+        #pat-meter { width: 440px; height: 46px; background: #111; border: 4px solid #fff; position: relative; margin: 16px 0; overflow: hidden; box-shadow: 4px 4px 0 rgba(0,0,0,0.6); }
+        #pat-meter-good { position: absolute; left: 35%; width: 30%; height: 100%; background: #00cc44; opacity: 0.75; }
+        #pat-meter-indicator { position: absolute; top: 0; width: 10px; height: 100%; background: #ffff00; left: 0; box-shadow: 0 0 10px #ffff00; }
+
+        #hud { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; pointer-events: none; width: 600px; text-align: center; z-index: 50;}
+        #instructions { color: #ffcc00; font-size: 1rem; text-shadow: 3px 3px 0 #000; margin-bottom: 10px; line-height: 1.5;}
+        #hang-time-ui { position: absolute; color: white; font-size: 0.7rem; background: rgba(0,0,0,0.7); padding: 5px; border: 2px solid #00ff00; pointer-events: none; z-index: 50;}
+
+        #vertical-power-meter { position: absolute; right: 50px; top: 50%; transform: translateY(-50%); width: 30px; height: 300px; background: #000; border: 4px solid #fff; pointer-events: none; box-shadow: 4px 4px 0px rgba(0,0,0,0.5); z-index: 50;}
+        #vertical-power-fill { width: 100%; height: 50%; background: #00ff00; position: absolute; bottom: 0; left: 0; transition: height 0.1s;}
+
+        #right-hud { position: absolute; bottom: 30px; right: 30px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; gap: 15px; width: 250px; z-index: 50;}
+        #stamina-bar { width: 100%; height: 30px; background: #000; border: 4px solid #fff; overflow: hidden; position: relative;}
+        #stamina-fill { width: 100%; height: 100%; background: #00ff00; transition: width 0.1s; }
+        .stamina-label { color: black; font-size: 0.6rem; position: absolute; width: 100%; text-align: center; line-height: 30px; pointer-events: none;}
+
+        /* Sim Screen */
+        #sim-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #002244; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 200; color: white; pointer-events: auto;}
+        #sim-screen h1 { font-size: 2rem; margin-bottom: 12px; color: #ffcc00; }
+        #sim-possession { font-size: 0.85rem; letter-spacing: 2px; padding: 7px 22px; border-radius: 6px; margin-bottom: 14px; border: 2px solid rgba(255,255,255,0.25); transition: background 0.3s; }
+        .sim-log { width: 70%; height: 46%; background: #000; border: 4px solid #fff; padding: 20px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; margin-bottom: 30px; line-height: 1.8; text-align: left; }
+        .sim-buttons { display: flex; gap: 20px; }
+        .sim-timestamp { color: #ffcc00; margin-right: 10px; }
+        .sim-score { color: #00ffff; margin-left: 10px; }
+        .sim-off { color: #00ff88; }
+        .sim-def { color: #ff6666; }
+
+        /* Franchise Additions */
+        #team-record-display { font-size: 1rem; color: #00ff00; margin-bottom: 20px; letter-spacing: 2px;}
+        .schedule-list { width: 60%; height: 400px; background: #000; border: 4px solid #fff; overflow-y: auto; padding: 10px; font-size: 0.8rem; line-height: 1.8;}
+        .schedule-row { display: flex; justify-content: space-between; border-bottom: 2px dashed #444; padding: 10px; }
+        .schedule-row.active { background: #002244; color: #ffcc00; border: 2px solid #ffcc00; }
+        
+        .matchup-container { display: flex; align-items: center; justify-content: center; gap: 40px; margin-top: 250px; font-size: 1.5rem; text-shadow: 2px 2px 0 #000; width: 100%;}
+        .team-block { display: flex; flex-direction: column; align-items: center; width: 300px; }
+        .team-record { font-size: 0.8rem; color: #aaa; margin-top: 10px; }
+        .vs-text { color: #ffcc00; font-size: 2rem; }
+        .at-text { color: #00ffff; font-size: 1.2rem; margin-bottom: 10px; }
+
+        .table-retro { width: 80%; max-width: 800px; border-collapse: collapse; margin: 30px 0; font-size: 1rem; text-align: center; color: white; background: #000;}
+        .table-retro th, .table-retro td { border: 4px solid #fff; padding: 15px; }
+        .table-retro th { background: #ffcc00; color: black; }
+        .table-retro td:first-child { text-align: left; color: #00aaff; }
+        .table-retro tr:last-child td:first-child { color: #e31837; }
+        .final-score-col { font-weight: bold; color: #00ff00; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+            integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"></script>
+    <!-- Google Drive API – loaded async; callbacks fire gapiLoaded() / gisLoaded() -->
+    <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()" async defer></script>
+</head>
+<body>
+    <div id="hang-time-ui" class="hidden">Time: 0.00s</div>
+
+    <div id="sim-screen" class="hidden">
+        <h1>Sim the Game</h1>
+        <div id="sim-possession">🏈 — — —</div>
+        <div id="sim-log" class="sim-log">
+            <div id="sim-log-content">Initializing Play-By-Play Simulation...<br><br></div>
+        </div>
+        <div class="sim-buttons">
+            <button class="btn-retro" style="background:#ffcc00; color:black;" onclick="skipToNextQuarter()">SKIP QTR</button>
+            <button class="btn-retro" style="background:#e31837;" onclick="simToEnd()">SIM TO END GAME</button>
+            <button id="btn-stop-sim" class="btn-retro" onclick="requestStopSim()">STOP SIM</button>
+        </div>
+    </div>
+
+    <div id="ui-layer">
+        <div id="main-menu" class="menu">
+            <h1>FANTASTIC<br>FOOTBALL</h1>
+            <div id="team-record-display">PHI EAGLES | 0-0-0</div>
+            <div class="controls-list">
+                <div><span>WASD</span> Move / Scramble</div>
+                <div><span>Mouse Click</span> Throw Pass</div>
+                <div><span>Q / E</span> Throw Power</div>
+                <div><span>Spacebar</span> Snap / Hurdle</div>
+                <div><span>SHIFT</span> Sprint (Post-throw/Scramble)</div>
+                <div><span>T</span> Call Timeout</div>
+                <div><span>Escape</span> Pause</div>
+            </div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center;">
+                <button class="btn-retro" onclick="openMatchupScreen()">PLAY WEEK 1</button>
+                <button class="btn-retro" style="background:#00aaff;" onclick="openSchedule()">SCHEDULE</button>
+                <button id="btn-mute" class="btn-retro" style="background:#444;" onclick="toggleAudio()">MUTE AUDIO</button>
+            </div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
+                <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="saveToDrive()">SAVE TO DRIVE</button>
+                <button class="btn-retro" style="background:#4285f4; font-size:0.7rem; padding:10px 20px;" onclick="loadFromDrive()">LOAD FROM DRIVE</button>
+            </div>
+            <div id="drive-status" class="hidden" style="font-size:0.65rem; margin-top:10px; letter-spacing:2px;"></div>
+        </div>
+
+        <div id="schedule-screen" class="menu hidden">
+            <h1 style="font-size:2rem;">SEASON SCHEDULE</h1>
+            <div class="schedule-list" id="schedule-list"></div>
+            <button class="btn-retro" onclick="closeSchedule()">BACK TO MENU</button>
+        </div>
+
+        <div id="matchup-screen" class="menu hidden" style="background: transparent;">
+            <div class="matchup-container">
+                <div class="team-block">
+                    <div id="mu-away-name" style="color:#ffffff;">AWAY TEAM</div>
+                    <div id="mu-away-rec" class="team-record">0-0</div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div class="at-text">@</div>
+                    <div class="vs-text">VS</div>
+                </div>
+                <div class="team-block">
+                    <div id="mu-home-name" style="color:#ffffff;">HOME TEAM</div>
+                    <div id="mu-home-rec" class="team-record">0-0</div>
+                </div>
+            </div>
+            <button class="btn-retro" onclick="startGame()">START GAME</button>
+            <button class="btn-retro" style="background:#444; padding: 10px 20px; font-size: 0.7rem;" onclick="closeMatchupScreen()">BACK</button>
+        </div>
+
+        <div id="box-score-screen" class="menu hidden">
+            <h1>FINAL SCORE</h1>
+            <table class="table-retro">
+                <thead>
+                    <tr>
+                        <th>TEAM</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>FINAL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td id="bs-home-name">PHI</td>
+                        <td id="bs-h-q1">0</td><td id="bs-h-q2">0</td><td id="bs-h-q3">0</td><td id="bs-h-q4">0</td>
+                        <td id="bs-h-final" class="final-score-col">0</td>
+                    </tr>
+                    <tr>
+                        <td id="bs-away-name">DAL</td>
+                        <td id="bs-a-q1">0</td><td id="bs-a-q2">0</td><td id="bs-a-q3">0</td><td id="bs-a-q4">0</td>
+                        <td id="bs-a-final" class="final-score-col">0</td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="btn-retro" onclick="advanceWeek()">CONTINUE</button>
+        </div>
+
+        <div id="pause-menu" class="menu hidden">
+            <h1>PAUSED</h1>
+            <button class="btn-retro" onclick="resumeGame()">RESUME</button>
+            <button class="btn-retro" onclick="goToMainMenu()" style="background: #444;">QUIT (FORFEIT)</button>
+        </div>
+
+        <div id="scoreboard" class="hidden">
+            <div class="score-row">
+                <span id="scoreboard-off-name" class="team-name">PHI</span> <span id="score-off" class="score">0</span>
+                <span class="clock" id="game-clock">Q1 2:00</span>
+                <span id="score-def" class="score">0</span> <span id="scoreboard-opp-name" class="team-name def">DAL</span>
+            </div>
+            <div id="down-distance">1ST & 10</div>
+            <div id="timeout-display" onclick="callTimeout()">TO: ●●●</div>
+            <div id="def-scheme-label" style="font-size:0.45rem;color:#aabbcc;letter-spacing:2px;margin-top:4px;"></div>
+        </div>
+
+        <div id="playbook" class="hidden">
+            <div style="text-align:center; color:#ffcc00; font-size:0.65rem; padding:5px 0 8px; letter-spacing:3px; border-bottom:2px solid #ffcc00; margin-bottom:8px;">SELECT PLAY</div>
+            <div class="playbook-inner">
+                <div class="play-divider">── PASS PLAYS ──</div>
+                <div class="play-card" onclick="selectPlay('slant')" onmouseenter="previewPlay('slant')" onmouseleave="clearRoutePreview()">SLANTS</div>
+                <div class="play-card" onclick="selectPlay('verts')" onmouseenter="previewPlay('verts')" onmouseleave="clearRoutePreview()">FOUR VERTS</div>
+                <div class="play-card" onclick="selectPlay('curls')" onmouseenter="previewPlay('curls')" onmouseleave="clearRoutePreview()">CURLS</div>
+                <div class="play-card" onclick="selectPlay('posts')" onmouseenter="previewPlay('posts')" onmouseleave="clearRoutePreview()">POSTS</div>
+                <div class="play-card" onclick="selectPlay('hitches')" onmouseenter="previewPlay('hitches')" onmouseleave="clearRoutePreview()">HITCHES</div>
+                <div class="play-card" onclick="selectPlay('corners')" onmouseenter="previewPlay('corners')" onmouseleave="clearRoutePreview()">CORNERS</div>
+                <div class="play-card" onclick="selectPlay('outs')" onmouseenter="previewPlay('outs')" onmouseleave="clearRoutePreview()">OUT ROUTES</div>
+                <div class="play-card" onclick="selectPlay('crossing')" onmouseenter="previewPlay('crossing')" onmouseleave="clearRoutePreview()">CROSSING</div>
+                <div class="play-card" onclick="selectPlay('digs')" onmouseenter="previewPlay('digs')" onmouseleave="clearRoutePreview()">DIGS</div>
+                <div class="play-card" onclick="selectPlay('comeback')" onmouseenter="previewPlay('comeback')" onmouseleave="clearRoutePreview()">COMEBACK</div>
+                <div class="play-card" onclick="selectPlay('screen')" onmouseenter="previewPlay('screen')" onmouseleave="clearRoutePreview()">WR SCREEN</div>
+                <div class="play-divider">── RUN PLAYS ──</div>
+                <div class="play-card" onclick="selectPlay('dive')" style="border-color:#e31837;">HB DIVE</div>
+                <div class="play-card" onclick="selectPlay('sweepl')" style="border-color:#e31837;">SWEEP LEFT</div>
+                <div class="play-card" onclick="selectPlay('sweepr')" style="border-color:#e31837;">SWEEP RIGHT</div>
+                <div class="play-card" onclick="selectPlay('draw')" style="border-color:#e31837;">DRAW</div>
+            </div>
+        </div>
+
+        <div id="hud">
+            <div id="instructions" class="hidden">SELECT PLAY</div>
+        </div>
+
+        <div id="right-hud" class="hidden">
+            <button id="btn-sim" class="btn-retro" onclick="startSim()" style="padding: 10px; font-size:0.7rem;">SIM GAME</button>
+            <div id="stamina-bar" class="hidden">
+                <div class="stamina-label">STAMINA</div>
+                <div id="stamina-fill"></div>
+            </div>
+        </div>
+
+        <div id="vertical-power-meter" class="hidden">
+            <div id="vertical-power-fill"></div>
+        </div>
+    </div>
+
+    <!-- Quarter break overlay (no background, just text floating over 3D scene) -->
+    <div id="quarter-break" class="hidden">
+        <p id="quarter-break-text"></p>
+    </div>
+
+    <!-- Extra point / kickoff / punt screen (reused for all kick meters) -->
+    <div id="extra-point-screen" class="hidden">
+        <h1 id="pat-title" style="font-size:2.5rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">TOUCHDOWN!</h1>
+        <div id="pat-subtitle" style="font-size:0.9rem; color:#00ff88; letter-spacing:3px; margin-bottom:28px;">+6 POINTS</div>
+        <div id="pat-action-label" style="font-size:0.7rem; color:#ffcc00; letter-spacing:2px; margin-bottom:4px;">EXTRA POINT ATTEMPT</div>
+        <div id="pat-meter">
+            <div id="pat-meter-good"></div>
+            <div id="pat-meter-indicator"></div>
+        </div>
+        <div style="font-size:0.6rem; color:#aaa; margin-bottom:22px; letter-spacing:1px;">PRESS SPACE TO KICK — HIT THE GREEN ZONE</div>
+        <button id="btn-go-for-two" class="btn-retro" style="background:#444; font-size:0.55rem; padding:10px 22px;" onclick="goForTwo()">GO FOR 2 (PLAY IT)</button>
+    </div>
+
+    <!-- Halftime overlay (semi-transparent so cheerleaders are visible) -->
+    <div id="halftime-screen" class="hidden">
+        <h1 style="font-size:2.8rem; margin-bottom:15px; color:#ffcc00; text-shadow:4px 4px 0 #e31837;">HALFTIME</h1>
+        <div id="halftime-score" style="font-size:1.1rem; color:#fff; margin-bottom:25px; letter-spacing:3px;">0 — 0</div>
+        <div style="color:#ffcc00; font-size:0.7rem; margin-bottom:40px; line-height:2.2; text-align:center;">
+            ★ CHEERLEADERS ARE PERFORMING ★<br>
+            <span style="color:#aaa; font-size:0.55rem;">TIMEOUTS RESET FOR 2ND HALF</span>
+        </div>
+        <button class="btn-retro" onclick="resumeFromHalftime()">START 2ND HALF</button>
+    </div>
+
+<script>
+/**
+ * FRANCHISE & SCHEDULING DATA
+ */
+const MY_TEAM = { id: 'PHI', name: 'EAGLES', color: '#004c54', helmet: '#004c54' };
+
+const NFL_TEAMS = [
+    {id: 'DAL', name: 'COWBOYS', color: '#003594', helmet: '#c5ceea'}, {id: 'NYG', name: 'GIANTS', color: '#0b2265', helmet: '#0b2265'}, 
+    {id: 'WAS', name: 'COMMANDERS', color: '#5a1414', helmet: '#5a1414'}, {id: 'SF', name: '49ERS', color: '#aa0000', helmet: '#d3bc8d'}, 
+    {id: 'KC', name: 'CHIEFS', color: '#e31837', helmet: '#e31837'}, {id: 'BUF', name: 'BILLS', color: '#00338d', helmet: '#ffffff'},
+    {id: 'CIN', name: 'BENGALS', color: '#fb4f14', helmet: '#fb4f14'}, {id: 'BAL', name: 'RAVENS', color: '#241773', helmet: '#000000'}, 
+    {id: 'PIT', name: 'STEELERS', color: '#ffb612', helmet: '#000000'}, {id: 'GB', name: 'PACKERS', color: '#203731', helmet: '#ffb612'}, 
+    {id: 'CHI', name: 'BEARS', color: '#0b162a', helmet: '#0b162a'}, {id: 'DET', name: 'LIONS', color: '#0076b6', helmet: '#b0b7bc'},
+    {id: 'MIN', name: 'VIKINGS', color: '#4f2683', helmet: '#4f2683'}, {id: 'ATL', name: 'FALCONS', color: '#a71930', helmet: '#000000'}, 
+    {id: 'NO', name: 'SAINTS', color: '#d3bc8d', helmet: '#d3bc8d'}, {id: 'TB', name: 'BUCCANEERS', color: '#d50a0a', helmet: '#34302b'}, 
+    {id: 'LAR', name: 'RAMS', color: '#003594', helmet: '#003594'}, {id: 'SEA', name: 'SEAHAWKS', color: '#002244', helmet: '#002244'}
+];
+
+let myRecord = { w: 0, l: 0, t: 0 };
+let currentWeek = 1;
+let seasonSchedule = [];
+let currentOpponent = null;
+let isUserHome = true;
+
+let qtrScores = { off: [0,0,0,0], def: [0,0,0,0] };
+
+/**
+ * THREE.JS SETUP & GAME ENGINE
+ */
+let scene, camera, renderer;
+let GAME_STATE = 'MENU'; 
+let clock = new THREE.Clock();
+let keys = {}; let mouse = new THREE.Vector2(); let cursorX = 0, cursorY = 0;
+let raycaster = new THREE.Raycaster();
+let timeScale = 1.0; 
+
+// Audio Context
+let audioCtx; let isMuted = false;
+let crowdGain; let crowdFilter; let musicInterval;
+
+// Entities
+let field, ball, endzoneDef, endzoneHome;
+let players = { offense: [], defense: [] };
+let activeReceiver = null; let targetedReceiver = null; let currentPlay = null; let isRunPlay = false; let handoffPending = false; let divePending = false;
+let diveAnim   = null; // { carrier, startPos, endPos, elapsed, duration }
+let tackleAnim = null; // { carrier, tackler, elapsed, duration, message }
+let runArrow; // ArrowHelper that shows run-play direction during PRE_SNAP
+let menuPlayerModel = null;
+
+// Mechanics
+let passTarget = new THREE.Vector3(); let landingMarker;
+let trajectoryLine; let routeLinesGroup = new THREE.Group();
+let passPower = 0.5; let passTimeEstimate = 0;
+let jumpCooldown = 0;
+
+// Rules
+let lineOfScrimmageZ = 60; let yardsToGo = 10; let currentDown = 1;
+let ballPastLOSBoostDone = false; // one DB/safety gets speed 13 when ball crosses LOS
+let inOpponentDriveSim  = false;  // true while startOpponentDriveSim drive is running
+let pendingStopSim      = false;  // user pressed STOP SIM during opponent drive — stop after drive ends
+let simPossession       = 'off';  // 'off' = user's team, 'def' = opponent
+let blueLine, yellowLine;
+let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
+let timeoutsOff = 3; let pendingQuarterEnd = false;
+let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
+let isTwoPointAttempt = false;
+let blimpGroup = null;
+let cheerleaders = [];
+let defScheme = 'base'; // randomized each formation: 'base','cover2','cover3','man','prevent'
+let simIntervalTimer;
+
+const HUMAN_SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0xf1c27d, 0xffdbac, 0x4a3123];
+
+init();
+generateSchedule();
+animate();
+
+document.body.addEventListener('click', () => { if(!audioCtx) initAudio(); }, {once:true});
+
+/**
+ * FRANCHISE LOGIC
+ */
+function generateSchedule() {
+    let opponents = [...NFL_TEAMS];
+    for (let i = opponents.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [opponents[i], opponents[j]] = [opponents[j], opponents[i]];
+    }
+    let byeWeek = Math.floor(Math.random() * 8) + 5; 
+    
+    for(let w=1; w<=18; w++) {
+        if(w === byeWeek) { seasonSchedule.push({ week: w, opp: null, isBye: true, result: null }); }
+        else { seasonSchedule.push({ week: w, opp: opponents.pop(), isBye: false, result: null }); }
+    }
+    updateMenuUI();
+}
+
+function updateMenuUI() {
+    document.getElementById('team-record-display').innerText = `${MY_TEAM.id} ${MY_TEAM.name} | ${myRecord.w}-${myRecord.l}-${myRecord.t}`;
+    const playBtn = document.querySelector('#main-menu .btn-retro:nth-child(1)');
+    if (currentWeek <= 18) {
+        let currentMatch = seasonSchedule[currentWeek-1];
+        playBtn.innerText = currentMatch.isBye ? `SIMULATE BYE WEEK` : `PLAY WEEK ${currentWeek}`;
+    } else {
+        playBtn.innerText = "SEASON OVER";
+    }
+}
+
+function openSchedule() {
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('schedule-screen').classList.remove('hidden');
+    let list = document.getElementById('schedule-list');
+    list.innerHTML = "";
+    seasonSchedule.forEach(g => {
+        let row = document.createElement('div');
+        row.className = `schedule-row ${g.week === currentWeek ? 'active' : ''}`;
+        let oppStr = g.isBye ? "BYE WEEK" : g.opp.id;
+        let resStr = g.result ? g.result : (g.week === currentWeek ? "THIS WEEK" : "-");
+        row.innerHTML = `<span>WEEK ${g.week}</span> <span>VS ${oppStr}</span> <span>${resStr}</span>`;
+        list.appendChild(row);
+    });
+}
+function closeSchedule() { document.getElementById('schedule-screen').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); }
+
+function openMatchupScreen() {
+    if(!audioCtx) initAudio();
+    if(currentWeek > 18) return;
+    let match = seasonSchedule[currentWeek-1];
+    
+    if (match.isBye) { match.result = "BYE"; currentWeek++; updateMenuUI(); return; }
+
+    currentOpponent = match.opp;
+    isUserHome = Math.random() > 0.5; // Randomize home/away for the user
+    
+    let simW = 0, simL = 0;
+    if (currentWeek > 1) {
+        let gamesPlayed = currentWeek - 1;
+        simW = Math.floor(Math.random() * (gamesPlayed + 1));
+        simL = gamesPlayed - simW;
+    }
+
+    const awayBlockName = document.getElementById('mu-away-name');
+    const awayBlockRec = document.getElementById('mu-away-rec');
+    const homeBlockName = document.getElementById('mu-home-name');
+    const homeBlockRec = document.getElementById('mu-home-rec');
+
+    if (isUserHome) {
+        awayBlockName.innerText = `${currentOpponent.id} ${currentOpponent.name}`;
+        awayBlockName.style.color = currentOpponent.color;
+        awayBlockRec.innerText = `${simW}-${simL}`;
+        homeBlockName.innerText = `${MY_TEAM.id} ${MY_TEAM.name}`;
+        homeBlockName.style.color = MY_TEAM.color;
+        homeBlockRec.innerText = `${myRecord.w}-${myRecord.l}`;
+    } else {
+        awayBlockName.innerText = `${MY_TEAM.id} ${MY_TEAM.name}`;
+        awayBlockName.style.color = MY_TEAM.color;
+        awayBlockRec.innerText = `${myRecord.w}-${myRecord.l}`;
+        homeBlockName.innerText = `${currentOpponent.id} ${currentOpponent.name}`;
+        homeBlockName.style.color = currentOpponent.color;
+        homeBlockRec.innerText = `${simW}-${simL}`;
+    }
+
+    players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group));
+    if(menuPlayerModel) scene.remove(menuPlayerModel.group);
+    
+    // Show user's player model in menu
+    menuPlayerModel = new Player(0, 0, 'offense', 'WR', '1', isUserHome, currentOpponent);
+    camera.position.set(0, 3, 7);
+    camera.lookAt(0, 2, 0);
+
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('matchup-screen').classList.remove('hidden');
+    GAME_STATE = 'MATCHUP';
+}
+
+function closeMatchupScreen() {
+    if(menuPlayerModel) scene.remove(menuPlayerModel.group);
+    camera.position.set(0, 15, 40); camera.lookAt(0, 0, 0);
+    document.getElementById('matchup-screen').classList.add('hidden');
+    document.getElementById('main-menu').classList.remove('hidden');
+    GAME_STATE = 'MENU';
+}
+
+/**
+ * AUDIO & INITIALIZATION
+ */
+function initAudio() {
+    if(audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let bufferSize = 2 * audioCtx.sampleRate; let noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    let output = noiseBuffer.getChannelData(0); for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+    let noiseSrc = audioCtx.createBufferSource(); noiseSrc.buffer = noiseBuffer; noiseSrc.loop = true;
+    crowdFilter = audioCtx.createBiquadFilter(); crowdFilter.type = 'lowpass'; crowdFilter.frequency.value = 400; 
+    crowdGain = audioCtx.createGain(); crowdGain.gain.value = 0.05; 
+    noiseSrc.connect(crowdFilter); crowdFilter.connect(crowdGain); crowdGain.connect(audioCtx.destination);
+    noiseSrc.start(); playMenuMusic();
+}
+function toggleAudio() {
+    if(!audioCtx) initAudio();
+    isMuted = !isMuted;
+    if(isMuted) { audioCtx.suspend(); document.getElementById('btn-mute').innerText = "UNMUTE AUDIO"; document.getElementById('btn-mute').style.background = "#e31837"; } 
+    else { audioCtx.resume(); document.getElementById('btn-mute').innerText = "MUTE AUDIO"; document.getElementById('btn-mute').style.background = "#444"; }
+}
+
+function playMenuMusic() {
+    if(!audioCtx) return;
+    let step = 0;
+    musicInterval = setInterval(() => {
+        if(GAME_STATE !== 'MENU' && GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MATCHUP') { clearInterval(musicInterval); return; }
+        let time = audioCtx.currentTime;
+        if(step % 8 === 0 || step === 10) {
+            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+            osc.type = 'square'; osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(step === 10 ? 110 : 82.41, time); 
+            gain.gain.setValueAtTime(0.1, time); gain.gain.setTargetAtTime(0, time + 0.1, 0.2);
+            osc.start(time); osc.stop(time + 0.5);
+        }
+        step = (step + 1) % 16;
+    }, 150); 
+}
+// Spawn a single "voice" — a sawtooth oscillator filtered by two bandpass
+// resonators tuned to vocal formants. Vibrato adds a human warble. Multiple
+// voices overlap to read as a crowd of individual people, not a synth tone.
+function spawnVoice(time, pitch, intensity, formant1, formant2, releaseSec) {
+    const ctx = audioCtx;
+    // Vibrato LFO modulating frequency (warble = humanness).
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 4.5 + Math.random() * 3;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = pitch * 0.035;
+    lfo.connect(lfoGain);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(pitch, time);
+    lfoGain.connect(osc.frequency);
+
+    // Two stacked bandpass filters at the chosen vowel's formant frequencies.
+    const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = formant1; f1.Q.value = 6;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = formant2; f2.Q.value = 5;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(intensity, time + 0.08);
+    gain.gain.linearRampToValueAtTime(intensity * 0.55, time + 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + releaseSec);
+
+    osc.connect(f1); f1.connect(f2); f2.connect(gain); gain.connect(audioCtx.destination);
+    lfo.start(time); osc.start(time);
+    lfo.stop(time + releaseSec + 0.1); osc.stop(time + releaseSec + 0.1);
+}
+
+function triggerCheer() {
+    if(!audioCtx || isMuted) return;
+    const ct = audioCtx.currentTime;
+    // Lift the ambient murmur so individual voices sit on top of a crowd bed.
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.linearRampToValueAtTime(0.28, ct + 0.25);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.linearRampToValueAtTime(1600, ct + 0.25);
+
+    // ~18 staggered "AH" voices at varied pitches to sound like a real cheer.
+    // Formants 700 Hz / 1100 Hz are the standard vowel-A resonances.
+    for (let i = 0; i < 18; i++) {
+        const offset = Math.random() * 0.7;
+        const pitch = 180 + Math.random() * 280;        // 180–460 Hz fundamental
+        const intensity = 0.035 + Math.random() * 0.035;
+        const release = 1.3 + Math.random() * 0.6;
+        spawnVoice(ct + offset, pitch, intensity, 700, 1100, release);
+    }
+    setTimeout(() => fadeCrowd(), 1500);
+}
+
+function triggerBoo() {
+    if(!audioCtx || isMuted) return;
+    const ct = audioCtx.currentTime;
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.linearRampToValueAtTime(0.22, ct + 0.3);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.linearRampToValueAtTime(450, ct + 0.3);
+
+    // Boos: lower pitches, longer release, "OOO" vowel formants (350 / 800 Hz).
+    for (let i = 0; i < 14; i++) {
+        const offset = Math.random() * 0.6;
+        const pitch = 100 + Math.random() * 110;
+        const intensity = 0.035 + Math.random() * 0.03;
+        const release = 1.7 + Math.random() * 0.5;
+        spawnVoice(ct + offset, pitch, intensity, 350, 800, release);
+    }
+    setTimeout(() => fadeCrowd(), 1700);
+}
+
+function fadeCrowd() {
+    if(!audioCtx || isMuted) return;
+    const ct = audioCtx.currentTime;
+    crowdGain.gain.cancelScheduledValues(ct);
+    crowdGain.gain.setValueAtTime(crowdGain.gain.value, ct);
+    crowdGain.gain.exponentialRampToValueAtTime(0.05, ct + 4.5);
+    crowdFilter.frequency.cancelScheduledValues(ct);
+    crowdFilter.frequency.exponentialRampToValueAtTime(400, ct + 4.5);
+}
+// Backwards-compat alias for any callers that still reference resetCrowd.
+function resetCrowd() { fadeCrowd(); }
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB);
+    scene.fog = new THREE.Fog(0x87CEEB, 80, 400);
+
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 15, 40); camera.lookAt(0, 0, 0);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6); scene.add(hemiLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(50, 100, 50); dirLight.castShadow = true; scene.add(dirLight);
+
+    buildStadium(); buildField();
+    
+    const ballGeo = new THREE.SphereGeometry(0.185, 16, 16); ballGeo.scale(1, 1, 1.8);
+    const ballMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
+    ball = new THREE.Mesh(ballGeo, ballMat); ball.castShadow = true; scene.add(ball);
+    // Laces: a thin spine + 5 cross-stitches sitting flush on the top surface (radius 0.185).
+    const laceMat = new THREE.MeshBasicMaterial({ color: 0xf5f1e0 });
+    const k = 0.185 / 0.28; // proportional scale relative to the original tuning
+    const spineGeo = new THREE.BoxGeometry(0.020 * k, 0.010 * k, 0.34 * k);
+    const spine = new THREE.Mesh(spineGeo, laceMat); spine.position.y = 0.175; ball.add(spine);
+    const stitchGeo = new THREE.BoxGeometry(0.072 * k, 0.014 * k, 0.020 * k);
+    for (let i = -2; i <= 2; i++) {
+        const stitch = new THREE.Mesh(stitchGeo, laceMat);
+        stitch.position.set(0, 0.180, i * 0.068 * k);
+        ball.add(stitch);
+    }
+
+    trajectoryLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: 0xffaa00, dashSize: 1, gapSize: 0.5, linewidth: 2 }));
+    trajectoryLine.visible = false; scene.add(trajectoryLine);
+    landingMarker = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.2, 16), new THREE.MeshBasicMaterial({color: 0x00ff00, side: THREE.DoubleSide}));
+    landingMarker.rotation.x = -Math.PI/2; landingMarker.position.y = 0.1; landingMarker.visible = false; scene.add(landingMarker);
+
+    runArrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(0, 1.5, 0), 7, 0xffff00, 2.5, 1.8);
+    runArrow.visible = false; scene.add(runArrow);
+
+    scene.add(routeLinesGroup);
+
+    window.addEventListener('resize', onWindowResize);
+    document.addEventListener('keydown', (e) => { keys[e.code] = true; checkInputs(e); });
+    document.addEventListener('keyup', (e) => { keys[e.code] = false; checkInputs(e); });
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+
+    setInterval(updateClockDOM, 1000);
+}
+
+// Player names keyed by role+number — used on jersey back textures
+const PLAYER_NAME_MAP = {
+    'QB1':'HURTS','WR11':'A.BROWN','WR6':'J.SMITH','WR14':'D.SMITH',
+    'TE88':'GOEDERT','RB22':'SANDERS','OL60':'KELCE','OL63':'MAILATA',
+    'OL69':'JURGENS','OL78':'JOHNSON','OL70':'SEUMALO',
+    'LB55':'GRAHAM','LB58':'SWEAT','LB50':'GERRY',
+    'CB7':'BRADBERRY','CB21':'SLAY','FS28':'GARDNER','SS6':'AVERY',
+    'DL94':'REDDICK','DL98':'DAVIS','DL99':'COX','DL91':'CARTER'
+};
+
+function _jerseyTextColor(hex) {
+    if (!hex || hex.length < 6) return '#ffffff';
+    const h = hex.replace('#','');
+    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+    return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.55 ? '#111111' : '#ffffff';
+}
+
+function createJerseyTexture(number, name, jerseyHex) {
+    const tc = _jerseyTextColor(jerseyHex);
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 128;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = jerseyHex || '#004c54'; ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = tc; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 54px Arial'; ctx.fillText(number, 64, 52);
+    ctx.font = 'bold 16px Arial'; ctx.fillText(name || '', 64, 96);
+    return new THREE.CanvasTexture(cv);
+}
+
+function createFieldTexture() {
+    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 2048; const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#2d5a27'; ctx.fillRect(0,0,1024,2048);
+    for(let i=0; i<30000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#244c1e' : '#3a7233'; ctx.fillRect(Math.random() * 1024, Math.random() * 2048, 2, 10 + Math.random() * 20);
+    }
+    // NFL shield logo at the 50-yard line (canvas center y=1024)
+    const lx = 512, ly = 1024;
+    ctx.save();
+    // Blue shield
+    ctx.fillStyle = '#013369';
+    ctx.beginPath(); ctx.ellipse(lx, ly, 70, 90, 0, 0, Math.PI * 2); ctx.fill();
+    // Red bottom half
+    ctx.fillStyle = '#D50A0A';
+    ctx.beginPath(); ctx.ellipse(lx, ly + 22, 70, 68, 0, 0, Math.PI * 2); ctx.fill();
+    // Football silhouette
+    ctx.fillStyle = '#5c3a1e';
+    ctx.beginPath(); ctx.ellipse(lx, ly - 12, 18, 32, Math.PI/8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx - 8, ly - 12); ctx.lineTo(lx + 8, ly - 12); ctx.stroke();
+    // "NFL" text
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('NFL', lx, ly + 54);
+    ctx.restore();
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 80px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for(let i=0; i<=100; i+=10) {
+        let y = (i / 100) * 2048; ctx.fillRect(0, y - 4, 1024, 8);
+        if(i > 0 && i < 100) {
+            let number = i <= 50 ? i : 100 - i;
+            ctx.save(); ctx.translate(150, y); ctx.rotate(-Math.PI/2); ctx.fillText(number, 0, 0); ctx.restore();
+            ctx.save(); ctx.translate(1024 - 150, y); ctx.rotate(Math.PI/2); ctx.fillText(number, 0, 0); ctx.restore();
+        }
+    }
+    return new THREE.CanvasTexture(canvas);
+}
+function createEndzoneTexture(text, bgColor, textColor) {
+    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 256; const ctx = canvas.getContext('2d');
+    ctx.fillStyle = bgColor; ctx.fillRect(0,0,1024,256);
+    ctx.fillStyle = textColor; ctx.font = '80px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 512, 128);
+    return new THREE.CanvasTexture(canvas);
+}
+
+function buildField() {
+    const fieldGeo = new THREE.PlaneGeometry(106, 200); 
+    const fieldMat = new THREE.MeshLambertMaterial({ map: createFieldTexture(), roughness: 0.8 });
+    field = new THREE.Mesh(fieldGeo, fieldMat); field.rotation.x = -Math.PI / 2; field.receiveShadow = true; scene.add(field);
+
+    const ezGeo = new THREE.PlaneGeometry(106, 20);
+    
+    // Placeholder endzones, replaced dynamically in startGame()
+    endzoneHome = new THREE.Mesh(ezGeo, new THREE.MeshLambertMaterial({ map: createEndzoneTexture('HOME', '#000000', '#ffffff') }));
+    endzoneHome.rotation.x = -Math.PI / 2; endzoneHome.rotation.z = Math.PI; endzoneHome.position.z = -110; endzoneHome.receiveShadow = true; scene.add(endzoneHome);
+
+    endzoneDef = new THREE.Mesh(ezGeo, new THREE.MeshLambertMaterial({ map: createEndzoneTexture('AWAY', '#000000', '#ffffff') }));
+    endzoneDef.rotation.x = -Math.PI / 2; endzoneDef.position.z = 110; endzoneDef.receiveShadow = true; scene.add(endzoneDef);
+
+    blueLine = new THREE.Mesh(new THREE.PlaneGeometry(106, 0.8), new THREE.MeshBasicMaterial({color: 0x0055ff, transparent:true, opacity: 0.8}));
+    blueLine.rotation.x = -Math.PI/2; blueLine.position.y = 0.1; scene.add(blueLine);
+
+    yellowLine = new THREE.Mesh(new THREE.PlaneGeometry(106, 0.8), new THREE.MeshBasicMaterial({color: 0xffff00, transparent:true, opacity: 0.8}));
+    yellowLine.rotation.x = -Math.PI/2; yellowLine.position.y = 0.1; scene.add(yellowLine);
+
+    buildGoalpost(120); buildGoalpost(-120);
+
+    // Ground fill: cover the gap between end zones (z ±120) and end stands (z ±145),
+    // plus side margins between the 106-wide field and the stand walls.
+    const fillMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    // Behind north end zone (z -120 to -145)
+    const ngap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
+    ngap.rotation.x = -Math.PI / 2; ngap.position.set(0, -0.05, -132); scene.add(ngap);
+    // Behind south end zone (z 120 to 145)
+    const sgap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
+    sgap.rotation.x = -Math.PI / 2; sgap.position.set(0, -0.05, 132); scene.add(sgap);
+    // Side margins (x ±53–±65) full length
+    const emL = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    emL.rotation.x = -Math.PI / 2; emL.position.set(-65, -0.05, 0); scene.add(emL);
+    const emR = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    emR.rotation.x = -Math.PI / 2; emR.position.set(65, -0.05, 0); scene.add(emR);
+}
+function buildGoalpost(zPos) {
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffff00 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 6), mat); base.position.set(0, 3, zPos); scene.add(base);
+    const cross = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 10), mat); cross.rotation.z = Math.PI / 2; cross.position.set(0, 6, zPos); scene.add(cross);
+    const up1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 15), mat); up1.position.set(-5, 13.5, zPos); scene.add(up1);
+    const up2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 15), mat); up2.position.set(5, 13.5, zPos); scene.add(up2);
+}
+function buildStadium() {
+    const standMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    const fanColors = [0xff0000, 0x0055ff, 0xffffff, 0xaaaaaa, 0x000000, 0xffff00];
+    const fanInstanced = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshLambertMaterial({ color: 0xffffff }), 20000);
+    let fanCount = 0; const dummy = new THREE.Object3D(); const colorObj = new THREE.Color();
+
+    const addFansToSection = (xCenter, yBase, zStart, zEnd, width) => {
+        for(let z=zStart; z<zEnd; z+=1.5) {
+            for(let x=xCenter - width/2; x<xCenter + width/2; x+=1.2) {
+                if(fanCount >= 20000 || Math.random() > 0.8) continue;
+                dummy.position.set(x + (Math.random()*0.4 - 0.2), yBase + 0.3, z + (Math.random()*0.4 - 0.2)); dummy.updateMatrix();
+                fanInstanced.setMatrixAt(fanCount, dummy.matrix);
+                colorObj.setHex(fanColors[Math.floor(Math.random() * fanColors.length)]);
+                fanInstanced.setColorAt(fanCount, colorObj); fanCount++;
+            }
+        }
+    };
+    for(let i=0; i<10; i++) {
+        const y = 3 + i * 4; const width = 12;
+        const standR = new THREE.Mesh(new THREE.BoxGeometry(width, y*2, 280), standMat); standR.position.set(65 + i*width, y, 0); scene.add(standR);
+        addFansToSection(65 + i*width, y*2, -135, 135, width);
+        const standL = new THREE.Mesh(new THREE.BoxGeometry(width, y*2, 280), standMat); standL.position.set(-65 - i*width, y, 0); scene.add(standL);
+        addFansToSection(-65 - i*width, y*2, -135, 135, width);
+    }
+    for(let i=0; i<6; i++) {
+        const y = 5 + i * 5; const depth = 15;
+        const standN = new THREE.Mesh(new THREE.BoxGeometry(160, y*2, depth), standMat); standN.position.set(0, y, -145 - i*depth); scene.add(standN);
+        addFansToSection(0, y*2, -145 - i*depth - depth/2, -145 - i*depth + depth/2, 150);
+        const standS = new THREE.Mesh(new THREE.BoxGeometry(160, y*2, depth), standMat); standS.position.set(0, y, 145 + i*depth); scene.add(standS);
+        addFansToSection(0, y*2, 145 + i*depth - depth/2, 145 + i*depth + depth/2, 150);
+    }
+    fanInstanced.instanceMatrix.needsUpdate = true; if(fanInstanced.instanceColor) fanInstanced.instanceColor.needsUpdate = true; scene.add(fanInstanced);
+
+    buildSidelineCharacters();
+    buildBlimp();
+}
+
+function buildSidelineCharacters() {
+    // Shared geometries / materials for the small figures
+    const bodyGeo  = new THREE.BoxGeometry(0.7, 1.0, 0.4);
+    const headGeo  = new THREE.SphereGeometry(0.32, 6, 6);
+    const legGeo   = new THREE.BoxGeometry(0.28, 0.7, 0.28);
+
+    function addFigure(x, z, bodyColor, headColor, yRot) {
+        const group = new THREE.Group();
+        const body = new THREE.Mesh(bodyGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        body.position.y = 1.2; group.add(body);
+        const head = new THREE.Mesh(headGeo, new THREE.MeshLambertMaterial({ color: headColor }));
+        head.position.y = 1.95; group.add(head);
+        const lleg = new THREE.Mesh(legGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        lleg.position.set(-0.18, 0.45, 0); group.add(lleg);
+        const rleg = new THREE.Mesh(legGeo, new THREE.MeshLambertMaterial({ color: bodyColor }));
+        rleg.position.set( 0.18, 0.45, 0); group.add(rleg);
+        group.position.set(x, 0, z);
+        group.rotation.y = yRot || 0;
+        scene.add(group);
+        return group;
+    }
+
+    // Referees — white & black striped shirt (approximated as light-gray)
+    const refPositions = [[-56, 40], [-56, 10], [-56, -10], [-56, -40], [56, 20], [56, -20]];
+    refPositions.forEach(([x, z]) => addFigure(x, z, 0xdddddd, 0xe0ac69, x > 0 ? -Math.PI/2 : Math.PI/2));
+
+    // Security — dark-blue shirts, standing near corners and end zones
+    const secPositions = [[-55, 80], [55, 80], [-55, -80], [55, -80], [-55, 110], [55, 110], [-55, -110], [55, -110]];
+    secPositions.forEach(([x, z]) => addFigure(x, z, 0x00008b, 0xc68642, x > 0 ? -Math.PI/2 : Math.PI/2));
+
+    // Camera crew — dark clothing, holding a camera box (extra cube in front)
+    const camCrew = [[-57, 60], [57, 60], [-57, -60], [57, -60]];
+    camCrew.forEach(([x, z]) => {
+        const fig = addFigure(x, z, 0x222222, 0xf1c27d, x > 0 ? -Math.PI/2 : Math.PI/2);
+        const camGeo = new THREE.BoxGeometry(0.5, 0.4, 0.9);
+        const cam = new THREE.Mesh(camGeo, new THREE.MeshLambertMaterial({ color: 0x111111 }));
+        cam.position.set(x > 0 ? -0.5 : 0.5, 1.5, 0); fig.add(cam);
+    });
+}
+
+function buildBlimp() {
+    blimpGroup = new THREE.Group();
+
+    // Envelope — elongated sphere made from scaled SphereGeometry
+    const envGeo = new THREE.SphereGeometry(3, 12, 8);
+    const envMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+    const envelope = new THREE.Mesh(envGeo, envMat);
+    envelope.scale.set(4, 1, 1);
+    blimpGroup.add(envelope);
+
+    // Gondola underneath
+    const gondola = new THREE.Mesh(new THREE.BoxGeometry(3, 0.6, 1.2), new THREE.MeshLambertMaterial({ color: 0x555555 }));
+    gondola.position.set(0, -1.5, 0);
+    blimpGroup.add(gondola);
+
+    // Banner with scrolling text texture
+    const bannerCanvas = document.createElement('canvas');
+    bannerCanvas.width = 512; bannerCanvas.height = 64;
+    const ctx = bannerCanvas.getContext('2d');
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(0, 0, 512, 64);
+    ctx.fillStyle = '#002244';
+    ctx.font = 'bold 26px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('WHAYON & SAWYER — THE GOAT DEVS 🏈', 256, 32);
+    const bannerTex = new THREE.CanvasTexture(bannerCanvas);
+    const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(12, 1.5),
+        new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide })
+    );
+    banner.position.set(0, -3.2, 0);
+    blimpGroup.add(banner);
+
+    blimpGroup.position.set(80, 70, 0);
+    scene.add(blimpGroup);
+}
+
+class Player {
+    constructor(x, z, team, role, number, homeFlag, opp) {
+        this.team = team; this.role = role;
+        this.baseSpeed = role === 'RB' ? 11 : role === 'WR' ? 10 : (role === 'CB' || role === 'FS' || role === 'SS') ? 10 : (role === 'QB' || role === 'LB') ? 8.5 : role === 'TE' ? 7.5 : role === 'DL' ? 5 : role === 'OL' ? 4 : 6;
+        this.speed = this.baseSpeed;
+        this.stamina = 300;
+
+        this.cutBurstTimer = 0; this.stunTimer = 0; this.runReactTimer = 0; this.throwTimer = 0; this.isJumping = false; this.yVelocity = 0; this.currentMoveSpeed = 0; this.exhaustTimer = 0;
+        
+        // Setup Jersey Colors based on Home/Away status
+        let isMyTeam = (team === 'offense'); // User is always offense right now
+        let jerseyColor, pantsColor, helmetColor;
+
+        if (isMyTeam) {
+            if (homeFlag) { jerseyColor = MY_TEAM.color; pantsColor = '#ffffff'; } // Home User
+            else { jerseyColor = '#ffffff'; pantsColor = MY_TEAM.color; } // Away User
+            helmetColor = MY_TEAM.helmet;
+        } else {
+            if (!homeFlag) { jerseyColor = opp.color; pantsColor = '#ffffff'; } // Home Opponent
+            else { jerseyColor = '#ffffff'; pantsColor = opp.color; } // Away Opponent
+            helmetColor = opp.helmet;
+        }
+
+        this.group = new THREE.Group();
+        const jMat = new THREE.MeshLambertMaterial({ color: jerseyColor });
+        const pMat = new THREE.MeshLambertMaterial({ color: pantsColor });
+        const hMat = new THREE.MeshLambertMaterial({ color: helmetColor });
+        const skinMat = new THREE.MeshLambertMaterial({ color: HUMAN_SKIN_TONES[Math.floor(Math.random() * HUMAN_SKIN_TONES.length)] });
+
+        const isLineman = (role === 'OL' || role === 'DL');
+
+        // 3D Human-like Hierarchy
+        // Pelvis
+        this.pelvis = new THREE.Mesh(new THREE.BoxGeometry(isLineman ? 1.0 : 0.7, isLineman ? 0.55 : 0.4, isLineman ? 0.7 : 0.5), pMat);
+        this.pelvis.position.y = 1.0; this.pelvis.castShadow = true; this.group.add(this.pelvis);
+
+        // Torso
+        this.torso = new THREE.Mesh(new THREE.BoxGeometry(isLineman ? 1.3 : 0.9, isLineman ? 1.05 : 0.9, isLineman ? 0.75 : 0.55), jMat);
+        this.torso.position.y = 1.65; this.torso.castShadow = true; this.group.add(this.torso);
+        // Jersey number + name textures (front and back)
+        const playerName = PLAYER_NAME_MAP[role + number] || '';
+        const jerseyTex = createJerseyTexture(number, playerName, jerseyColor);
+        const jNumMat = new THREE.MeshBasicMaterial({ map: jerseyTex, transparent: true });
+        const planeW = isLineman ? 0.85 : 0.65, planeH = isLineman ? 0.75 : 0.60;
+        const tz = isLineman ? 0.39 : 0.30;
+        const jFront = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), jNumMat);
+        jFront.position.set(0, 1.65, tz); this.group.add(jFront);
+        const jBack = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), jNumMat);
+        jBack.position.set(0, 1.65, -tz); jBack.rotation.y = Math.PI; this.group.add(jBack);
+
+        // Belly for linemen — a round gut poking out in front of the torso
+        if (isLineman) {
+            const belly = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), jMat);
+            belly.scale.set(1, 0.85, 1);
+            belly.position.set(0, 1.38, 0.42);
+            belly.castShadow = true;
+            this.group.add(belly);
+        }
+
+        // Head/Helmet
+        this.head = new THREE.Group();
+        const helmetR = isLineman ? 0.46 : 0.4;
+
+        // Face sphere — skin visible through the helmet opening
+        const faceR = helmetR * 0.88;
+        const headSkin = new THREE.Mesh(new THREE.SphereGeometry(faceR, 12, 12), skinMat);
+        this.head.add(headSkin);
+
+        // Eyes
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+        [-1, 1].forEach(side => {
+            const eye = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 6), eyeMat);
+            eye.position.set(side * 0.112, 0.052, faceR * 0.88);
+            this.head.add(eye);
+        });
+
+        // Helmet shell — 3-piece construction so width AND height are independent
+        // openingDeg=90° horizontal, openingHeight=80° vertical (matches playground defaults)
+        const cageMat = new THREE.MeshLambertMaterial({ color: 0xd0d0d0 });
+        const shell = new THREE.Group();
+        this.head.add(shell);
+
+        const gapRad    = (80 * Math.PI) / 180;   // 80° horizontal opening (playground-tuned → phiStart=2.2689, phiLength=4.8869)
+        const heightRad = (80 * Math.PI) / 180;  // 80° vertical opening
+        const phiStart  = Math.PI / 2 + gapRad / 2;
+        const phiLength = Math.PI * 2 - gapRad;
+        const tCenter   = Math.PI * 0.47;
+        const tFaceTop  = Math.max(0.01, tCenter - heightRad / 2);
+        const tFaceBot  = Math.min(Math.PI * 0.99, tCenter + heightRad / 2);
+
+        // 1. Crown — full phi ring above the face opening
+        if (tFaceTop > 0.02)
+            shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, 0, tFaceTop), hMat));
+        // 2. Face ring — has the phi gap (the actual opening)
+        shell.add(new THREE.Mesh(
+            new THREE.SphereGeometry(helmetR, 20, 8, phiStart, phiLength, tFaceTop, tFaceBot - tFaceTop), hMat));
+        // 3. Chin guard — full phi ring below the face opening
+        if (tFaceBot < Math.PI * 0.98)
+            shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR, 20, 8, 0, Math.PI * 2, tFaceBot, Math.PI - tFaceBot), hMat));
+
+        // Cage bars (attached to shell so they follow any opening shift)
+        const barR = 0.02;
+        function addCageBar(ax, ay, az, bx, by, bz) {
+            const from = new THREE.Vector3(ax, ay, az), to = new THREE.Vector3(bx, by, bz);
+            const dir = new THREE.Vector3().subVectors(to, from);
+            const len = dir.length();
+            const cyl = new THREE.Mesh(new THREE.CylinderGeometry(barR, barR, len, 8), cageMat);
+            cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+            cyl.position.lerpVectors(from, to, 0.5);
+            shell.add(cyl);
+        }
+        if (isLineman) {
+            const hw = 0.50, fz = 0.44, top = 0.05, bot = -0.27, botZ = 0.33;
+            addCageBar(-hw/2,        top,            fz,    hw/2,        top,            fz);
+            addCageBar(-hw/2, (top+bot)/2,       fz-0.04,   hw/2, (top+bot)/2,       fz-0.04);
+            addCageBar(-hw/2+0.04,   bot,          botZ,    hw/2-0.04,   bot,          botZ);
+            addCageBar(-hw/2,        top,            fz,   -hw/2+0.04,   bot,          botZ);
+            addCageBar(    0,        top,            fz,    0,           bot,          botZ);
+            addCageBar( hw/2,        top,            fz,    hw/2-0.04,   bot,          botZ);
+        } else {
+            // Speedflex-style facemask: eyebrow bar, chin bar, two side uprights, center bar
+            const fz = 0.38, hw = 0.20, top = 0.07, mid = -0.10, bot = -0.26, botZ = fz - 0.11;
+            addCageBar(-hw, top, fz, hw, top, fz);               // eyebrow (top horizontal)
+            addCageBar(-hw, mid, fz - 0.01, hw, mid, fz - 0.01); // chin bar (mid horizontal)
+            addCageBar(-hw, top, fz, -hw, bot, botZ);             // left upright
+            addCageBar( hw, top, fz,  hw, bot, botZ);             // right upright
+            addCageBar(  0, top, fz,   0, bot, botZ);             // center bar
+            addCageBar(-hw, bot, botZ, hw, bot, botZ);            // bottom rail
+        }
+        // Speedflex crown flex-panel — slightly darker strip across the top
+        const flexMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(helmetColor).multiplyScalar(0.55) });
+        shell.add(new THREE.Mesh(new THREE.SphereGeometry(helmetR + 0.01, 20, 4, 0, Math.PI * 2, 0, 0.32), flexMat));
+        this.head.position.y = isLineman ? 2.55 : 2.45; this.head.castShadow = true; this.group.add(this.head);
+
+        // Arms: shoulder pivot -> upper arm -> elbow pivot -> lower arm -> hand sphere.
+        const upperLen = 0.46, lowerLen = 0.46;
+        const armW = isLineman ? 0.36 : 0.28;
+        const shoulderX = isLineman ? 0.78 : 0.6;
+        const upperGeo = new THREE.BoxGeometry(armW, upperLen, armW); upperGeo.translate(0, -upperLen / 2, 0);
+        const lowerGeo = new THREE.BoxGeometry(armW * 0.95, lowerLen, armW * 0.95); lowerGeo.translate(0, -lowerLen / 2, 0);
+        const handGeo = new THREE.SphereGeometry(isLineman ? 0.19 : 0.16, 12, 12);
+        const makeArm = (sx) => {
+            const upper = new THREE.Object3D(); upper.position.set(sx, isLineman ? 2.0 : 1.9, 0); this.group.add(upper);
+            upper.add(new THREE.Mesh(upperGeo, skinMat));
+            const lower = new THREE.Object3D(); lower.position.set(0, -upperLen, 0); upper.add(lower);
+            lower.add(new THREE.Mesh(lowerGeo, skinMat));
+            const hand = new THREE.Mesh(handGeo, skinMat); hand.position.set(0, -lowerLen, 0); lower.add(hand);
+            return { upper, lower };
+        };
+        const la = makeArm(-shoulderX); this.leftUpper = la.upper; this.leftLower = la.lower;
+        const ra = makeArm( shoulderX); this.rightUpper = ra.upper; this.rightLower = ra.lower;
+
+        // Legs (Hinged at top)
+        const legW = isLineman ? 0.45 : 0.35;
+        const legGap = isLineman ? 0.28 : 0.2;
+        const legGeo = new THREE.BoxGeometry(legW, 1.1, legW); legGeo.translate(0, -0.45, 0);
+        this.leftLeg = new THREE.Mesh(legGeo, pMat); this.leftLeg.position.set(-legGap, 1.0, 0); this.group.add(this.leftLeg);
+        this.rightLeg = new THREE.Mesh(legGeo, pMat); this.rightLeg.position.set(legGap, 1.0, 0); this.group.add(this.rightLeg);
+
+        this.route = []; this.routeIndex = 0; this.targetPlayer = null;
+        this.autoRun = false; this.autoRunDir = new THREE.Vector3(0, 0, -1);
+        this.group.position.set(x, 0, z); scene.add(this.group);
+    }
+
+    applyArmPose(rUp, rLo, lUp, lLo) {
+        this.rightUpper.rotation.copy(rUp); this.rightLower.rotation.copy(rLo);
+        this.leftUpper.rotation.copy(lUp);  this.leftLower.rotation.copy(lLo);
+    }
+
+    animateLimbs(dt) {
+        if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TIMEOUT') return;
+
+        // QB throw animation — highest priority, overrides everything.
+        if (this.throwTimer > 0) {
+            this.throwTimer = Math.max(0, this.throwTimer - dt);
+            const t = this.throwTimer / 0.55; // 1 → 0
+            if (t > 0.55) {
+                // Wind-up: right arm cocks back over shoulder
+                this.rightUpper.rotation.set(-2.0, 0.5, 0.5);
+                this.rightLower.rotation.set(-0.6, 0, 0);
+                this.leftUpper.rotation.set(0.6, -0.3, -0.4);
+                this.leftLower.rotation.set(0.2, 0, 0);
+            } else {
+                // Release: arm whips through and extends forward
+                const r = 1 - (t / 0.55);
+                this.rightUpper.rotation.set(THREE.MathUtils.lerp(-2.0, 1.3, r), THREE.MathUtils.lerp(0.5, -0.1, r), THREE.MathUtils.lerp(0.5, 0, r));
+                this.rightLower.rotation.set(THREE.MathUtils.lerp(-0.6, -1.2, r), 0, 0);
+                this.leftUpper.rotation.set(THREE.MathUtils.lerp(0.6, -0.3, r), THREE.MathUtils.lerp(-0.3, 0, r), THREE.MathUtils.lerp(-0.4, 0, r));
+                this.leftLower.rotation.set(THREE.MathUtils.lerp(0.2, 0.1, r), 0, 0);
+            }
+            // Still swing legs while stepping into throw
+            const swing = Math.sin(clock.getElapsedTime() * 14) * 0.5;
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            return;
+        }
+
+        // QB handoff arm — extend right arm forward/down toward RB.
+        if (this.role === 'QB' && GAME_STATE === 'PLAY' && handoffPending) {
+            this.rightUpper.rotation.set(0.85, 0, -0.15);
+            this.rightLower.rotation.set(0.35, 0, 0);
+            this.leftUpper.rotation.set(0.25, 0, 0.15);
+            this.leftLower.rotation.set(0.15, 0, 0);
+            const swing = Math.sin(clock.getElapsedTime() * 14) * 0.5;
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            return;
+        }
+
+        const isCarrying  = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
+        const isQBHolding = (this.role === 'QB' && GAME_STATE === 'PLAY' && !ball.velocity && this !== activeReceiver);
+
+        if (this.currentMoveSpeed > 0.1 && GAME_STATE !== 'GETTING_UP') {
+            let swingSpeed = (keys['ShiftLeft'] && this.currentMoveSpeed > this.baseSpeed) ? 25 : 18;
+            let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0;
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            if (isCarrying) {
+                this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
+                                  TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
+            } else if (isQBHolding) {
+                this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
+                                  QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
+            } else {
+                // Normal running pump: opposite-sign upper swings, opposite-sign lower bends so both forearms come forward.
+                this.leftUpper.rotation.set(swing, 0, 0);
+                this.rightUpper.rotation.set(-swing, 0, 0);
+                const elbow = 0.3 + Math.abs(swing) * 0.4;
+                this.leftLower.rotation.set(elbow, 0, 0);
+                this.rightLower.rotation.set(-elbow, 0, 0);
+            }
+        } else if (GAME_STATE === 'GETTING_UP') {
+            let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5;
+            this.leftUpper.rotation.set(swing, 0, 0); this.rightUpper.rotation.set(-swing, 0, 0);
+            this.leftLower.rotation.set(0, 0, 0); this.rightLower.rotation.set(0, 0, 0);
+            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+        } else {
+            this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1); this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
+            if (isCarrying) {
+                this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
+                                  TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
+            } else if (isQBHolding) {
+                this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
+                                  QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
+            } else {
+                this.leftUpper.rotation.x  = THREE.MathUtils.lerp(this.leftUpper.rotation.x,  0, 0.1);
+                this.rightUpper.rotation.x = THREE.MathUtils.lerp(this.rightUpper.rotation.x, 0, 0.1);
+                this.leftLower.rotation.x  = THREE.MathUtils.lerp(this.leftLower.rotation.x,  0, 0.1);
+                this.rightLower.rotation.x = THREE.MathUtils.lerp(this.rightLower.rotation.x, 0, 0.1);
+            }
+        }
+    }
+
+    update(dt) {
+        if (GAME_STATE === 'TACKLED') return;
+        if (GAME_STATE === 'WALKOFF') {
+            // Both teams walk to opposite sidelines after a fumble.
+            const sidelineX = (this.team === 'offense') ? 50 : -50;
+            const dir = new THREE.Vector3(sidelineX - this.group.position.x, 0, 0);
+            if (dir.length() > 0.5) {
+                dir.normalize();
+                this.group.position.addScaledVector(dir, 6 * dt);
+                this.group.lookAt(this.group.position.clone().add(dir));
+                this.currentMoveSpeed = 6;
+            } else {
+                this.currentMoveSpeed = 0;
+            }
+            this.animateLimbs(dt);
+            return;
+        }
+
+        this.currentMoveSpeed = 0;
+        let actualPlayerSpeed = this.speed;
+
+        if (GAME_STATE === 'GETTING_UP') {
+            let targetZ = this.team === 'offense' ? lineOfScrimmageZ + 5 : lineOfScrimmageZ - 5;
+            let dir = new THREE.Vector3(0, 0, targetZ - this.group.position.z);
+            if (Math.abs(dir.z) > 1) { dir.normalize(); this.group.position.addScaledVector(dir, 3 * dt); this.currentMoveSpeed = 3; }
+            this.animateLimbs(dt); return;
+        }
+
+        if (this.cutBurstTimer > 0) { this.cutBurstTimer -= dt; actualPlayerSpeed += (this.role === 'WR') ? 1.5 : 6; }
+
+        // STAMINA & SPRINT LOGIC
+        let isSprintHeld = keys['ShiftLeft'] || keys['ShiftRight'];
+
+        if (GAME_STATE === 'POST_CATCH') {
+            if (this === activeReceiver) {
+                const WALK_SPEED = 3.5;
+                if (this.role === 'WR') {
+                    // Flat 10 normal / 12 sprint while stamina > 0.
+                    // When stamina hits 0: 10-second ramp down to walk speed.
+                    if (this.stamina > 0) {
+                        if (isSprintHeld) {
+                            actualPlayerSpeed = 12;
+                            this.stamina -= dt * 60;
+                        } else {
+                            actualPlayerSpeed = 10;
+                            this.stamina -= dt * 15;
+                        }
+                        if (this.stamina <= 0) { this.stamina = 0; this.exhaustTimer = 10; }
+                    } else {
+                        this.exhaustTimer = Math.max(0, this.exhaustTimer - dt);
+                        const t = this.exhaustTimer / 10;
+                        actualPlayerSpeed = THREE.MathUtils.lerp(WALK_SPEED, isSprintHeld ? 12 : 10, t);
+                    }
+                } else {
+                    // RB and others: full speed while stamina > 0, then 10-second ramp to walk.
+                    const fullSpeed = this.baseSpeed + (isSprintHeld ? 3 : 0);
+                    if (this.stamina > 0) {
+                        actualPlayerSpeed = fullSpeed;
+                        this.stamina -= dt * (isSprintHeld ? 43 : 15);
+                        if (this.stamina <= 0) { this.stamina = 0; this.exhaustTimer = 10; }
+                    } else {
+                        this.exhaustTimer = Math.max(0, this.exhaustTimer - dt);
+                        const t = this.exhaustTimer / 10;
+                        actualPlayerSpeed = THREE.MathUtils.lerp(WALK_SPEED, fullSpeed, t);
+                    }
+                }
+                const staminaPct = Math.min(100, (this.stamina / 3));
+                document.getElementById('stamina-fill').style.width = staminaPct + '%';
+                document.getElementById('stamina-fill').style.background = staminaPct > 50 ? '#00ff00' : (staminaPct > 20 ? '#ffff00' : '#ff0000');
+
+            } else if (this.team === 'defense') {
+                if (this.stamina > 0) this.stamina -= dt * 5;
+                actualPlayerSpeed = this.baseSpeed * (0.65 + (this.stamina / 750));
+            }
+        }
+
+        if (this.role === 'QB' && GAME_STATE === 'PLAY') {
+            if (handoffPending) {
+                // QB takes 2 short steps back into the pocket, faces the LOS.
+                this.group.position.z += this.speed * 0.4 * dt;
+                this.group.lookAt(this.group.position.x, 0, this.group.position.z - 10);
+                this.currentMoveSpeed = this.speed * 0.4;
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, this.group.position.x, 0.1);
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, this.group.position.z + 15, 0.1);
+                camera.lookAt(this.group.position.x, 0, this.group.position.z - 20);
+            } else {
+                let moveDir = new THREE.Vector3();
+                if (keys['KeyW']) moveDir.z = -1; if (keys['KeyS']) moveDir.z = 1;
+                if (keys['KeyA']) moveDir.x = -1; if (keys['KeyD']) moveDir.x = 1;
+                if (moveDir.length() > 0) {
+                    moveDir.normalize();
+                    this.group.position.addScaledVector(moveDir, this.speed * dt);
+                    this.group.lookAt(this.group.position.clone().add(moveDir));
+                    this.currentMoveSpeed = this.speed;
+                }
+                if (!ball.velocity) {
+                    camera.position.x = THREE.MathUtils.lerp(camera.position.x, this.group.position.x, 0.1); camera.position.z = THREE.MathUtils.lerp(camera.position.z, this.group.position.z + 15, 0.1); camera.lookAt(this.group.position.x, 0, this.group.position.z - 20);
+                    if (this.group.position.z < lineOfScrimmageZ) {
+                        activeReceiver = this; GAME_STATE = 'POST_CATCH'; targetedReceiver = null;
+                        attachBallToCarrier(this);
+                        document.getElementById('instructions').innerText = "QB SCRAMBLE! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
+                        document.getElementById('stamina-bar').classList.remove('hidden');
+                        while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+                        trajectoryLine.visible = false; landingMarker.visible = false; document.getElementById('hang-time-ui').classList.add('hidden');
+                    }
+                }
+            }
+        } else if (this.team === 'offense' && GAME_STATE === 'PLAY' && this.role !== 'QB' && this.role !== 'OL' && !(isRunPlay && this.role === 'TE') && !(isRunPlay && this.role === 'WR')) {
+            // RB runs to QB for the handoff; contact triggers the exchange.
+            if (handoffPending && this.role === 'RB') {
+                const qb = players.offense[0];
+                const dist = this.group.position.distanceTo(qb.group.position);
+                if (dist > 1.4) {
+                    let dir = new THREE.Vector3().subVectors(qb.group.position, this.group.position); dir.y = 0; dir.normalize();
+                    this.group.position.addScaledVector(dir, actualPlayerSpeed * dt);
+                    this.group.lookAt(this.group.position.clone().add(dir));
+                    this.currentMoveSpeed = actualPlayerSpeed;
+                } else {
+                    handoffPending = false;
+                    detachBallToScene();
+                    attachBallToCarrier(this);
+                    activeReceiver = this; this.cutBurstTimer = 1.5;
+                    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.group.quaternion); fwd.y = 0;
+                    this.autoRunDir.copy(fwd.length() > 0 ? fwd.normalize() : new THREE.Vector3(0, 0, -1));
+                    this.autoRun = true;
+                    // CBs/Safeties don't immediately recognize it's a run — give them a reaction delay.
+                    players.defense.forEach(d => {
+                        if (d.role === 'CB' || d.role === 'FS' || d.role === 'SS') d.runReactTimer = 1.5;
+                    });
+                    GAME_STATE = 'POST_CATCH';
+                    document.getElementById('stamina-bar').classList.remove('hidden');
+                    document.getElementById('instructions').innerText = "RUN! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
+                }
+                this.animateLimbs(dt); return;
+            }
+            if (this === targetedReceiver && ball.velocity) {
+                // Always sprint at full speed toward the landing circle — never stop to wait.
+                // Within 0.4 units of the spot, track the actual ball so the WR doesn't plant.
+                const landingXZ = new THREE.Vector3(landingMarker.position.x, 0, landingMarker.position.z);
+                const distToLanding = this.group.position.distanceTo(landingXZ);
+                let dir;
+                if (distToLanding > 0.4) {
+                    dir = new THREE.Vector3().subVectors(landingXZ, this.group.position);
+                } else {
+                    dir = new THREE.Vector3().subVectors(ball.position, this.group.position);
+                }
+                dir.y = 0;
+                if (dir.length() > 0.01) {
+                    dir.normalize();
+                    this.group.position.addScaledVector(dir, actualPlayerSpeed * dt);
+                    this.group.lookAt(this.group.position.clone().add(dir));
+                    this.currentMoveSpeed = actualPlayerSpeed;
+                }
+            } else {
+                // Non-targeted WR that overshot — also turn back toward the ball.
+                if (ball.velocity && this.group.position.z < passTarget.z - 2) {
+                    let ballDir = new THREE.Vector3().subVectors(ball.position, this.group.position); ballDir.y = 0; ballDir.normalize();
+                    this.group.position.addScaledVector(ballDir, actualPlayerSpeed * dt);
+                    this.group.lookAt(this.group.position.clone().add(ballDir));
+                    this.currentMoveSpeed = actualPlayerSpeed;
+                } else if (this.routeIndex < this.route.length) {
+                    let target = this.route[this.routeIndex]; let dir = new THREE.Vector3().subVectors(target, this.group.position); dir.y = 0;
+                    if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } }
+                    else {
+                        dir.normalize();
+                        this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
+                    }
+                } else {
+                    // Route done — always run straight downfield so WRs never drift sideways into a DB.
+                    const driftDir = new THREE.Vector3(0, 0, -1);
+                    this.group.position.addScaledVector(driftDir, actualPlayerSpeed * 0.85 * dt);
+                    this.group.lookAt(this.group.position.clone().add(driftDir));
+                    this.currentMoveSpeed = actualPlayerSpeed * 0.85;
+                }
+            }
+        } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH' || (GAME_STATE === 'TACKLED' && diveAnim))) {
+            // During a dive: DL/LB sprint at the carrier; coverage DBs keep chasing their WR
+            if (GAME_STATE === 'TACKLED' && diveAnim) {
+                const isCoverageDB = (this.role === 'CB' || this.role === 'FS' || this.role === 'SS');
+                const chaseTarget = isCoverageDB && this.targetPlayer
+                    ? this.targetPlayer.group.position
+                    : diveAnim.carrier.group.position;
+                let dir = new THREE.Vector3().subVectors(chaseTarget, this.group.position); dir.y = 0;
+                if (dir.length() > 0.5) {
+                    dir.normalize();
+                    this.group.position.addScaledVector(dir, this.baseSpeed * (isCoverageDB ? 1.0 : 1.2) * dt);
+                    this.group.lookAt(this.group.position.clone().add(dir));
+                }
+                return;
+            }
+            let targetPos = null;
+            let speedMul = 1.0;
+            if (GAME_STATE === 'POST_CATCH') {
+                if (isRunPlay && this.role === 'DL') {
+                    if (this.runReactTimer > 0) {
+                        // Still fighting off a block — feet churning, no forward progress
+                        this.runReactTimer -= dt;
+                        // targetPos stays null → player stays put (code below skips movement)
+                    } else {
+                        // Gap-fill: target a point ahead of the carrier along their run path
+                        // so DL try to cut off the lane rather than just chase from behind
+                        const c = activeReceiver;
+                        const rdx = c.autoRunDir ? c.autoRunDir.x : 0;
+                        const rdz = c.autoRunDir ? c.autoRunDir.z : -1;
+                        targetPos = new THREE.Vector3(
+                            c.group.position.x + rdx * 5,
+                            0,
+                            c.group.position.z + rdz * 5
+                        );
+                        speedMul = this.runFlowSpeed || 0.85;
+                    }
+                } else if (isRunPlay && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS') && this.runReactTimer > 0) {
+                    this.runReactTimer -= dt;
+                    targetPos = this.targetPlayer ? this.targetPlayer.group.position.clone() : null;
+                } else {
+                    targetPos = activeReceiver.group.position.clone();
+                }
+            }
+            else if (this.role === 'DL') {
+                const qb = players.offense[0];
+                if (qb && !ball.velocity) {
+                    if (this.rushDelay > 0) {
+                        this.rushDelay -= dt;
+                    } else {
+                        // Rush toward assigned gap: blend toward QB but offset laterally
+                        const dist = this.group.position.distanceTo(qb.group.position);
+                        // Lane offset fades out as rusher closes on QB so they all converge for the sack
+                        const laneBlend = Math.min(1, dist / 8);
+                        targetPos = new THREE.Vector3(
+                            qb.group.position.x + (this.rushLaneOffX || 0) * laneBlend,
+                            0,
+                            qb.group.position.z
+                        );
+                        speedMul = this.rushSpeedMul || 0.85;
+                        // Brief burst when breaking free of the pocket (within 5 units)
+                        if (dist < 5) speedMul *= 1.18;
+                        if (dist < 1.6) triggerTackle(qb, this, "SACKED!");
+                    }
+                }
+            }
+            else if (this.targetPlayer) targetPos = this.targetPlayer.group.position.clone();
+
+            if (targetPos) {
+                let dir = new THREE.Vector3().subVectors(targetPos, this.group.position); dir.y = 0;
+                const distToTarget = dir.length();
+                // During pass coverage (PLAY state), shadow the WR at arm's-length — don't pile on.
+                const isCovDB = GAME_STATE === 'PLAY' && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS');
+                const minCovDist = isCovDB ? (this.trailDist || 0.9) : 0.05;
+                if (distToTarget < minCovDist) { this.animateLimbs(dt); return; }
+                if(distToTarget > 0) dir.normalize();
+                if (this.stunTimer > 0) { this.stunTimer -= dt; actualPlayerSpeed *= 0.2; }
+                if (isCovDB && this.covBreakDelay > 0) { this.covBreakDelay -= dt; actualPlayerSpeed *= 0.3; }
+                this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul;
+            }
+        }
+
+        // OL blocks every play. TE and WRs also block on run plays.
+        // OL uses directional vectors during the handoff approach; all blockers sustain
+        // engagement on their assigned or nearest defender after that.
+        const isBlockingTE = (this.role === 'TE' && isRunPlay);
+        // WRs only switch to blocking after the handoff — during the handoff they run routes
+        // so CBs don't immediately know it's a run play.
+        const isBlockingWR = (this.role === 'WR' && isRunPlay && !handoffPending);
+        if ((this.role === 'OL' || isBlockingTE || isBlockingWR) && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
+            if (this.role === 'OL' && isRunPlay && handoffPending && this.runBlockDir) {
+                // Gap-open phase: fire in the pre-assigned direction.
+                this.group.position.addScaledVector(this.runBlockDir, this.baseSpeed * dt);
+                this.group.lookAt(this.group.position.clone().add(this.runBlockDir));
+                this.currentMoveSpeed = this.baseSpeed;
+            } else {
+                // Sustained block: WRs chase their coverage man; OL/TE find nearest defender.
+                let target = null;
+                if (isBlockingWR) target = players.defense.find(d => d.targetPlayer === this) || null;
+                if (!target) {
+                    let minD = Infinity;
+                    players.defense.forEach(d => {
+                        const dist = this.group.position.distanceTo(d.group.position);
+                        if (dist < minD) { minD = dist; target = d; }
+                    });
+                    if (target && this.group.position.distanceTo(target.group.position) > 18) target = null;
+                }
+                if (target) {
+                    let dir = new THREE.Vector3().subVectors(target.group.position, this.group.position); dir.y = 0;
+                    if (dir.length() > 0) dir.normalize();
+                    this.group.position.addScaledVector(dir, this.baseSpeed * dt);
+                    this.group.lookAt(this.group.position.clone().add(dir));
+                    this.currentMoveSpeed = this.baseSpeed;
+                }
+            }
+        }
+
+        if (this === activeReceiver && (GAME_STATE === 'POST_CATCH' || GAME_STATE === 'TOUCHDOWN')) {
+            let moveDir = new THREE.Vector3();
+            if (keys['KeyW']) moveDir.z = -1; if (keys['KeyS']) moveDir.z = 1;
+            if (keys['KeyA']) moveDir.x = -1; if (keys['KeyD']) moveDir.x = 1;
+
+            if (moveDir.length() > 0) {
+                // Player took control — disable auto-run and steer with input only.
+                this.autoRun = false;
+                this.autoRunDir.copy(moveDir).normalize();
+            }
+
+            if (this.autoRun) {
+                // Run straight in the direction the carrier was facing at catch/handoff.
+                moveDir.copy(this.autoRunDir);
+            }
+
+            if (moveDir.length() > 0) {
+                moveDir.normalize();
+                this.group.position.addScaledVector(moveDir, actualPlayerSpeed * dt);
+                this.group.lookAt(this.group.position.clone().add(moveDir));
+                this.currentMoveSpeed = actualPlayerSpeed;
+            } else {
+                this.currentMoveSpeed = 0;
+            }
+            
+            if (divePending) { divePending = false; triggerDive(this); return; }
+            if (keys['Space'] && !this.isJumping && jumpCooldown <= 0) { this.isJumping = true; this.yVelocity = 12; jumpCooldown = 7.0; }
+
+            camera.position.x = THREE.MathUtils.lerp(camera.position.x, this.group.position.x, 0.1);
+            camera.position.z = THREE.MathUtils.lerp(camera.position.z, this.group.position.z + 12, 0.1);
+            camera.position.y = THREE.MathUtils.lerp(camera.position.y, this.group.position.y + 6, 0.1);
+            camera.lookAt(this.group.position);
+
+            if (this.group.position.z < -100 && GAME_STATE !== 'TOUCHDOWN') {
+                if (this.isJumping || this.group.position.y >= 0.5) return;
+                if (isTwoPointAttempt) {
+                    isTwoPointAttempt = false;
+                    GAME_STATE = 'TACKLED';
+                    addScore('off', 2); triggerCheer();
+                    document.getElementById('instructions').innerText = '2-POINT CONVERSION! +2';
+                    document.getElementById('instructions').classList.remove('hidden');
+                    setTimeout(finalizeTouchdown, 2000);
+                } else {
+                    triggerTDCelebration(this);
+                }
+                return;
+            }
+
+            if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN') { // no tackles during TD celebration or in end zone
+                players.defense.forEach(d => {
+                    if(d.group.position.distanceTo(this.group.position) < 1.8) {
+                        if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
+                            if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
+                        } else triggerTackle(this, d, "TACKLED");
+                    }
+                });
+            }
+        }
+
+        if (this.isJumping) {
+            this.group.position.y += this.yVelocity * dt; this.yVelocity -= 30 * dt;
+            if (this.group.position.y <= 0) { this.group.position.y = 0; this.isJumping = false; }
+        }
+        // Gravity fallback: if a player ended up above ground without jumping (e.g. after a catch
+        // in the air), pull them down so they don't float.
+        if (!this.isJumping && this.group.position.y > 0) {
+            this.group.position.y = Math.max(0, this.group.position.y - 20 * dt);
+        }
+
+        // Player-vs-player collision: push self out of any overlap with another player.
+        // During PLAY, skip offense-vs-defense collisions — WRs/DBs occupy the same space
+        // during coverage and the push force (15 u/s) overpowers WR movement (10 u/s), freezing them.
+        // Tackles use triggerTackle distance checks, not this system.
+        const PLAYER_RADIUS = 0.7;
+        const minDist = PLAYER_RADIUS * 2;
+        const all = players.offense.concat(players.defense);
+        for (let i = 0; i < all.length; i++) {
+            const other = all[i];
+            if (other === this) continue;
+            // Skip cross-team collisions while routes are running so DBs can't pin WRs in place.
+            if (GAME_STATE === 'PLAY' && this.team !== other.team) continue;
+            const dx = this.group.position.x - other.group.position.x;
+            const dz = this.group.position.z - other.group.position.z;
+            const d2 = dx * dx + dz * dz;
+            if (d2 > 0 && d2 < minDist * minDist) {
+                const d = Math.sqrt(d2);
+                const push = (minDist - d) * 0.5;
+                this.group.position.x += (dx / d) * push;
+                this.group.position.z += (dz / d) * push;
+            }
+        }
+
+        // Field boundary: keep players inside the playable rectangle so deep routes
+        // don't run into the stadium walls. End zones run to z = -100; clamp slightly
+        // beyond so the carrier can still cross for a TD before being clamped back.
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -50, 50);
+        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -120, 105);
+
+        this.animateLimbs(dt);
+    }
+}
+
+/**
+ * GAME LOGIC
+ */
+function startGame() {
+    if(musicInterval) clearInterval(musicInterval);
+    if(menuPlayerModel) scene.remove(menuPlayerModel.group);
+    document.getElementById('matchup-screen').classList.add('hidden');
+    document.getElementById('scoreboard').classList.remove('hidden');
+    
+    // Set Stadium dynamically based on Home Team
+    let homeTeamInfo = isUserHome ? MY_TEAM : currentOpponent;
+    
+    endzoneHome.material.map = createEndzoneTexture(homeTeamInfo.name, homeTeamInfo.color, '#ffffff');
+    endzoneDef.material.map = createEndzoneTexture(homeTeamInfo.name, homeTeamInfo.color, '#ffffff');
+
+    document.getElementById('scoreboard-off-name').innerText = MY_TEAM.id;
+    document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
+
+    lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
+    qtrScores = { off: [0,0,0,0], def: [0,0,0,0] };
+    timeoutsOff = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
+    
+    setupFormation();
+}
+
+function addScore(team, pts) {
+    if (team === 'off') { scoreOff += pts; qtrScores.off[currentQuarter-1] += pts; }
+    else { scoreDef += pts; qtrScores.def[currentQuarter-1] += pts; }
+    updateScoreboard();
+}
+
+function triggerDive(carrier) {
+    GAME_STATE = 'TACKLED';
+    // Ball stays parented to carrier.group during flight — detach happens on landing
+    document.getElementById('instructions').innerText = "DIVE!";
+    document.getElementById('instructions').classList.remove('hidden');
+
+    // Forward direction from the carrier's current facing
+    const lunge = new THREE.Vector3(0, 0, 1).applyQuaternion(carrier.group.quaternion);
+    lunge.y = 0;
+    if (lunge.lengthSq() < 0.01) lunge.set(0, 0, -1);
+    lunge.normalize();
+
+    // Flatten stomach-down and set initial height for the glide
+    carrier.group.rotation.x = Math.PI / 2;  // +PI/2 → head pitches forward/downfield
+    carrier.group.position.y = 1.5;
+
+    const startPos = carrier.group.position.clone();
+    const endPos   = startPos.clone().addScaledVector(lunge, 6);
+
+    // duration 0.45s: fast explosive dive
+    diveAnim = { carrier, startPos: startPos.clone(), endPos: endPos.clone(), elapsed: 0, duration: 0.45 };
+}
+
+function makeRagdollParams(player) {
+    // Random final body orientation — mostly land on back (positive rotX = fall backward)
+    return {
+        startRotY : player.group.rotation.y,
+        finalRotX : Math.PI / 2 * (Math.random() > 0.3 ? 1 : -1) * (0.75 + Math.random() * 0.25),
+        finalRotZ : (Math.random() - 0.5) * Math.PI * 0.65,
+        finalRotYd: (Math.random() - 0.5) * 0.7,   // slight spin
+        // Arms fling out to random angles
+        lArmX: (Math.random() - 0.5) * Math.PI * 1.1,
+        lArmZ: (Math.random() - 0.3) * Math.PI * 0.9,
+        rArmX: (Math.random() - 0.5) * Math.PI * 1.1,
+        rArmZ: (Math.random() + 0.1) * Math.PI * 0.9,
+        lLowX: (Math.random() - 0.5) * 1.4,
+        rLowX: (Math.random() - 0.5) * 1.4,
+        // Legs kick out
+        lLegX: (Math.random() - 0.5) * 0.9,
+        lLegZ:  Math.random() * 0.55,
+        rLegX: (Math.random() - 0.5) * 0.9,
+        rLegZ: -Math.random() * 0.55,
+    };
+}
+
+function triggerTDCelebration(scorer) {
+    if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TOUCHDOWN') return;
+    GAME_STATE = 'TOUCHDOWN'; // allow free roam during celebration
+    addScore('off', 6); updateScoreboard();
+    triggerCheer();
+    document.getElementById('instructions').innerText = "TOUCHDOWN!";
+    document.getElementById('instructions').classList.remove('hidden');
+
+    // All other offense players strike a random celebration pose instantly
+    players.offense.forEach(p => {
+        if (p === scorer || p.role === 'OL') return;
+        const side = Math.random() > 0.5 ? 1 : -1;
+        p.group.position.y = Math.random() * 0.35;
+        p.applyArmPose(
+            new THREE.Euler(-Math.PI * (0.5 + Math.random() * 0.5), 0,  side * (0.3 + Math.random() * 0.5)),
+            new THREE.Euler(-0.2, 0, 0),
+            new THREE.Euler(-Math.PI * (0.5 + Math.random() * 0.5), 0, -side * (0.3 + Math.random() * 0.5)),
+            new THREE.Euler(-0.2, 0, 0)
+        );
+        // Mini bounce
+        setTimeout(() => { p.group.position.y = 0; }, 300 + Math.random() * 300);
+        setTimeout(() => {
+            p.group.position.y = 0.25 + Math.random() * 0.25;
+            setTimeout(() => { p.group.position.y = 0; }, 250); }, 900 + Math.random() * 400);
+    });
+
+    // Scorer: 5-pose dance sequence
+    const dancer = scorer;
+    dancer.group.position.y = 0.7;
+    dancer.applyArmPose(
+        new THREE.Euler(-Math.PI * 0.9, 0, 0.55), new THREE.Euler(-0.2, 0, 0),
+        new THREE.Euler(-Math.PI * 0.9, 0, -0.55), new THREE.Euler(-0.2, 0, 0)
+    );
+    setTimeout(() => {
+        dancer.group.position.y = 0;
+        dancer.applyArmPose(
+            new THREE.Euler(0.6, 0, -1.3), new THREE.Euler(0.8, 0, 0),
+            new THREE.Euler(-Math.PI * 0.7, 0, -0.35), new THREE.Euler(-0.2, 0, 0)
+        );
+    }, 350);
+    setTimeout(() => {
+        dancer.group.rotation.y += Math.PI;
+        dancer.applyArmPose(
+            new THREE.Euler(0, 0, Math.PI * 0.48), new THREE.Euler(0.25, 0, 0),
+            new THREE.Euler(0, 0, -Math.PI * 0.48), new THREE.Euler(0.25, 0, 0)
+        );
+    }, 800);
+    setTimeout(() => {
+        dancer.group.rotation.y += Math.PI;
+        dancer.applyArmPose(
+            new THREE.Euler(-Math.PI * 0.85, 0, 0.45), new THREE.Euler(-0.25, 0, 0),
+            new THREE.Euler(-Math.PI * 0.85, 0, -0.45), new THREE.Euler(-0.25, 0, 0)
+        );
+    }, 1300);
+    setTimeout(() => {
+        dancer.group.position.y = 0.5;
+        dancer.applyArmPose(
+            new THREE.Euler(-Math.PI * 0.95, 0, 0.3), new THREE.Euler(-0.1, 0, 0),
+            new THREE.Euler(-Math.PI * 0.95, 0, -0.3), new THREE.Euler(-0.1, 0, 0)
+        );
+    }, 1800);
+    setTimeout(() => { dancer.group.position.y = 0; }, 2100);
+    setTimeout(() => { triggerExtraPoint(); }, 2800);
+}
+
+function triggerTackle(ballCarrier, tackler, message) {
+    GAME_STATE = 'TACKLED';
+    detachBallToScene();
+    document.getElementById('instructions').innerText = message;
+    document.getElementById('instructions').classList.remove('hidden');
+
+    // Pull tackler flush to carrier
+    const impact = new THREE.Vector3().subVectors(ballCarrier.group.position, tackler.group.position);
+    const impactDist = impact.length();
+    if (impactDist > 0.1) tackler.group.position.addScaledVector(impact.normalize(), impactDist - 0.6);
+
+    tackleAnim = {
+        carrier: ballCarrier, tackler,
+        elapsed: 0, duration: 0.45, message,
+        cr: makeRagdollParams(ballCarrier),
+        tr: makeRagdollParams(tackler),
+    };
+}
+
+function updateScoreboard() {
+    document.getElementById('score-off').innerText = scoreOff; document.getElementById('score-def').innerText = scoreDef;
+    let downSuffix = currentDown === 1 ? "ST" : currentDown === 2 ? "ND" : currentDown === 3 ? "RD" : "TH";
+    document.getElementById('down-distance').innerText = `${currentDown}${downSuffix} & ${Math.max(1, Math.round(yardsToGo))}`;
+    blueLine.position.z = lineOfScrimmageZ; yellowLine.position.z = lineOfScrimmageZ - (yardsToGo * 2); 
+    document.getElementById('game-clock').innerText = `Q${currentQuarter} ${Math.floor(gameTime / 60)}:${(gameTime % 60)<10?'0':''}${gameTime % 60}`;
+}
+
+function handlePlayResult(msg, finalZ) {
+    // After a fumble, briefly drop into WALKOFF so players walk to the sideline
+    // before the formation resets. Other play results skip straight through.
+    if (msg.includes('FUMBLE') && GAME_STATE !== 'WALKOFF') {
+        GAME_STATE = 'WALKOFF';
+        document.getElementById('instructions').innerText = msg + "\nWALKING OFF...";
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(() => _continueHandlePlayResult(msg, finalZ), 2500);
+        return;
+    }
+    _continueHandlePlayResult(msg, finalZ);
+}
+
+function _continueHandlePlayResult(msg, finalZ) {
+    // 2-point conversion attempt failed (play ended without scoring)
+    if (isTwoPointAttempt) {
+        isTwoPointAttempt = false;
+        triggerBoo();
+        GAME_STATE = 'TACKLED';
+        document.getElementById('instructions').innerText = '2-POINT ATTEMPT FAILED!';
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(finalizeTouchdown, 1800);
+        return;
+    }
+    GAME_STATE = 'MENU'; document.getElementById('instructions').classList.remove('hidden');
+    let isTurnover = false;
+    let didHostScore = false;
+    
+    if (msg.includes("TOUCHDOWN")) { addScore('off', 7); isTurnover = true; didHostScore = true; }
+    else if (msg.includes("INTERCEPT") || msg.includes("TURNOVER") || msg.includes("FUMBLE")) { isTurnover = true; }
+    else {
+        let yardsGained = (lineOfScrimmageZ - finalZ) / 2;
+        lineOfScrimmageZ = finalZ; yardsToGo -= yardsGained;
+        if (yardsToGo <= 0.1) { currentDown = 1; yardsToGo = 10; document.getElementById('instructions').innerText = msg + " (1ST DOWN)"; }
+        else {
+            currentDown++;
+            if (currentDown > 4) { msg = "TURNOVER ON DOWNS"; isTurnover = true; }
+            else document.getElementById('instructions').innerText = msg;
+        }
+    }
+    
+    document.getElementById('instructions').innerText = msg; updateScoreboard();
+
+    if (pendingQuarterEnd) {
+        // Clock expired during this play — fire the quarter transition now that it's resolved
+        setTimeout(() => { _triggerQuarterTransition(); }, 1200);
+    } else if (isTurnover) {
+        document.getElementById('instructions').innerText += `\nPUNT IT AWAY...`;
+        setTimeout(() => { triggerPunt(); }, 1500);
+    } else {
+        setupFormation();
+    }
+}
+
+function setupFormation() {
+    updateScoreboard();
+    players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group));
+    players = { offense: [], defense: [] }; activeReceiver = null; targetedReceiver = null; ballPastLOSBoostDone = false;
+    trajectoryLine.visible = false; landingMarker.visible = false; document.getElementById('hang-time-ui').classList.add('hidden');
+    while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]); jumpCooldown = 0;
+    
+    document.getElementById('stamina-fill').style.width = '100%'; document.getElementById('stamina-fill').style.background = '#00ff00';
+    document.getElementById('stamina-bar').classList.add('hidden');
+
+    isRunPlay = false;
+    let qb = new Player(0, lineOfScrimmageZ + 5, 'offense', 'QB', '1', isUserHome, currentOpponent);
+    let wr1  = new Player(-18, lineOfScrimmageZ, 'offense', 'WR', '11', isUserHome, currentOpponent);
+    let wr2  = new Player( 18, lineOfScrimmageZ, 'offense', 'WR', '6',  isUserHome, currentOpponent);
+    let slot = new Player(-11, lineOfScrimmageZ, 'offense', 'WR', '14', isUserHome, currentOpponent);
+    let te   = new Player(  8, lineOfScrimmageZ, 'offense', 'TE', '88', isUserHome, currentOpponent);
+    // RB lines up directly behind the QB in the backfield (index 5).
+    let rb = new Player(0, lineOfScrimmageZ + 9, 'offense', 'RB', '22', isUserHome, currentOpponent);
+    // Offensive line: 5 linemen at the LOS. Center is at x=0 (snaps the ball).
+    let center = new Player(0, lineOfScrimmageZ, 'offense', 'OL', '60', isUserHome, currentOpponent);
+    let lg = new Player(-2.5, lineOfScrimmageZ, 'offense', 'OL', '63', isUserHome, currentOpponent);
+    let rg = new Player( 2.5, lineOfScrimmageZ, 'offense', 'OL', '69', isUserHome, currentOpponent);
+    let lt = new Player(-5,   lineOfScrimmageZ, 'offense', 'OL', '78', isUserHome, currentOpponent);
+    let rt = new Player( 5,   lineOfScrimmageZ, 'offense', 'OL', '70', isUserHome, currentOpponent);
+    players.offense.push(qb, wr1, wr2, slot, te, rb, center, lg, rg, lt, rt);
+    // Face offense toward the defense (−Z = downfield)
+    players.offense.forEach(p => { p.group.rotation.y = Math.PI; });
+
+    // Pick a random defensive scheme for this formation
+    const schemes = ['base', 'cover2', 'cover3', 'man', 'prevent'];
+    defScheme = schemes[Math.floor(Math.random() * schemes.length)];
+    // Scheme depths: FS and SS starting z-offset from LOS, and CB cushion
+    const schemeDepths = {
+        base:    { fs: 18 + Math.random()*4,  ss: 14 + Math.random()*4,  cbOff: 2  },
+        cover2:  { fs: 22 + Math.random()*4,  ss: 22 + Math.random()*4,  cbOff: 2  },
+        cover3:  { fs: 30 + Math.random()*6,  ss: 14 + Math.random()*4,  cbOff: 6 + Math.random()*4 },
+        man:     { fs: 10 + Math.random()*4,  ss: 10 + Math.random()*4,  cbOff: 1  },
+        prevent: { fs: 40 + Math.random()*6,  ss: 34 + Math.random()*6,  cbOff: 12 + Math.random()*6 },
+    };
+    const sd = schemeDepths[defScheme];
+
+    // Defense: 2 DE + 2 DT + 3 LB + 2 CB + 2 S = 11
+    let mlb  = new Player( 0,   lineOfScrimmageZ - 5,    'defense', 'LB', '55', isUserHome, currentOpponent);
+    let lolb = new Player(-5,   lineOfScrimmageZ - 5,    'defense', 'LB', '58', isUserHome, currentOpponent);
+    let rolb = new Player( 5,   lineOfScrimmageZ - 5,    'defense', 'LB', '50', isUserHome, currentOpponent);
+    let cb1  = new Player(-18,  lineOfScrimmageZ - sd.cbOff,  'defense', 'CB', '7',  isUserHome, currentOpponent);
+    let cb2  = new Player( 18,  lineOfScrimmageZ - sd.cbOff,  'defense', 'CB', '21', isUserHome, currentOpponent);
+    let fs   = new Player(-8,   lineOfScrimmageZ - sd.fs, 'defense', 'FS', '28', isUserHome, currentOpponent);
+    let ss   = new Player( 8,   lineOfScrimmageZ - sd.ss, 'defense', 'SS', '6',  isUserHome, currentOpponent);
+    // Defensive line: 2 DEs + 2 DTs
+    let lde  = new Player(-5.5, lineOfScrimmageZ - 1.5, 'defense', 'DL', '94', isUserHome, currentOpponent);
+    let ldt  = new Player(-1.8, lineOfScrimmageZ - 1.5, 'defense', 'DL', '98', isUserHome, currentOpponent);
+    let rdt  = new Player( 1.8, lineOfScrimmageZ - 1.5, 'defense', 'DL', '99', isUserHome, currentOpponent);
+    let rde  = new Player( 5.5, lineOfScrimmageZ - 1.5, 'defense', 'DL', '91', isUserHome, currentOpponent);
+    players.defense.push(mlb, lolb, rolb, cb1, cb2, fs, ss, lde, ldt, rdt, rde);
+
+    cb1.targetPlayer = wr1; cb2.targetPlayer = wr2; fs.targetPlayer = slot; ss.targetPlayer = te;
+    handoffPending = false; runArrow.visible = false;
+    detachBallToScene();
+    ball.position.set(0, 0.2, lineOfScrimmageZ); ball.velocity = null; ball.rotation.set(0,0,0);
+    camera.position.set(0, 15, lineOfScrimmageZ + 25); camera.lookAt(0, 0, lineOfScrimmageZ);
+
+    const schemeNames = { base: 'BASE 4-3', cover2: 'COVER 2', cover3: 'COVER 3', man: 'MAN COVERAGE', prevent: 'PREVENT' };
+    document.getElementById('def-scheme-label').innerText = 'DEF: ' + (schemeNames[defScheme] || defScheme.toUpperCase());
+    document.getElementById('playbook').classList.remove('hidden'); document.getElementById('right-hud').classList.remove('hidden');
+    document.getElementById('btn-sim').classList.remove('hidden'); document.getElementById('vertical-power-meter').classList.add('hidden');
+    document.getElementById('instructions').classList.add('hidden');
+    GAME_STATE = 'PLAYBOOK';
+}
+
+// Build route waypoints for a play, ordered [wr1, wr2, slot, te] to match
+// players.offense[1..4]. Coordinates are absolute world positions.
+function getRoutesForPlay(playType, los) {
+    // All routes: WRs release STRAIGHT upfield first (stay on their X), then make a sharp cut.
+    // WR1=x-18, WR2=x+18, slot=x-11, TE=x+8
+    if (playType === 'slant') return [
+        // Slant: 5yds straight up, then cut sharply inside at 45°
+        [new THREE.Vector3(-18, 0, los - 5), new THREE.Vector3(-3, 0, los - 20)],
+        [new THREE.Vector3( 18, 0, los - 5), new THREE.Vector3( 3, 0, los - 20)],
+        [new THREE.Vector3(-11, 0, los - 4), new THREE.Vector3( 2, 0, los - 14)],
+        [new THREE.Vector3(  8, 0, los - 3), new THREE.Vector3(14, 0, los - 10)],
+    ];
+    if (playType === 'verts') return [
+        // Four verts: straight deep on their lane
+        [new THREE.Vector3(-18, 0, los - 60)],
+        [new THREE.Vector3( 18, 0, los - 60)],
+        [new THREE.Vector3(-11, 0, los - 60)],
+        [new THREE.Vector3(  8, 0, los - 60)],
+    ];
+    if (playType === 'curls') return [
+        // Curl: 18yds straight up, then curl back toward QB (turn and face)
+        [new THREE.Vector3(-18, 0, los - 18), new THREE.Vector3(-18, 0, los - 13)],
+        [new THREE.Vector3( 18, 0, los - 18), new THREE.Vector3( 18, 0, los - 13)],
+        [new THREE.Vector3(-11, 0, los - 12), new THREE.Vector3(-11, 0, los -  8)],
+        [new THREE.Vector3(  8, 0, los -  9), new THREE.Vector3(  8, 0, los -  5)],
+    ];
+    if (playType === 'posts') return [
+        // Post: 12yds straight up, then cut hard toward the goalpost (center field)
+        [new THREE.Vector3(-18, 0, los - 12), new THREE.Vector3( 0, 0, los - 45)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( 0, 0, los - 45)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-2, 0, los - 28)],
+        [new THREE.Vector3(  8, 0, los -  7), new THREE.Vector3(16, 0, los - 22)],
+    ];
+    if (playType === 'hitches') return [
+        [new THREE.Vector3(-18, 0, los - 5), new THREE.Vector3(-18, 0, los - 2)],
+        [new THREE.Vector3( 18, 0, los - 5), new THREE.Vector3( 18, 0, los - 2)],
+        [new THREE.Vector3(-11, 0, los - 4), new THREE.Vector3(-11, 0, los - 1)],
+        [new THREE.Vector3(  8, 0, los - 4), new THREE.Vector3(  8, 0, los - 1)],
+    ];
+    if (playType === 'corners') return [
+        [new THREE.Vector3(-18, 0, los - 10), new THREE.Vector3(-34, 0, los - 35)],
+        [new THREE.Vector3( 18, 0, los - 10), new THREE.Vector3( 34, 0, los - 35)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-24, 0, los - 28)],
+        [new THREE.Vector3(  8, 0, los -  6), new THREE.Vector3( 20, 0, los - 20)],
+    ];
+    if (playType === 'outs') return [
+        [new THREE.Vector3(-18, 0, los - 10), new THREE.Vector3(-46, 0, los - 10)],
+        [new THREE.Vector3( 18, 0, los - 10), new THREE.Vector3( 46, 0, los - 10)],
+        [new THREE.Vector3(-11, 0, los -  8), new THREE.Vector3(-38, 0, los -  8)],
+        [new THREE.Vector3(  8, 0, los -  8), new THREE.Vector3( 32, 0, los -  8)],
+    ];
+    if (playType === 'crossing') return [
+        [new THREE.Vector3(-18, 0, los -  8), new THREE.Vector3( 26, 0, los -  8)],
+        [new THREE.Vector3( 18, 0, los -  8), new THREE.Vector3(-26, 0, los -  8)],
+        [new THREE.Vector3(-11, 0, los -  4), new THREE.Vector3( 18, 0, los -  4)],
+        [new THREE.Vector3(  8, 0, los -  5), new THREE.Vector3(-16, 0, los -  5)],
+    ];
+    if (playType === 'digs') return [
+        [new THREE.Vector3(-18, 0, los - 12), new THREE.Vector3(  6, 0, los - 12)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( -6, 0, los - 12)],
+        [new THREE.Vector3(-11, 0, los -  9), new THREE.Vector3(  4, 0, los -  9)],
+        [new THREE.Vector3(  8, 0, los -  7), new THREE.Vector3( -6, 0, los -  7)],
+    ];
+    if (playType === 'comeback') return [
+        [new THREE.Vector3(-18, 0, los - 18), new THREE.Vector3(-18, 0, los - 10)],
+        [new THREE.Vector3( 18, 0, los - 18), new THREE.Vector3( 18, 0, los - 10)],
+        [new THREE.Vector3(-11, 0, los - 14), new THREE.Vector3(-11, 0, los -  7)],
+        [new THREE.Vector3(  8, 0, los - 12), new THREE.Vector3(  8, 0, los -  5)],
+    ];
+    if (playType === 'screen') return [
+        [new THREE.Vector3(-28, 0, los - 2)],
+        [new THREE.Vector3( 28, 0, los - 2)],
+        [new THREE.Vector3(-20, 0, los - 4)],
+        [new THREE.Vector3( 18, 0, los - 3)],
+    ];
+    return [[], [], [], []];
+}
+
+function drawRouteLines(routes, color) {
+    while (routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+    const material = new THREE.LineBasicMaterial({ color: color || 0x00ff00, linewidth: 3 });
+    const receivers = [players.offense[1], players.offense[2], players.offense[3], players.offense[4]];
+    routes.forEach((route, i) => {
+        const p = receivers[i];
+        if (!p || !route || route.length === 0) return;
+        const pts = [new THREE.Vector3(p.group.position.x, 0.2, p.group.position.z)];
+        route.forEach(pt => pts.push(new THREE.Vector3(pt.x, 0.2, pt.z)));
+        routeLinesGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material));
+    });
+}
+
+// Hover-preview support: show the routes a play would run while the user
+// hovers over its play card, clear them on mouseleave (only in PLAYBOOK).
+function previewPlay(playType) {
+    if (GAME_STATE !== 'PLAYBOOK') return;
+    drawRouteLines(getRoutesForPlay(playType, lineOfScrimmageZ), 0x66ddff);
+}
+function clearRoutePreview() {
+    if (GAME_STATE !== 'PLAYBOOK') return;
+    while (routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+}
+
+function selectPlay(playType) {
+    document.getElementById('playbook').classList.add('hidden'); document.getElementById('btn-sim').classList.add('hidden');
+    currentPlay = playType;
+
+    if (playType === 'dive' || playType === 'sweepl' || playType === 'sweepr' || playType === 'draw') {
+        isRunPlay = true;
+        trajectoryLine.visible = false; landingMarker.visible = false;
+        document.getElementById('hang-time-ui').classList.add('hidden');
+        document.getElementById('vertical-power-meter').classList.add('hidden');
+        document.getElementById('instructions').innerText = "SPACE: SNAP"; document.getElementById('instructions').classList.remove('hidden');
+        // Show directional arrow above the RB
+        const rbPos = players.offense[5].group.position;
+        const arrowDir = playType === 'sweepl' ? new THREE.Vector3(-0.85, 0, -0.53).normalize()
+                       : playType === 'sweepr' ? new THREE.Vector3( 0.85, 0, -0.53).normalize()
+                       :                         new THREE.Vector3( 0,    0, -1).normalize(); // dive & draw
+        runArrow.position.set(rbPos.x, 2.5, rbPos.z);
+        runArrow.setDirection(arrowDir);
+        runArrow.visible = true;
+        GAME_STATE = 'PRE_SNAP';
+        return;
+    }
+
+    isRunPlay = false; let los = lineOfScrimmageZ;
+    const routes = getRoutesForPlay(playType, los);
+    [players.offense[1], players.offense[2], players.offense[3], players.offense[4]].forEach((p, i) => { p.route = routes[i] || []; });
+    // RB runs a flat route to the right as a check-down option on every pass play.
+    players.offense[5].route = [new THREE.Vector3(8, 0, los - 5), new THREE.Vector3(14, 0, los - 13)];
+    drawRouteLines(routes, 0x00ff00);
+
+    trajectoryLine.visible = true; landingMarker.visible = true; document.getElementById('hang-time-ui').classList.remove('hidden');
+    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = "Q/E: POWER | SPACE: SNAP";
+    GAME_STATE = 'PRE_SNAP';
+}
+
+function snapBall() {
+    if (GAME_STATE !== 'PRE_SNAP') return;
+    while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
+
+    // Assign each DL a unique rush lane, speed, and stagger delay every snap
+    // Also assign run-pursuit properties used if it turns out to be a run play
+    const runXDir = currentPlay === 'sweepr' ? 1 : currentPlay === 'sweepl' ? -1 : 0;
+    players.defense.filter(p => p.role === 'DL').forEach(p => {
+        const sideBias = p.group.position.x * 0.45;
+        p.rushLaneOffX  = sideBias + (Math.random() - 0.5) * 5;
+        p.rushSpeedMul  = 0.72 + Math.random() * 0.33;
+        p.rushDelay     = Math.random() * 0.55;
+        // Run pursuit: DL on the play-side get sealed by OL and react slower;
+        // back-side DL shed blocks earlier and can flow to the ball faster
+        const onPlaySide = runXDir !== 0 && Math.sign(p.group.position.x) === runXDir;
+        p.runReactTimer = onPlaySide
+            ? 0.7 + Math.random() * 0.7   // sealed — 0.7–1.4s to shed block
+            : 0.1 + Math.random() * 0.45;  // free — 0.1–0.55s reaction
+        p.runFlowSpeed  = 0.78 + Math.random() * 0.32;
+    });
+
+    // Assign each CB/safety a coverage style, trail distance, and read delay every snap.
+    // Press chance and cushion depth vary by scheme picked at formation time.
+    const schemePressChance = { base: 0.45, cover2: 0.35, cover3: 0.25, man: 0.80, prevent: 0.05 };
+    players.defense.filter(p => p.role === 'CB' || p.role === 'FS' || p.role === 'SS').forEach(p => {
+        const isPress = Math.random() < (schemePressChance[defScheme] || 0.45);
+        // Press: tight trail, no read delay. Off: cushion + hesitation before breaking on ball.
+        if (defScheme === 'prevent') {
+            p.trailDist     = 2.2 + Math.random() * 1.0;
+            p.covBreakDelay = 0.4 + Math.random() * 0.35;
+        } else {
+            p.trailDist     = isPress ? 0.5 + Math.random() * 0.4 : 1.2 + Math.random() * 0.9;
+            p.covBreakDelay = isPress ? 0 : 0.2 + Math.random() * 0.45;
+        }
+        // Press coverage jams the receiver at the line
+        if (isPress && p.targetPlayer) {
+            p.targetPlayer.stunTimer = Math.max(p.targetPlayer.stunTimer || 0, 0.2 + Math.random() * 0.3);
+        }
+    });
+
+    if (isRunPlay) {
+        runArrow.visible = false;
+        handoffPending = true;
+        // QB takes the snap holding the ball; RB will run to him for the handoff.
+        const qb = players.offense[0];
+        attachBallToQB(qb);
+        // Assign each OL a directional block vector to open the correct gap.
+        const olSorted = players.offense.filter(p => p.role === 'OL').sort((a,b) => a.group.position.x - b.group.position.x);
+        const blockDirSets = {
+            dive:   [ new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.6,0,-1), new THREE.Vector3(0,0,-1), new THREE.Vector3(0.6,0,-1),  new THREE.Vector3(1.2,0,-0.8) ],
+            sweepl: [ new THREE.Vector3(-1.5,0,-0.5), new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.5,0,-1), new THREE.Vector3(0,0,-1),   new THREE.Vector3(0.3,0,-1)   ],
+            sweepr: [ new THREE.Vector3(-0.3,0,-1),   new THREE.Vector3(0,0,-1),    new THREE.Vector3(0.5,0,-1),  new THREE.Vector3(1.2,0,-0.8), new THREE.Vector3(1.5,0,-0.5) ],
+            draw:   [ new THREE.Vector3(-1.2,0,-0.8), new THREE.Vector3(-0.6,0,-1), new THREE.Vector3(0,0,-1), new THREE.Vector3(0.6,0,-1),  new THREE.Vector3(1.2,0,-0.8) ],
+        };
+        const dirs = blockDirSets[currentPlay];
+        olSorted.forEach((p, i) => { p.runBlockDir = dirs[i].clone().normalize(); });
+        GAME_STATE = 'PLAY';
+        document.getElementById('instructions').innerText = "HANDOFF..."; document.getElementById('instructions').classList.remove('hidden');
+        document.getElementById('vertical-power-meter').classList.add('hidden');
+        camera.position.set(qb.group.position.x, 10, qb.group.position.z + 15);
+        camera.lookAt(qb.group.position.x, 0, qb.group.position.z - 20);
+        return;
+    }
+
+    document.getElementById('instructions').innerText = "CLICK TO THROW"; document.getElementById('vertical-power-meter').classList.add('hidden');
+    let qb = players.offense[0]; camera.position.set(qb.group.position.x, 10, qb.group.position.z + 15); camera.lookAt(qb.group.position.x, 0, qb.group.position.z - 20);
+    attachBallToQB(qb);
+    GAME_STATE = 'PLAY';
+}
+
+function checkInputs(e) {
+    if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
+        if (GAME_STATE === 'PAUSED') resumeGame(); else { GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
+    }
+    if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
+    if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
+    if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
+    
+    if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
+
+    if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') {
+        if (e.code === 'KeyE' || e.code === 'ArrowUp')   passPower = Math.min(1.0, passPower + 0.1);
+        if (e.code === 'KeyQ' || e.code === 'ArrowDown')  passPower = Math.max(0.1, passPower - 0.1);
+        document.getElementById('vertical-power-fill').style.height = (passPower * 100) + '%';
+        // Colour: green = floater, yellow = mid, red = bomb
+        const r = Math.round(passPower * 255); const g = Math.round((1 - passPower) * 255);
+        document.getElementById('vertical-power-fill').style.background = `rgb(${r},${g},0)`;
+    }
+}
+function onMouseMove(e) {
+    cursorX = e.clientX; cursorY = e.clientY;
+    if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP') {
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObjects([field, endzoneHome, endzoneDef]);
+        if (intersects.length > 0) {
+            passTarget.copy(intersects[0].point); landingMarker.position.set(passTarget.x, 0.2, passTarget.z);
+            let ui = document.getElementById('hang-time-ui'); ui.style.left = (e.clientX + 15) + 'px'; ui.style.top = (e.clientY + 15) + 'px'; ui.innerText = `Time: ${passTimeEstimate.toFixed(2)}s`;
+        }
+    }
+}
+function onMouseDown(e) {
+    if (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending && players.offense[0].group.position.z >= lineOfScrimmageZ) {
+        let qb = players.offense[0]; trajectoryLine.visible = false; landingMarker.visible = false;
+        document.getElementById('instructions').classList.add('hidden'); document.getElementById('hang-time-ui').classList.add('hidden');
+        detachBallToScene(); // ball was parented to QB; reattach to scene with world transform preserved before computing throw
+        let dist = Math.max(1, qb.group.position.distanceTo(passTarget)); let throwSpeed = 15 + (passPower * 30); let timeInAir = dist / throwSpeed;
+        ball.velocity = new THREE.Vector3((passTarget.x - ball.position.x) / timeInAir, (passTarget.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (passTarget.z - ball.position.z) / timeInAir);
+        let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
+        if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
+        qb.throwTimer = 0.55; // trigger throw animation
+    }
+}
+
+// Pose constants tuned in playground.html (see DEFAULTS in that file).
+// Both poses parent the ball to the player's body group; arms use the
+// upper+lower hierarchy and are locked while the player is in the relevant state.
+//
+// Carrier: ball cradled high-and-tight; both arms wrap around it.
+const TUCKED_POSITION = new THREE.Vector3(-0.36, 1.74, 0.41);
+const TUCKED_EULER    = new THREE.Euler(1.08, 0.25, -0.58);
+const TUCKED_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(-0.79, -2.28, 0.84);
+const TUCKED_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(-1.01, 0.30, 0.18);
+const TUCKED_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(-0.66, 0.41, 0.25);
+const TUCKED_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(-1.08, 1.04, 0.52);
+
+// QB throwing-ready: ball cocked back near the right ear, off-arm raised.
+const QB_HOLD_POSITION = new THREE.Vector3(-0.61, 2.84, 0.32);
+const QB_HOLD_EULER    = new THREE.Euler(-0.23, 0, -0.40);
+const QB_HOLD_RIGHT_UPPER_ARM_ROTATION = new THREE.Euler(-1.58, 0.11, -0.67);
+const QB_HOLD_RIGHT_LOWER_ARM_ROTATION = new THREE.Euler(-0.36, 0, 0);
+const QB_HOLD_LEFT_UPPER_ARM_ROTATION  = new THREE.Euler(-2.68, -0.11, 0.04);
+const QB_HOLD_LEFT_LOWER_ARM_ROTATION  = new THREE.Euler(-0.67, 0, 0);
+
+function attachBallToCarrier(carrier) {
+    carrier.group.add(ball);
+    ball.position.copy(TUCKED_POSITION);
+    ball.rotation.copy(TUCKED_EULER);
+    ball.velocity = null;
+    landingMarker.visible = false;
+}
+
+function attachBallToQB(qb) {
+    qb.group.add(ball);
+    ball.position.copy(QB_HOLD_POSITION);
+    ball.rotation.copy(QB_HOLD_EULER);
+    ball.velocity = null;
+}
+
+function detachBallToScene() {
+    if (ball.parent && ball.parent !== scene) {
+        scene.attach(ball); // preserves world transform — no visual snap
+    }
+}
+
+function updateBallPhysics(dt) {
+    if (!ball.velocity) {
+        if (GAME_STATE === 'TACKLED') { ball.position.y = 0.5; }
+        return;
+    }
+
+    ball.position.addScaledVector(ball.velocity, dt); ball.velocity.y -= 30 * dt;
+    let nextPos = ball.position.clone().add(ball.velocity); ball.lookAt(nextPos); ball.rotateZ(-30 * clock.getElapsedTime());
+
+    // Landing prediction circle — solve y0 + vy*t - 15*t^2 = 0 for t
+    if (GAME_STATE === 'PLAY') {
+        const vy = ball.velocity.y, y0 = ball.position.y;
+        const disc = vy * vy + 60 * y0;
+        if (disc >= 0) {
+            const tLand = (vy + Math.sqrt(disc)) / 30;
+            if (tLand > 0) {
+                landingMarker.position.set(
+                    ball.position.x + ball.velocity.x * tLand,
+                    0.1,
+                    ball.position.z + ball.velocity.z * tLand
+                );
+                landingMarker.visible = true;
+            }
+        }
+    }
+
+    if (GAME_STATE === 'PLAY') {
+        camera.position.x = THREE.MathUtils.lerp(camera.position.x, ball.position.x, 0.1); camera.position.y = THREE.MathUtils.lerp(camera.position.y, ball.position.y + 8, 0.1); camera.position.z = THREE.MathUtils.lerp(camera.position.z, ball.position.z + 15, 0.1); camera.lookAt(ball.position);
+
+        players.offense.forEach(p => {
+            if (p.role === 'WR') { // only WRs are eligible receivers
+                const dist = p.group.position.distanceTo(ball.position);
+                const horizDist = Math.hypot(ball.position.x - p.group.position.x, ball.position.z - p.group.position.z);
+                // Targeted receiver: jump for any descending ball in range, including high throws.
+                if (p === targetedReceiver && !p.isJumping && horizDist < 5 && ball.position.y > 2.5 && ball.velocity && ball.velocity.y < 5) {
+                    p.isJumping = true; p.yVelocity = 11;
+                } else if (p !== targetedReceiver && !p.isJumping && dist < 4.5 && ball.position.y > 2.5 && ball.position.y < 5.5) {
+                    p.isJumping = true; p.yVelocity = 10;
+                }
+                const canCatch = !targetedReceiver || p === targetedReceiver;
+                // hand height ≈ group.y + 2 (arms raised to catch); use 4-unit vertical window
+                if (canCatch && dist < 4.0 && Math.abs((p.group.position.y + 2.0) - ball.position.y) < 4.0) {
+                    activeReceiver = p; targetedReceiver = null; GAME_STATE = 'POST_CATCH'; p.cutBurstTimer = 1.5;
+                    attachBallToCarrier(p);
+                    // Always run straight downfield after the catch until the player steers.
+                    p.autoRunDir.set(0, 0, -1);
+                    p.autoRun = true;
+                    document.getElementById('stamina-bar').classList.remove('hidden');
+                    document.getElementById('instructions').innerText = "RUN! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden'); triggerCheer();
+                }
+            }
+        });
+
+        players.defense.forEach(p => {
+            const dist = p.group.position.distanceTo(ball.position);
+            if (dist < 3.5 && ball.position.y > 2.5 && ball.position.y < 5.0 && !p.isJumping) { p.isJumping = true; p.yVelocity = 9; }
+            // Tight coverage (small trailDist) → larger interception window; loose coverage → smaller
+            const interceptRange = 2.5 + Math.max(0, (1.5 - (p.trailDist || 1.0))) * 0.9;
+            if (dist < interceptRange && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 2.0) {
+                attachBallToCarrier(p); // defender carries the ball in tucked position
+                targetedReceiver = null; triggerBoo(); handlePlayResult("INTERCEPTED", p.group.position.z);
+            }
+        });
+
+        if (ball.position.y <= 0.2) { targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("INCOMPLETE", lineOfScrimmageZ); }
+        // Ball behind the back of the end zone or out of bounds laterally
+        if (ball.position.z < -120 || Math.abs(ball.position.x) > 54) { targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("OUT OF BOUNDS", lineOfScrimmageZ); }
+    }
+}
+
+/**
+ * EXTRA POINT / 2-POINT CONVERSION
+ */
+function _showKickScreen(title, subtitle, actionLabel, showGoForTwo) {
+    GAME_STATE = title === 'TOUCHDOWN!' ? 'EXTRA_POINT' : title.includes('KICKOFF') ? 'KICKOFF' : 'PUNT';
+    patMeterPos = 0; patMeterDir = 1; patActive = true;
+    document.getElementById('pat-title').textContent = title;
+    document.getElementById('pat-subtitle').textContent = subtitle;
+    document.getElementById('pat-action-label').textContent = actionLabel;
+    const btn = document.getElementById('btn-go-for-two');
+    if (showGoForTwo) btn.classList.remove('hidden'); else btn.classList.add('hidden');
+    document.getElementById('extra-point-screen').classList.remove('hidden');
+}
+
+function triggerExtraPoint() {
+    _showKickScreen('TOUCHDOWN!', '+6 POINTS', 'EXTRA POINT ATTEMPT', true);
+}
+
+function triggerKickoff() {
+    _showKickScreen('KICKOFF!', '', 'KICK IT DEEP — HIT THE GREEN ZONE', false);
+}
+
+function triggerPunt() {
+    _showKickScreen('PUNT!', '', 'KICK IT AWAY — HIT THE GREEN ZONE', false);
+}
+
+function attemptExtraPointKick() {
+    if (!patActive) return;
+    patActive = false;
+    document.getElementById('extra-point-screen').classList.add('hidden');
+
+    if (GAME_STATE === 'EXTRA_POINT') {
+        const isGood = patMeterPos >= 0.35 && patMeterPos <= 0.65;
+        if (isGood) {
+            addScore('off', 1); triggerCheer();
+            document.getElementById('instructions').innerText = 'EXTRA POINT GOOD! +1';
+        } else {
+            triggerBoo();
+            document.getElementById('instructions').innerText = 'KICK NO GOOD!';
+        }
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(triggerKickoff, 1800);
+    } else if (GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') {
+        const goodKick = patMeterPos >= 0.3 && patMeterPos <= 0.7;
+        const label = GAME_STATE === 'KICKOFF' ? (goodKick ? 'DEEP KICKOFF!' : 'SHORT KICKOFF') : (goodKick ? 'GREAT PUNT!' : 'SHORT PUNT');
+        document.getElementById('instructions').innerText = label;
+        document.getElementById('instructions').classList.remove('hidden');
+        setTimeout(startOpponentDriveSim, 1500);
+    }
+}
+
+function goForTwo() {
+    if (GAME_STATE !== 'EXTRA_POINT') return;
+    patActive = false;
+    document.getElementById('extra-point-screen').classList.add('hidden');
+    isTwoPointAttempt = true;
+    lineOfScrimmageZ = -98;
+    yardsToGo = 2; currentDown = 1;
+    document.getElementById('instructions').innerText = 'GO FOR 2 — SCORE TO CONVERT!';
+    document.getElementById('instructions').classList.remove('hidden');
+    setTimeout(() => { document.getElementById('instructions').classList.add('hidden'); setupFormation(); }, 1200);
+}
+
+function finalizeTouchdown() {
+    document.getElementById('instructions').classList.add('hidden');
+    if (pendingQuarterEnd) {
+        _triggerQuarterTransition();
+    } else {
+        setTimeout(triggerKickoff, 800);
+    }
+}
+
+/**
+ * SIMULATION ENGINE
+ */
+
+// Short sim of the opponent's single drive after a turnover. Runs 3-5 plays then
+// automatically hands possession back to the user.
+function startOpponentDriveSim() {
+    document.getElementById('sim-screen').classList.remove('hidden');
+    GAME_STATE = 'SIMULATING';
+    inOpponentDriveSim = true;
+
+    const numPlays = Math.floor(Math.random() * 3) + 3; // 3-5 plays
+    document.getElementById('sim-log-content').innerHTML +=
+        `<br>> <span style="color:#ffcc00;">⚡ ${currentOpponent.id} takes possession...</span><br>`;
+    document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
+
+    let playNum = 0;
+    function runNextOpponentPlay() {
+        if (GAME_STATE !== 'SIMULATING') return;
+        if (playNum >= numPlays) {
+            // Drive stalls — punt back to player
+            document.getElementById('sim-log-content').innerHTML +=
+                `> <span style="color:#00aaff;">--- ${currentOpponent.id} punts | YOUR BALL ---</span><br>`;
+            document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
+            inOpponentDriveSim = false;
+            setTimeout(() => { stopSim(pendingStopSim ? false : false); }, 1500);
+            return;
+        }
+        playNum++;
+        // Simulate one opponent offensive play
+        let timeBurned = Math.floor(Math.random() * 12 + 6);
+        gameTime = Math.max(0, gameTime - timeBurned);
+        let timeStr = `Q${currentQuarter} ${Math.floor(gameTime / 60)}:${(gameTime % 60) < 10 ? '0' : ''}${gameTime % 60}`;
+        let r = Math.random(); let playDesc = "";
+        if (r < 0.08) {
+            addScore('def', 7);
+            playDesc = `${currentOpponent.id} scores! <span style="color:#ff4444;">TOUCHDOWN! ${currentOpponent.id} +7</span>`;
+            playNum = numPlays; // end drive after TD
+        } else if (r < 0.14) {
+            playDesc = `Pass intercepted! <span style="color:#00ff88;">TURNOVER — YOUR BALL</span>`;
+            playNum = numPlays;
+        } else if (r < 0.32) {
+            playDesc = `Pass incomplete.`;
+        } else if (r < 0.52) {
+            playDesc = `Run for ${Math.floor(Math.random() * 5 + 1)} yards.`;
+        } else if (r < 0.72) {
+            playDesc = `QB sacked for a loss of ${Math.floor(Math.random() * 4 + 1)} yards.`;
+        } else {
+            playDesc = `Pass complete for ${Math.floor(Math.random() * 12 + 4)} yards.`;
+        }
+        document.getElementById('sim-log-content').innerHTML +=
+            `<span class="sim-timestamp">[${timeStr}]</span> ${playDesc} <span class="sim-score">| ${MY_TEAM.id} ${scoreOff} - ${currentOpponent.id} ${scoreDef}</span><br>`;
+        document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
+        updateScoreboard();
+        simIntervalTimer = setTimeout(runNextOpponentPlay, 2500);
+    }
+    simIntervalTimer = setTimeout(runNextOpponentPlay, 1200);
+}
+
+function setSimPossession(team) {
+    simPossession = team;
+    const bar = document.getElementById('sim-possession');
+    if (!bar) return;
+    const isOff = team === 'off';
+    const name  = isOff ? MY_TEAM.id : currentOpponent.id;
+    bar.textContent  = `🏈  ${name} BALL`;
+    bar.style.background = isOff ? 'rgba(0,120,0,0.55)' : 'rgba(160,0,0,0.55)';
+    bar.style.color      = isOff ? '#00ff88' : '#ff7777';
+}
+
+function startSim() {
+    document.getElementById('ui-layer').classList.add('hidden');
+    document.getElementById('sim-screen').classList.remove('hidden');
+    GAME_STATE = 'SIMULATING';
+    setSimPossession('off'); // user starts with the ball
+    simIntervalTimer = setInterval(processSimPlay, 2500);
+}
+
+function processSimPlay() {
+    if (gameTime <= 0) {
+        if (currentQuarter < 4) {
+            currentQuarter++; gameTime = 120;
+            const qHtml = `> <span style="color:#00aaff;">--- END OF Q${currentQuarter - 1} | START Q${currentQuarter} ---</span><br>`;
+            document.getElementById('sim-log-content').innerHTML += qHtml;
+        } else {
+            document.getElementById('sim-log-content').innerHTML += `> <span style="color:#ffcc00;">--- GAME OVER ---</span><br>`;
+            stopSim(true); return;
+        }
+    }
+
+    const isOff   = simPossession === 'off';
+    const offTeam = isOff ? MY_TEAM.id : currentOpponent.id;
+    const defTeam = isOff ? currentOpponent.id : MY_TEAM.id;
+    const cls     = isOff ? 'sim-off' : 'sim-def';
+
+    let timeBurned = Math.floor(Math.random() * 12 + 6);
+    gameTime = Math.max(0, gameTime - timeBurned);
+    let timeStr = `Q${currentQuarter} ${Math.floor(gameTime / 60)}:${String(gameTime % 60).padStart(2,'0')}`;
+
+    let r = Math.random(); let playDesc = ''; let possession = simPossession;
+
+    if (r < 0.09) {
+        // Touchdown by current offense
+        addScore(isOff ? 'off' : 'def', 7);
+        playDesc = `<span class="${cls}">${offTeam}</span> — Deep ball caught in the end zone! <span style="color:#${isOff?'00ff88':'ff6666'};">TOUCHDOWN ${offTeam}! +7</span>`;
+        possession = isOff ? 'def' : 'off'; // other team kicks off
+    } else if (r < 0.14) {
+        // Turnover / interception → switch possession
+        playDesc = `<span class="${cls}">${offTeam}</span> — Pass intercepted by ${defTeam}! <span style="color:#ffcc00;">TURNOVER</span>`;
+        possession = isOff ? 'def' : 'off';
+    } else if (r < 0.19) {
+        // Punt → switch possession
+        playDesc = `<span class="${cls}">${offTeam}</span> — Drive stalls. Punt to ${defTeam}.`;
+        possession = isOff ? 'def' : 'off';
+    } else if (r < 0.38) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Incomplete pass.`;
+    } else if (r < 0.52) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — QB sacked for -${Math.floor(Math.random() * 5 + 2)} yds.`;
+    } else if (r < 0.70) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Run for ${Math.floor(Math.random() * 6 + 1)} yds.`;
+    } else if (r < 0.84) {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Pass complete, ${Math.floor(Math.random() * 12 + 4)} yds.`;
+    } else {
+        playDesc = `<span class="${cls}">${offTeam}</span> — Big gain, ${Math.floor(Math.random() * 20 + 12)} yds downfield!`;
+    }
+
+    const scoreStr = `<span class="sim-score">| ${MY_TEAM.id} ${scoreOff} – ${currentOpponent.id} ${scoreDef}</span>`;
+    document.getElementById('sim-log-content').innerHTML +=
+        `<span class="sim-timestamp">[${timeStr}]</span> ${playDesc} ${scoreStr}<br>`;
+    document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight;
+    updateScoreboard();
+
+    // Update possession AFTER logging so the banner flips for next play
+    if (possession !== simPossession) setSimPossession(possession);
+}
+
+function simToEnd() {
+    if (GAME_STATE !== 'SIMULATING') return;
+    // Fast-forward: re-run processSimPlay on a tight interval until the game ends.
+    // processSimPlay calls stopSim(true) -> endGame() when Q4 hits zero, which clears the timer.
+    clearInterval(simIntervalTimer);
+    simIntervalTimer = setInterval(processSimPlay, 60);
+}
+
+function skipToNextQuarter() {
+    if (currentQuarter >= 4) return;
+    gameTime = 120; currentQuarter++;
+    addScore('off', Math.floor(Math.random() * 2) * 7); addScore('def', Math.floor(Math.random() * 2) * 7);
+    document.getElementById('sim-log-content').innerHTML += `<br>> <span style="color:#00aaff;">--- SKIPPED TO Q${currentQuarter} ---</span><br>`;
+    document.getElementById('sim-log').scrollTop = document.getElementById('sim-log').scrollHeight; updateScoreboard();
+}
+
+function requestStopSim() {
+    if (GAME_STATE !== 'SIMULATING') return;
+    if (inOpponentDriveSim) {
+        // Let the drive finish — flag it and update the button
+        pendingStopSim = true;
+        const btn = document.getElementById('btn-stop-sim');
+        if (btn) { btn.textContent = 'STOPPING AFTER DRIVE…'; btn.disabled = true; }
+    } else {
+        stopSim(false);
+    }
+}
+
+function stopSim(forceEnd = false) {
+    clearInterval(simIntervalTimer);
+    inOpponentDriveSim = false;
+    pendingStopSim     = false;
+    const btn = document.getElementById('btn-stop-sim');
+    if (btn) { btn.textContent = 'STOP SIM'; btn.disabled = false; }
+    document.getElementById('sim-screen').classList.add('hidden');
+    document.getElementById('ui-layer').classList.remove('hidden');
+
+    if (forceEnd) {
+        endGame();
+    } else {
+        currentDown = 1; yardsToGo = 10; lineOfScrimmageZ = 40; setupFormation();
+    }
+}
+
+function endGame() {
+    GAME_STATE = 'GAME_OVER';
+    document.getElementById('scoreboard').classList.add('hidden');
+    document.getElementById('playbook').classList.add('hidden');
+    document.getElementById('right-hud').classList.add('hidden');
+    document.getElementById('instructions').classList.add('hidden');
+
+    let isWin = scoreOff > scoreDef;
+    let isLoss = scoreDef > scoreOff;
+    
+    if(isWin) myRecord.w++; else if(isLoss) myRecord.l++; else myRecord.t++;
+    seasonSchedule[currentWeek-1].result = `${isWin?'W':(isLoss?'L':'T')} ${scoreOff}-${scoreDef}`;
+
+    // Populate Box Score
+    document.getElementById('bs-home-name').innerText = MY_TEAM.id;
+    document.getElementById('bs-away-name').innerText = currentOpponent.id;
+    for(let i=1; i<=4; i++) {
+        document.getElementById(`bs-h-q${i}`).innerText = qtrScores.off[i-1];
+        document.getElementById(`bs-a-q${i}`).innerText = qtrScores.def[i-1];
+    }
+    document.getElementById('bs-h-final').innerText = scoreOff;
+    document.getElementById('bs-a-final').innerText = scoreDef;
+
+    document.getElementById('box-score-screen').classList.remove('hidden');
+}
+
+function advanceWeek() {
+    document.getElementById('box-score-screen').classList.add('hidden');
+    currentWeek++;
+    goToMainMenu();
+    updateMenuUI();
+}
+
+function goToMainMenu() {
+    clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
+    document.getElementById('quarter-break').classList.add('hidden');
+    document.getElementById('halftime-screen').classList.add('hidden');
+    document.getElementById('extra-point-screen').classList.add('hidden');
+    document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden');
+    document.getElementById('scoreboard').classList.add('hidden'); document.getElementById('playbook').classList.add('hidden');
+    document.getElementById('right-hud').classList.add('hidden'); document.getElementById('instructions').classList.add('hidden');
+    document.getElementById('hang-time-ui').classList.add('hidden'); landingMarker.visible = false;
+    players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group)); players = { offense: [], defense: [] };
+    GAME_STATE = 'MENU'; scoreOff = 0; scoreDef = 0; timeScale = 1.0; currentQuarter = 1; gameTime = 120;
+    camera.position.set(0, 15, 40); camera.lookAt(0, 0, 0); playMenuMusic();
+}
+
+function resumeGame() { document.getElementById('pause-menu').classList.add('hidden'); GAME_STATE = currentPlay ? (ball.velocity ? 'PLAY' : 'PRE_SNAP') : 'PLAYBOOK'; }
+
+function updateClockDOM() {
+    const liveStates = new Set(['PLAY', 'POST_CATCH', 'TACKLED', 'GETTING_UP', 'WALKOFF']);
+    if (!liveStates.has(GAME_STATE)) return;
+    if (gameTime > 0) {
+        gameTime--;
+    } else if (!pendingQuarterEnd) {
+        // Clock hit 0 mid-play — set flag and let the play finish naturally
+        pendingQuarterEnd = true;
+    }
+    updateScoreboard();
+}
+
+function _triggerQuarterTransition() {
+    pendingQuarterEnd = false;
+    if (currentQuarter === 2) {
+        triggerHalftime();
+    } else if (currentQuarter < 4) {
+        triggerQuarterBreak();
+    } else {
+        endGame();
+    }
+}
+
+/**
+ * QUARTER BREAKS & HALFTIME
+ */
+function triggerQuarterBreak() {
+    GAME_STATE = 'QUARTER_BREAK';
+    currentQuarter++;
+    gameTime = 120;
+    updateScoreboard();
+
+    const txt = document.getElementById('quarter-break-text');
+    txt.innerText = `END OF Q${currentQuarter - 1}\nQ${currentQuarter} BEGINS`;
+    document.getElementById('quarter-break').classList.remove('hidden');
+
+    setTimeout(() => {
+        document.getElementById('quarter-break').classList.add('hidden');
+        camera.position.set(0, 15, lineOfScrimmageZ + 25);
+        camera.lookAt(0, 0, lineOfScrimmageZ);
+        setupFormation();
+    }, 4000);
+}
+
+function triggerHalftime() {
+    GAME_STATE = 'HALFTIME';
+    currentQuarter++;
+    gameTime = 120;
+    updateScoreboard();
+
+    document.getElementById('halftime-score').innerText =
+        `${MY_TEAM.id} ${scoreOff}  —  ${currentOpponent ? currentOpponent.id : 'OPP'} ${scoreDef}`;
+    document.getElementById('halftime-screen').classList.remove('hidden');
+    spawnCheerleaders();
+}
+
+function resumeFromHalftime() {
+    clearCheerleaders();
+    document.getElementById('halftime-screen').classList.add('hidden');
+    timeoutsOff = 3;
+    updateTimeoutDisplay();
+    camera.position.set(0, 15, lineOfScrimmageZ + 25);
+    camera.lookAt(0, 0, lineOfScrimmageZ);
+    setupFormation();
+}
+
+class CheerleaderModel {
+    constructor(x, z) {
+        this.group = new THREE.Group();
+        this.group.position.set(x, 0, z);
+        this.phase = Math.random() * Math.PI * 2;
+
+        const cheerColor = [0xff4488, 0xffcc00, 0xff2255][Math.floor(Math.random() * 3)];
+        const skinTone = HUMAN_SKIN_TONES[Math.floor(Math.random() * HUMAN_SKIN_TONES.length)];
+        const jMat  = new THREE.MeshLambertMaterial({ color: cheerColor });
+        const sMat  = new THREE.MeshLambertMaterial({ color: skinTone });
+        const legMat = new THREE.MeshLambertMaterial({ color: skinTone });
+
+        // Body
+        this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.38), jMat);
+        this.torso.position.y = 1.5; this.group.add(this.torso);
+
+        // Skirt
+        const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.35, 0.6, 10), jMat);
+        skirt.position.y = 0.92; this.group.add(skirt);
+
+        // Head
+        this.head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), sMat);
+        this.head.position.y = 2.18; this.group.add(this.head);
+
+        // Arms (pivot objects for rotation)
+        this.leftArm  = new THREE.Object3D(); this.leftArm.position.set(-0.42, 1.85, 0); this.group.add(this.leftArm);
+        this.rightArm = new THREE.Object3D(); this.rightArm.position.set( 0.42, 1.85, 0); this.group.add(this.rightArm);
+        const armGeo = new THREE.BoxGeometry(0.16, 0.58, 0.16); armGeo.translate(0, -0.29, 0);
+        this.leftArm.add(new THREE.Mesh(armGeo, sMat));
+        this.rightArm.add(new THREE.Mesh(armGeo.clone(), sMat));
+
+        // Pom poms
+        const pomMat = new THREE.MeshLambertMaterial({ color: MY_TEAM ? MY_TEAM.color : 0xffcc00 });
+        this.leftPom  = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), pomMat);
+        this.leftPom.position.set(-0.42, 1.2, 0); this.group.add(this.leftPom);
+        this.rightPom = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), pomMat);
+        this.rightPom.position.set( 0.42, 1.2, 0); this.group.add(this.rightPom);
+
+        // Legs
+        const legGeo = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+        const ll = new THREE.Mesh(legGeo, legMat); ll.position.set(-0.14, 0.4, 0); this.group.add(ll);
+        const rl = new THREE.Mesh(legGeo, legMat); rl.position.set( 0.14, 0.4, 0); this.group.add(rl);
+
+        this.group.rotation.y = Math.PI; // face toward camera
+        scene.add(this.group);
+    }
+
+    animate(elapsed) {
+        const t = elapsed + this.phase;
+        // Arms wave alternately
+        this.leftArm.rotation.z  =  Math.sin(t * 4.5) * 1.1 + 0.4;
+        this.rightArm.rotation.z = -Math.sin(t * 4.5) * 1.1 - 0.4;
+        // Pom poms follow
+        this.leftPom.position.y  = 1.2 + Math.sin(t * 4.5) * 0.45;
+        this.leftPom.position.x  = -0.42 - Math.sin(t * 4.5) * 0.1;
+        this.rightPom.position.y = 1.2 - Math.sin(t * 4.5) * 0.45;
+        this.rightPom.position.x =  0.42 + Math.sin(t * 4.5) * 0.1;
+        // Slight bounce and sway
+        this.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.25;
+        this.group.rotation.y = Math.PI + Math.sin(t * 1.2) * 0.25;
+    }
+}
+
+function spawnCheerleaders() {
+    clearCheerleaders();
+    [-24, -14, -5, 5, 14, 24].forEach(x => {
+        cheerleaders.push(new CheerleaderModel(x, -108));
+    });
+}
+
+function clearCheerleaders() {
+    cheerleaders.forEach(c => scene.remove(c.group));
+    cheerleaders = [];
+}
+
+/**
+ * TIMEOUTS
+ */
+function callTimeout() {
+    if (timeoutsOff <= 0) return;
+    const validStates = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH']);
+    if (!validStates.has(GAME_STATE)) return;
+
+    timeoutsOff--;
+    updateTimeoutDisplay();
+
+    const wasLive = GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH';
+    GAME_STATE = 'TIMEOUT';
+    document.getElementById('instructions').innerText = `TIMEOUT! (${timeoutsOff} left)`;
+    document.getElementById('instructions').classList.remove('hidden');
+
+    formHuddle();
+
+    setTimeout(() => {
+        document.getElementById('instructions').classList.add('hidden');
+        if (wasLive) {
+            setupFormation();
+        } else {
+            document.getElementById('playbook').classList.remove('hidden');
+            document.getElementById('btn-sim').classList.remove('hidden');
+            document.getElementById('vertical-power-meter').classList.add('hidden');
+            GAME_STATE = 'PLAYBOOK';
+        }
+    }, 3000);
+}
+
+function formHuddle() {
+    if (!players.offense.length) return;
+    const qb = players.offense[0];
+    const cx = qb.group.position.x, cz = qb.group.position.z;
+    // QB stays put; other 10 players form a tight circle around them
+    players.offense.slice(1).forEach((p, i) => {
+        const angle = (i / 10) * Math.PI * 2;
+        p.group.position.set(cx + Math.cos(angle) * 2.2, 0, cz + Math.sin(angle) * 2.2);
+        p.group.lookAt(cx, 0, cz);
+    });
+    // Defense loosely mills around on their side
+    players.defense.forEach(p => { p.group.position.y = 0; });
+}
+
+function updateTimeoutDisplay() {
+    const dots = '●'.repeat(timeoutsOff) + '○'.repeat(Math.max(0, 3 - timeoutsOff));
+    const el = document.getElementById('timeout-display');
+    if (el) el.innerText = `TO: ${dots}`;
+}
+
+function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+function animate() {
+    requestAnimationFrame(animate);
+    let dt = Math.min(clock.getDelta(), 0.1) * timeScale;
+    if (jumpCooldown > 0) jumpCooldown -= dt;
+
+    if (GAME_STATE === 'MATCHUP' && menuPlayerModel) {
+        menuPlayerModel.group.rotation.y += dt * 0.5;
+    }
+
+    // Drone camera orbit during quarter break
+    if (GAME_STATE === 'QUARTER_BREAK') {
+        const a = clock.getElapsedTime() * 0.45;
+        camera.position.set(Math.cos(a) * 55, 58, Math.sin(a) * 55);
+        camera.lookAt(0, 0, 0);
+    }
+
+    // Halftime: slow orbit over the endzone + animate cheerleaders
+    if (GAME_STATE === 'HALFTIME') {
+        const elapsed = clock.getElapsedTime();
+        const a = elapsed * 0.28;
+        camera.position.set(Math.cos(a) * 48, 42, Math.sin(a) * 48 - 25);
+        camera.lookAt(0, 0, -55);
+        cheerleaders.forEach(c => c.animate(elapsed));
+    }
+
+    // Blimp orbits the stadium
+    if (blimpGroup) {
+        const bt = clock.getElapsedTime() * 0.08;
+        blimpGroup.position.set(Math.cos(bt) * 110, 70, Math.sin(bt) * 110);
+        blimpGroup.rotation.y = -bt - Math.PI / 2;
+    }
+
+    // PAT / kickoff / punt meter oscillation
+    if ((GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && patActive) {
+        patMeterPos += patMeterDir * 1.4 * dt;
+        if (patMeterPos >= 1) { patMeterPos = 1; patMeterDir = -1; }
+        if (patMeterPos <= 0) { patMeterPos = 0; patMeterDir =  1; }
+        document.getElementById('pat-meter-indicator').style.left = (patMeterPos * 96).toFixed(1) + '%';
+    }
+
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT') {
+        if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
+            let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
+            let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
+            let throwSpeed = 15 + (passPower * 30); passTimeEstimate = dist / throwSpeed;
+            let vY = (passTarget.y - startPos.y + 0.5 * 30 * passTimeEstimate * passTimeEstimate) / passTimeEstimate; let vX = (passTarget.x - startPos.x) / passTimeEstimate; let vZ = (passTarget.z - startPos.z) / passTimeEstimate;
+            let pts = []; for(let t=0; t<=passTimeEstimate; t+=0.1) pts.push(startPos.x + vX * t, startPos.y + vY * t - 0.5 * 30 * t * t, startPos.z + vZ * t);
+            pts.push(passTarget.x, passTarget.y, passTarget.z); trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); trajectoryLine.computeLineDistances();
+        } else if (GAME_STATE !== 'PRE_SNAP') { trajectoryLine.visible = false; }
+
+        // Dive animation — driven by render-loop dt so it's perfectly smooth
+        if (diveAnim) {
+            const da = diveAnim;
+            da.elapsed += dt;
+            const t    = Math.min(1, da.elapsed / da.duration);
+            const ease = 1 - Math.pow(1 - t, 2); // ease-out quad: fast launch, slows on turf
+            // XZ: linear (straight glide, no deceleration)
+            da.carrier.group.position.lerpVectors(da.startPos, da.endPos, t);
+
+            // Y: two-phase — straight glide for first 55%, then ease-in fall
+            const FALL_START = 0.55;
+            const GLIDE_Y    = 1.5;
+            if (t < FALL_START) {
+                da.carrier.group.position.y = GLIDE_Y;
+            } else {
+                const ft = (t - FALL_START) / (1 - FALL_START); // 0→1 during fall
+                const fallEase = ft * ft;                        // ease-in: slow start, accelerates
+                da.carrier.group.position.y = THREE.MathUtils.lerp(GLIDE_Y, 0.3, fallEase);
+            }
+
+            if (t >= 1) {
+                // Slam to ground — stay flat (rx=PI/2) so it looks like a real fall
+                da.carrier.group.position.copy(da.endPos);
+                da.carrier.group.position.y = 0.3;
+                // Head tip is ~2.45 units ahead of group origin (local +Y → world -Z when rx=PI/2)
+                const landZ = da.endPos.z - 2.45;
+                const isTD  = landZ < -100;
+                // Now release the ball from the carrier's hand and place it at the head tip
+                detachBallToScene();
+                ball.position.set(da.endPos.x, 0.2, landZ);
+                if (ball.velocity) ball.velocity.set(0, 0, 0);
+
+                // Fumble chance on landing if a defender is within 3 units (they hit you mid-dive)
+                const nearbyTackler = !isTD && players.defense.find(d =>
+                    d.group.position.distanceTo(da.carrier.group.position) < 3
+                );
+                const fumbled = nearbyTackler && Math.random() < 0.28;
+
+                GAME_STATE = 'GETTING_UP';
+                diveAnim = null;
+                const carrierRef = da.carrier;
+                setTimeout(() => {
+                    carrierRef.group.rotation.x = 0;
+                    carrierRef.group.position.y = 0;
+                    if (isTD) {
+                        triggerTDCelebration(carrierRef);
+                    } else if (fumbled) {
+                        handlePlayResult("FUMBLE! LOST BALL.", landZ);
+                    } else {
+                        handlePlayResult("DIVE", landZ);
+                    }
+                }, 900);
+            }
+        }
+
+        // Tackle ragdoll — per-limb randomised, driven by render-loop dt
+        if (tackleAnim) {
+            const ta = tackleAnim;
+            ta.elapsed += dt;
+            const t  = Math.min(1, ta.elapsed / ta.duration);
+            const rt = t * t; // ease-in — heavier snap at impact
+
+            function applyRagdoll(p, r) {
+                p.group.rotation.x = THREE.MathUtils.lerp(0, r.finalRotX, rt);
+                p.group.rotation.z = THREE.MathUtils.lerp(0, r.finalRotZ, rt);
+                p.group.rotation.y = THREE.MathUtils.lerp(r.startRotY, r.startRotY + r.finalRotYd, rt);
+                p.leftUpper.rotation.x  = THREE.MathUtils.lerp(0, r.lArmX, rt);
+                p.leftUpper.rotation.z  = THREE.MathUtils.lerp(0, r.lArmZ, rt);
+                p.rightUpper.rotation.x = THREE.MathUtils.lerp(0, r.rArmX, rt);
+                p.rightUpper.rotation.z = THREE.MathUtils.lerp(0, r.rArmZ, rt);
+                p.leftLower.rotation.x  = THREE.MathUtils.lerp(0, r.lLowX, rt);
+                p.rightLower.rotation.x = THREE.MathUtils.lerp(0, r.rLowX, rt);
+                p.leftLeg.rotation.x    = THREE.MathUtils.lerp(0, r.lLegX, rt);
+                p.leftLeg.rotation.z    = THREE.MathUtils.lerp(0, r.lLegZ, rt);
+                p.rightLeg.rotation.x   = THREE.MathUtils.lerp(0, r.rLegX, rt);
+                p.rightLeg.rotation.z   = THREE.MathUtils.lerp(0, r.rLegZ, rt);
+            }
+            applyRagdoll(ta.carrier, ta.cr);
+            applyRagdoll(ta.tackler, ta.tr);
+
+            // Y: arc up then land flat — t*0.3 keeps body above turf at all rotation angles
+            ta.carrier.group.position.y = Math.sin(t * Math.PI) * 0.6 + t * 0.3;
+            ta.tackler.group.position.y = Math.sin(t * Math.PI) * 0.5 + t * 0.3;
+
+            if (t >= 1) {
+                ta.carrier.group.position.y = 0.3;
+                ta.tackler.group.position.y = 0.3;
+                const { carrier, tackler, message, cr, tr } = ta;
+                tackleAnim = null;
+
+                function resetPlayer(p, r) {
+                    p.group.rotation.set(0, r.startRotY, 0);
+                    p.group.position.y = 0;
+                    p.leftUpper.rotation.set(0, 0, 0);
+                    p.rightUpper.rotation.set(0, 0, 0);
+                    p.leftLower.rotation.set(0, 0, 0);
+                    p.rightLower.rotation.set(0, 0, 0);
+                    p.leftLeg.rotation.set(0, 0, 0);
+                    p.rightLeg.rotation.set(0, 0, 0);
+                }
+                setTimeout(() => {
+                    GAME_STATE = 'GETTING_UP';
+                    resetPlayer(carrier, cr);
+                    resetPlayer(tackler, tr);
+                    carrier.group.lookAt(carrier.group.position.x, 0, lineOfScrimmageZ);
+                    tackler.group.lookAt(tackler.group.position.x, 0, lineOfScrimmageZ);
+                    setTimeout(() => { handlePlayResult(message, carrier.group.position.z); }, 2000);
+                }, 1500);
+            }
+        }
+
+        // When ball crosses LOS, the DB/safety closest to the ball's destination gets a 13-speed burst
+        if (!ballPastLOSBoostDone && ball.position.z < lineOfScrimmageZ &&
+                (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
+            ballPastLOSBoostDone = true;
+            const dbs = players.defense.filter(p => p.role === 'CB' || p.role === 'FS' || p.role === 'SS');
+            if (dbs.length > 0) {
+                // Pick the one nearest the ball's current destination
+                const destZ = landingMarker.visible ? landingMarker.position.z : ball.position.z;
+                dbs.sort((a, b) =>
+                    Math.abs(a.group.position.z - destZ) - Math.abs(b.group.position.z - destZ));
+                dbs[0].baseSpeed = 10;
+            }
+        }
+
+        players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
+    }
+    renderer.render(scene, camera);
+}
+
+// ─── GOOGLE DRIVE SAVE / LOAD ────────────────────────────────────────────────
+// Before using these features, create a project at https://console.cloud.google.com/,
+// enable the Google Drive API, configure an OAuth 2.0 Web Client ID (add your
+// origin to "Authorized JavaScript origins"), and generate an API key.
+// Then replace the two placeholder strings below.
+const DRIVE_CLIENT_ID  = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+const DRIVE_API_KEY    = 'YOUR_API_KEY';
+const DRIVE_DISCOVERY  = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SAVE_NAME  = 'fantastic-football-save.json';
+
+let _gapiReady = false, _gisReady = false, _driveTokenClient = null;
+
+function gapiLoaded() {
+    gapi.load('client', async () => {
+        await gapi.client.init({ apiKey: DRIVE_API_KEY, discoveryDocs: [DRIVE_DISCOVERY] });
+        _gapiReady = true;
+    });
+}
+
+function gisLoaded() {
+    _driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE_CLIENT_ID, scope: DRIVE_SCOPE, callback: ''
+    });
+    _gisReady = true;
+}
+
+function _driveCheck() {
+    if (!_gapiReady || !_gisReady) {
+        alert('Google Drive not ready.\n\nOpen index.html in a browser and make sure\nDRIVE_CLIENT_ID and DRIVE_API_KEY are set.');
+        return false;
+    }
+    return true;
+}
+
+function saveToDrive() {
+    if (!_driveCheck()) return;
+    _driveTokenClient.callback = async (r) => {
+        if (r.error) { alert('Google auth failed: ' + r.error); return; }
+        await _driveSave();
+    };
+    gapi.client.getToken()
+        ? _driveTokenClient.requestAccessToken({ prompt: '' })
+        : _driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function _driveSave() {
+    const payload = JSON.stringify({ v: 1, myRecord, currentWeek, seasonSchedule }, null, 2);
+    const token   = gapi.client.getToken().access_token;
+
+    const list = await gapi.client.drive.files.list({
+        q: `name='${DRIVE_SAVE_NAME}' and trashed=false`,
+        fields: 'files(id)', spaces: 'drive'
+    });
+    const existing = list.result.files;
+
+    if (existing && existing.length > 0) {
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existing[0].id}?uploadType=media`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: payload
+        });
+    } else {
+        const meta = JSON.stringify({ name: DRIVE_SAVE_NAME, mimeType: 'application/json' });
+        const form = new FormData();
+        form.append('metadata', new Blob([meta],    { type: 'application/json' }));
+        form.append('file',     new Blob([payload], { type: 'application/json' }));
+        await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: form
+        });
+    }
+    _driveStatus('SAVED TO DRIVE!', '#34a853');
+}
+
+function loadFromDrive() {
+    if (!_driveCheck()) return;
+    _driveTokenClient.callback = async (r) => {
+        if (r.error) { alert('Google auth failed: ' + r.error); return; }
+        await _driveLoad();
+    };
+    gapi.client.getToken()
+        ? _driveTokenClient.requestAccessToken({ prompt: '' })
+        : _driveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function _driveLoad() {
+    const list = await gapi.client.drive.files.list({
+        q: `name='${DRIVE_SAVE_NAME}' and trashed=false`,
+        fields: 'files(id)', spaces: 'drive'
+    });
+    const files = list.result.files;
+    if (!files || files.length === 0) { alert('No save file found in Google Drive.'); return; }
+
+    const res  = await gapi.client.drive.files.get({ fileId: files[0].id, alt: 'media' });
+    const data = JSON.parse(res.body);
+
+    myRecord.w = data.myRecord.w;
+    myRecord.l = data.myRecord.l;
+    myRecord.t = data.myRecord.t;
+    currentWeek = data.currentWeek;
+    seasonSchedule.length = 0;
+    data.seasonSchedule.forEach(g => seasonSchedule.push(g));
+    updateMenuUI();
+    _driveStatus('LOADED FROM DRIVE!', '#4285f4');
+}
+
+function _driveStatus(msg, color) {
+    const el = document.getElementById('drive-status');
+    el.textContent = msg;
+    el.style.color  = color;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 3000);
+}
+</script>
+</body>
+</html>
