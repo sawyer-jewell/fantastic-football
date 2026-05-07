@@ -1587,11 +1587,12 @@ function startGame() {
     document.getElementById('matchup-screen').classList.add('hidden');
     document.getElementById('scoreboard').classList.remove('hidden');
     
-    // Set Stadium dynamically based on Home Team
+    // Set Stadium dynamically based on Home/Away teams
     let homeTeamInfo = isUserHome ? MY_TEAM : currentOpponent;
-    
+    let awayTeamInfo = isUserHome ? currentOpponent : MY_TEAM;
+
     endzoneHome.material.map = createEndzoneTexture(homeTeamInfo.name, homeTeamInfo.color, '#ffffff');
-    endzoneDef.material.map = createEndzoneTexture(homeTeamInfo.name, homeTeamInfo.color, '#ffffff');
+    endzoneDef.material.map  = createEndzoneTexture(awayTeamInfo.name, awayTeamInfo.color, '#ffffff');
 
     document.getElementById('scoreboard-off-name').innerText = MY_TEAM.id;
     document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
