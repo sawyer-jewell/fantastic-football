@@ -12,7 +12,16 @@
         
         #ui-layer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
         
-        .menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 10, 20, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 100; color: white;}
+        #emote-wheel { position: fixed; left: 50%; top: 50%; width: 360px; height: 360px; margin: -180px 0 0 -180px; border-radius: 50%;
+                       background: radial-gradient(circle, rgba(0, 34, 68, 0.95) 0 28%, rgba(0, 34, 68, 0.78) 29% 100%); border: 4px solid #ffcc00;
+                       z-index: 150; pointer-events: auto; cursor: pointer; box-shadow: 0 0 30px rgba(0, 0, 0, 0.6); }
+        .emote-opt { position: absolute; width: 120px; margin: -16px 0 0 -60px; padding: 8px 0; text-align: center; font-size: 0.6rem; color: #fff;
+                     border: 2px solid rgba(255, 255, 255, 0.25); border-radius: 8px; background: rgba(0, 0, 0, 0.35); }
+        .emote-opt.active { background: #ffcc00; color: #002244; border-color: #fff; transform: scale(1.12); }
+        .emote-opt .key { color: #ffcc00; } .emote-opt.active .key { color: #e31837; }
+        #emote-center { position: absolute; left: 50%; top: 50%; width: 150px; margin: -24px 0 0 -75px; text-align: center; font-size: 0.55rem; color: #ffcc00; line-height: 1.6; }
+        #emote-timer { height: 4px; background: #e31837; margin: 6px auto 0; width: 100%; }
+        .menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 10, 20, 0.95); display: flex; flex-direction: column; justify-content: safe center; align-items: center; pointer-events: auto; z-index: 100; color: white; overflow-y: auto; box-sizing: border-box; padding: 16px 0; } /* scrolls when the window is short */
         .menu h1 { font-size: 3rem; margin-bottom: 10px; color: #ffcc00; text-shadow: 4px 4px 0 #e31837; text-align: center; line-height: 1.4;}
         .menu p { font-size: 0.8rem; margin-bottom: 30px; text-align: center; color: #aaa; line-height: 1.5;}
         
@@ -151,10 +160,6 @@
             integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
             crossorigin="anonymous"
             referrerpolicy="no-referrer"></script>
-    <!-- glTF loader (same Three.js r128 release) for the player model embedded below -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"
-            integrity="sha384-fljlqkjWlmSFjkESkQvm77heIZpoWmXEOzlCA7kOpGUH+95Zk0yGfQieWM2q136E"
-            crossorigin="anonymous"></script>
     <!-- Google Drive API – loaded async; callbacks fire gapiLoaded() / gisLoaded() -->
     <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()" async defer></script>
     <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()" async defer></script>
@@ -188,7 +193,7 @@
                 <div><span>T</span> Call Timeout</div>
                 <div><span>Escape</span> Pause</div>
                 <div><span>H</span> No-Huddle</div>
-                <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick</div>
+                <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
             </div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center;">
                 <button class="btn-retro" onclick="openMatchupScreen()">PLAY WEEK 1</button>
@@ -298,6 +303,11 @@
             <div id="bs-stats" class="bs-line"></div>
             <div id="bs-records" class="bs-line" style="color:#ffcc00;"></div>
             <button class="btn-retro" onclick="advanceWeek()">CONTINUE</button>
+        </div>
+
+        <!-- Touchdown emote wheel (GTA-style): point and click, or 1–5 -->
+        <div id="emote-wheel" class="hidden">
+            <div id="emote-center">PICK YOUR<br>CELEBRATION<div id="emote-timer"></div></div>
         </div>
 
         <div id="pause-menu" class="menu hidden">
@@ -488,6 +498,7 @@ let graphicsLevel = graphicsSetting === 'low' ? 'low' : 'high';
 let fpsWatch = { frames: 0, since: 0, slowFor: 0 }; // AUTO's frame-rate monitor
 let ko = null;          // full kickoff in progress, see startFullKickoff
 let PLAYER_MODEL = null; // the Blender-built player, split into parts once it's loaded (see loadPlayerModel)
+const SIDELINE_X = 52.5;  // out of bounds: the white sideline at the edge of the field (benches and coaches beyond it)
 let trickPitch = null;  // flea flicker / fake field goal in progress, see updateTrickPitch
 let defStamina = 100;   // your defender's stamina (0–100): sprinting drains it, a hit stick costs half
 let flyingHelmets = []; // helmets knocked loose by a hit stick, see updateFlyingHelmets
@@ -551,9 +562,9 @@ const diff = () => DIFFICULTY[difficulty];
 // (long on easy, so the QB gets his 3 seconds after you're shown his target); offSkill: their speed
 // and accuracy; qbRead: seconds before his first read.
 const DEF_DIFFICULTY = {
-    easy:   { block: 0.7, aiBlock: 1.8, offSkill: 0.93, qbRead: 1.6, hints: true },
-    medium: { block: 1.0, aiBlock: 1.0, offSkill: 1.0,  qbRead: 1.4, hints: false },
-    hard:   { block: 1.5, aiBlock: 1.2, offSkill: 1.06, qbRead: 1.15, hints: false },
+    easy:   { block: 0.7, aiBlock: 1.8, offSkill: 0.93, qbRead: 1.6, hints: true, pickWindow: 0.2 },
+    medium: { block: 1.0, aiBlock: 1.0, offSkill: 1.0,  qbRead: 1.4, hints: false, pickWindow: 0.13 },
+    hard:   { block: 1.5, aiBlock: 1.2, offSkill: 1.06, qbRead: 1.15, hints: false, pickWindow: 0.08 },
 };
 let defDifficulty = 'medium';
 try { defDifficulty = localStorage.getItem('ff-def-difficulty') || 'medium'; } catch (e) {}
@@ -1410,6 +1421,8 @@ function createFieldTexture() {
             ctx.save(); ctx.translate(1024 - 150, y); ctx.rotate(Math.PI/2); ctx.fillText(number, 0, 0); ctx.restore();
         }
     }
+    // White sidelines down both edges: past them is out of bounds (SIDELINE_X)
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 7, 2048); ctx.fillRect(1024 - 7, 0, 7, 2048);
     return new THREE.CanvasTexture(canvas);
 }
 function createEndzoneTexture(text, bgColor, textColor) {
@@ -1450,11 +1463,67 @@ function buildField() {
     // Behind south end zone (z 120 to 145)
     const sgap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
     sgap.rotation.x = -Math.PI / 2; sgap.position.set(0, -0.05, 132); scene.add(sgap);
-    // Side margins (x ±53–±65) full length
-    const emL = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    // Sideline area (x ±53–±77): darker turf with the white restraining line where the teams stand
+    const sideMat = new THREE.MeshLambertMaterial({ color: 0x24491f });
+    const emL = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), sideMat);
     emL.rotation.x = -Math.PI / 2; emL.position.set(-65, -0.05, 0); scene.add(emL);
-    const emR = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), fillMat);
+    const emR = new THREE.Mesh(new THREE.PlaneGeometry(24, 290), sideMat);
     emR.rotation.x = -Math.PI / 2; emR.position.set(65, -0.05, 0); scene.add(emR);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2f2f2 });
+    [-1, 1].forEach(s => {
+        const restrain = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 120), lineMat);   // the team box, 30 to 30
+        restrain.rotation.x = -Math.PI / 2; restrain.position.set(s * 54.1, -0.02, 0); scene.add(restrain);
+    });
+}
+
+// Each team's sideline: a long bench, a cooler, the players standing around in their uniforms and
+// the coaches in the coaching box. Rebuilt every game (team colors); drawn as a handful of instanced
+// meshes so a whole sideline is only a few draw calls.
+let sidelineGroup = null;
+function buildTeamSidelines() {
+    if (sidelineGroup) { scene.remove(sidelineGroup); sidelineGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+    sidelineGroup = new THREE.Group(); scene.add(sidelineGroup);
+    const rnd = seededRandom(currentOpponent.id + currentWeek);
+    const bodyGeo = new THREE.BoxGeometry(0.7, 0.95, 0.42), legGeo = new THREE.BoxGeometry(0.55, 0.95, 0.36);
+    const headGeo = new THREE.SphereGeometry(0.27, 8, 6), helmetGeo = new THREE.SphereGeometry(0.33, 8, 6);
+    const skins = MODEL_SKIN_TONES.map(c => new THREE.Color(c));
+    const dummy = new THREE.Object3D();
+    // Your team on the left (−x), theirs on the right, like opposite sidelines in the NFL
+    [[-1, MY_TEAM], [1, currentOpponent]].forEach(([side, team]) => {
+        const home = (side < 0) === isUserHome;
+        const jersey = home ? team.color : '#ffffff', pants = home ? '#ffffff' : team.color;
+        const benchX = side * 56.1;   // against the wall in front of the stands
+        const bench = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 34), new THREE.MeshLambertMaterial({ color: team.color }));
+        bench.position.set(benchX, 0.4, 0); sidelineGroup.add(bench);
+        const cooler = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.1, 10), new THREE.MeshLambertMaterial({ color: 0xff8c1a }));
+        cooler.position.set(benchX - side * 0.2, 0.55, 19); sidelineGroup.add(cooler);
+        // Players: some on the bench, most standing at the restraining line watching; coaches up front
+        const spots = [];
+        for (let i = 0; i < 16; i++) spots.push({ x: side * (54.6 + rnd() * 1.0), z: -26 + rnd() * 52, sit: false, coach: false });
+        for (let i = 0; i < 6; i++) spots.push({ x: benchX, z: -15 + i * 6 + rnd() * 2, sit: true, coach: false });
+        for (let i = 0; i < 3; i++) spots.push({ x: side * 54.4, z: -8 + i * 8 + rnd() * 3, sit: false, coach: true });
+        const n = spots.length;
+        const bodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), n);
+        const legs = new THREE.InstancedMesh(legGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), n);
+        const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), n);
+        const helmets = new THREE.InstancedMesh(helmetGeo, new THREE.MeshLambertMaterial({ color: team.helmet }), n);
+        const jerseyC = new THREE.Color(jersey), pantsC = new THREE.Color(pants), coachShirt = new THREE.Color(team.color), coachPants = new THREE.Color(0x2b2b2b);
+        spots.forEach((s, i) => {
+            const yaw = -side * Math.PI / 2 + (rnd() - 0.5) * 0.8;     // facing the field, roughly
+            const lift = s.sit ? -0.45 : 0;
+            dummy.rotation.set(0, yaw, 0); dummy.scale.set(1, s.sit ? 0.55 : 1, 1);
+            dummy.position.set(s.x, 0.48 + (s.sit ? 0.2 : 0), s.z); dummy.updateMatrix(); legs.setMatrixAt(i, dummy.matrix);
+            dummy.scale.set(1, 1, 1);
+            dummy.position.set(s.x, 1.45 + lift, s.z); dummy.updateMatrix(); bodies.setMatrixAt(i, dummy.matrix);
+            dummy.position.set(s.x, 2.2 + lift, s.z); dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
+            // Most players keep the helmet on; coaches don't wear one
+            dummy.position.set(s.x, s.coach || rnd() < 0.35 ? -50 : 2.24 + lift, s.z); dummy.updateMatrix(); helmets.setMatrixAt(i, dummy.matrix);
+            bodies.setColorAt(i, s.coach ? coachShirt : jerseyC);
+            legs.setColorAt(i, s.coach ? coachPants : pantsC);
+            heads.setColorAt(i, skins[Math.floor(rnd() * skins.length)]);
+        });
+        [bodies, legs, heads, helmets].forEach(m => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; sidelineGroup.add(m); });
+    });
 }
 function buildGoalpost(zPos) {
     const mat = new THREE.MeshLambertMaterial({ color: 0xffff00 });
@@ -1949,20 +2018,77 @@ function buildBlimp() {
 const MODEL_SKIN_TONES = ['#f2c9a8', '#dba47c', '#bd8256', '#94603e', '#6a4129', '#43281a'];
 const EYE_BLACK_STYLES = [['EyeBlack_Bars', 35], ['EyeBlack_Smear', 18], ['EyeBlack_Slash', 15], [null, 32]];
 
+// The model is read with the small GLB reader below rather than Three's GLTFLoader, so nothing extra
+// has to download (some Chromebooks block the CDN it came from) and it works opened straight from disk.
 function loadPlayerModel() {
     const tag = document.getElementById('player-model-glb');
-    if (!tag || !THREE.GLTFLoader) return; // no loader (offline CDN): keep the classic players
-    const bytes = Uint8Array.from(atob(tag.textContent.trim()), c => c.charCodeAt(0));
-    new THREE.GLTFLoader().parse(bytes.buffer, '', gltf => {
-        // The file's own object list tells the body parts (nodes) apart from their sub-meshes
-        const parser = gltf.parser, defs = parser.json.nodes;
-        Promise.all(defs.map((d, i) => parser.getDependency('node', i))).then(objs => {
-            const byName = {};
-            defs.forEach((d, i) => { byName[d.name] = objs[i]; });
-            PLAYER_MODEL = splitPlayerModel(gltf.scene, byName, new Set(objs));
-            // Players already standing on the field pick up the new look on the next play
-        });
-    }, err => console.warn('Player model failed to load; using classic players', err));
+    if (!tag) return;
+    try {
+        const bytes = Uint8Array.from(atob(tag.textContent.trim()), c => c.charCodeAt(0));
+        const { scene: root, byName, nodeSet } = parseGLB(bytes.buffer);
+        PLAYER_MODEL = splitPlayerModel(root, byName, nodeSet);
+    } catch (err) {
+        console.warn('Player model failed to load; using classic players', err);
+    }
+}
+
+// Minimal reader for the binary glTF (.glb) Blender exports: meshes (positions, normals, UVs,
+// indices), material names and colors, and the node tree with each node's position, rotation and
+// scale. Like Three's loader, a node with one mesh piece becomes a Mesh, with several a Group of Meshes.
+function parseGLB(buffer) {
+    const view = new DataView(buffer);
+    if (view.getUint32(0, true) !== 0x46546C67) throw new Error('not a .glb file');
+    const jsonLen = view.getUint32(12, true);
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, jsonLen)));
+    const binStart = 20 + jsonLen + 8;
+    const COMPS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+    const TYPES = { 5126: Float32Array, 5125: Uint32Array, 5123: Uint16Array, 5121: Uint8Array };
+    const readAccessor = i => {
+        const a = json.accessors[i], bv = json.bufferViews[a.bufferView];
+        const comps = COMPS[a.type], T = TYPES[a.componentType], size = T.BYTES_PER_ELEMENT;
+        const start = binStart + (bv.byteOffset || 0) + (a.byteOffset || 0);
+        const out = new T(a.count * comps);
+        if (!bv.byteStride || bv.byteStride === comps * size) out.set(new T(buffer.slice(start, start + out.byteLength)));
+        else {   // interleaved
+            for (let e = 0; e < a.count; e++) out.set(new T(buffer.slice(start + e * bv.byteStride, start + e * bv.byteStride + comps * size)), e * comps);
+        }
+        return new THREE.BufferAttribute(out, comps);
+    };
+    const materials = (json.materials || []).map(m => {
+        const f = (m.pbrMetallicRoughness && m.pbrMetallicRoughness.baseColorFactor) || [1, 1, 1, 1];
+        const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(f[0], f[1], f[2]) });
+        mat.name = m.name || '';
+        return mat;
+    });
+    const fallbackMat = new THREE.MeshLambertMaterial();
+    const meshes = (json.meshes || []).map(me => me.primitives.map(p => {
+        const geo = new THREE.BufferGeometry();
+        if (p.attributes.POSITION !== undefined) geo.setAttribute('position', readAccessor(p.attributes.POSITION));
+        if (p.attributes.NORMAL !== undefined) geo.setAttribute('normal', readAccessor(p.attributes.NORMAL));
+        if (p.attributes.TEXCOORD_0 !== undefined) geo.setAttribute('uv', readAccessor(p.attributes.TEXCOORD_0));
+        if (p.indices !== undefined) geo.setIndex(readAccessor(p.indices));
+        if (!geo.attributes.normal) geo.computeVertexNormals();
+        return { geo, mat: p.material !== undefined ? materials[p.material] : fallbackMat };
+    }));
+    const nodes = json.nodes.map(n => {
+        const prims = n.mesh !== undefined ? meshes[n.mesh] : null;
+        let obj;
+        if (prims && prims.length === 1) obj = new THREE.Mesh(prims[0].geo, prims[0].mat);
+        else if (prims) { obj = new THREE.Group(); prims.forEach(p => obj.add(new THREE.Mesh(p.geo, p.mat))); }
+        else obj = new THREE.Object3D();
+        obj.name = n.name || '';
+        if (n.matrix) { obj.matrix.fromArray(n.matrix); obj.matrix.decompose(obj.position, obj.quaternion, obj.scale); }
+        if (n.translation) obj.position.fromArray(n.translation);
+        if (n.rotation) obj.quaternion.fromArray(n.rotation);
+        if (n.scale) obj.scale.fromArray(n.scale);
+        return obj;
+    });
+    json.nodes.forEach((n, i) => (n.children || []).forEach(c => nodes[i].add(nodes[c])));
+    const scene = new THREE.Group();
+    (json.scenes[json.scene || 0].nodes || []).forEach(i => scene.add(nodes[i]));
+    const byName = {};
+    json.nodes.forEach((n, i) => { byName[n.name] = nodes[i]; });
+    return { scene, byName, nodeSet: new Set(nodes) };
 }
 
 function splitPlayerModel(sceneRoot, byName, nodeSet) {
@@ -2366,6 +2492,7 @@ class Player {
     }
 
     animateLimbs(dt) {
+        if (this.emote) return; // dancing: poseEmote sets the limbs
         if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TIMEOUT') return;
 
         // Holder on one knee: hips dropped, front foot planted, back knee on the turf, hands out for the snap
@@ -2468,6 +2595,9 @@ class Player {
     }
 
     update(dt) {
+        // Touchdown: standing still while you pick an emote, then the dance drives him (see updateEmotes)
+        if (this.emote) return;
+        if (this.emoteWait) { this.currentMoveSpeed = 0; this.animateLimbs(dt); return; }
         if (GAME_STATE === 'TACKLED') return;
         if (this.catchDive) return; // layout dive is driven by updateCatchDives
         if (GAME_STATE === 'WALKOFF') {
@@ -2533,7 +2663,7 @@ class Player {
                 if (moveDir.length() > 0) {
                     moveDir.normalize();
                     this.group.position.addScaledVector(moveDir, this.speed * dt);
-                    this.group.lookAt(this.group.position.clone().add(moveDir));
+                    turnToward(this, moveDir, dt, 12); // smooth turn, not a snap
                     this.currentMoveSpeed = this.speed;
                 }
                 if (!ball.velocity) {
@@ -2788,7 +2918,7 @@ class Player {
                 this.runDir = moveDir.clone();
                 this.runVel = moveDir.clone().multiplyScalar(this.runSpd);
                 this.group.position.addScaledVector(moveDir, this.runSpd * dt);
-                this.group.lookAt(this.group.position.clone().add(moveDir));
+                turnToward(this, moveDir, dt, 12); // smooth turn (in the air too), not a snap
                 this.currentMoveSpeed = this.runSpd;
             } else {
                 this.currentMoveSpeed = 0; this.runSpd = 0; this.runVel = null;
@@ -2803,14 +2933,13 @@ class Player {
             camera.lookAt(this.group.position);
 
             // Stepping out of bounds ends the play there (and stops the clock)
-            if (GAME_STATE === 'POST_CATCH' && Math.abs(this.group.position.x) >= 49.5 && this.group.position.z > -100) {
+            if (GAME_STATE === 'POST_CATCH' && Math.abs(this.group.position.x) >= SIDELINE_X && this.group.position.z > -100) {
                 handlePlayResult('RAN OUT OF BOUNDS', this.group.position.z);
                 return;
             }
             if (this.group.position.z < -100 && GAME_STATE !== 'TOUCHDOWN') {
-                if (this.isJumping || this.group.position.y >= 0.5) return;
-                triggerTDCelebration(this);
-                return;
+                // Caught in the air: let him come down first (returning here skipped the fall, so he hung in the air)
+                if (!this.isJumping && this.group.position.y < 0.5) { triggerTDCelebration(this); return; }
             }
 
             if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN') { // no tackles during TD celebration or in end zone
@@ -2870,7 +2999,7 @@ class Player {
         // Field boundary: keep players inside the playable rectangle so deep routes
         // don't run into the stadium walls. End zones run to z = -100; clamp slightly
         // beyond so the carrier can still cross for a TD before being clamped back.
-        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -50, 50);
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -SIDELINE_X - 2, SIDELINE_X + 2);
         this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -120, 105);
 
         this.animateLimbs(dt);
@@ -2893,6 +3022,7 @@ function startGame() {
     endzoneDef.material.map = createEndzoneTexture(homeTeamInfo.name, homeTeamInfo.color, '#ffffff');
     // Crowd wears the home team's colors (with an away section); some games are a striped color-out
     colorCrowd(homeTeamInfo, isUserHome ? currentOpponent : MY_TEAM, Math.random() < 0.35 ? 'colorOut' : 'mixed');
+    buildTeamSidelines(); // both teams' benches, players and coaches in today's uniforms
 
     document.getElementById('scoreboard-off-name').innerText = MY_TEAM.id;
     document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
@@ -2984,43 +3114,127 @@ function triggerTDCelebration(scorer) {
             setTimeout(() => { p.group.position.y = 0; }, 250); }, 900 + Math.random() * 400);
     });
 
-    // Scorer: 5-pose dance sequence
-    const dancer = scorer;
-    dancer.group.position.y = 0.7;
-    dancer.applyArmPose(
-        new THREE.Euler(-Math.PI * 0.9, 0, 0.55), new THREE.Euler(-0.2, 0, 0),
-        new THREE.Euler(-Math.PI * 0.9, 0, -0.55), new THREE.Euler(-0.2, 0, 0)
-    );
-    setTimeout(() => {
-        dancer.group.position.y = 0;
-        dancer.applyArmPose(
-            new THREE.Euler(0.6, 0, -1.3), new THREE.Euler(0.8, 0, 0),
-            new THREE.Euler(-Math.PI * 0.7, 0, -0.35), new THREE.Euler(-0.2, 0, 0)
-        );
-    }, 350);
-    setTimeout(() => {
-        dancer.group.rotation.y += Math.PI;
-        dancer.applyArmPose(
-            new THREE.Euler(0, 0, Math.PI * 0.48), new THREE.Euler(0.25, 0, 0),
-            new THREE.Euler(0, 0, -Math.PI * 0.48), new THREE.Euler(0.25, 0, 0)
-        );
-    }, 800);
-    setTimeout(() => {
-        dancer.group.rotation.y += Math.PI;
-        dancer.applyArmPose(
-            new THREE.Euler(-Math.PI * 0.85, 0, 0.45), new THREE.Euler(-0.25, 0, 0),
-            new THREE.Euler(-Math.PI * 0.85, 0, -0.45), new THREE.Euler(-0.25, 0, 0)
-        );
-    }, 1300);
-    setTimeout(() => {
-        dancer.group.position.y = 0.5;
-        dancer.applyArmPose(
-            new THREE.Euler(-Math.PI * 0.95, 0, 0.3), new THREE.Euler(-0.1, 0, 0),
-            new THREE.Euler(-Math.PI * 0.95, 0, -0.3), new THREE.Euler(-0.1, 0, 0)
-        );
-    }, 1800);
-    setTimeout(() => { dancer.group.position.y = 0; }, 2100);
-    setTimeout(() => { tdCam = null; startReplay(triggerExtraPoint); }, 2800); // replay the score, then the PAT
+    // Scorer: pick a celebration from the emote wheel (then the replay and the PAT)
+    openEmoteWheel(scorer);
+}
+
+// ─── TOUCHDOWN EMOTES ────────────────────────────────────────────────────────
+// A GTA-style wheel pops up after you score: point at a celebration and click (or press 1–5). Nothing
+// picked in 5 seconds → a random one. The scorer stands still while you choose, then dances while the
+// camera circles him; the replay and the extra point follow.
+const EMOTES = [['griddy', 'THE GRIDDY'], ['scuba', 'SCUBA'], ['scenario', 'SCENARIO'], ['whop', 'THE WHOP'], ['worm', 'THE WORM']];
+const EMOTE_TIME = 3.2, EMOTE_PICK_TIME = 5;
+let emoteWheel = null;   // { scorer, sel, left } while the wheel is up
+
+function openEmoteWheel(scorer) {
+    const wheel = document.getElementById('emote-wheel');
+    if (!wheel.querySelector('.emote-opt')) {
+        EMOTES.forEach(([, label], i) => {
+            const a = -Math.PI / 2 + i * (2 * Math.PI / EMOTES.length);
+            const opt = document.createElement('div');
+            opt.className = 'emote-opt';
+            opt.innerHTML = `<span class="key">${i + 1}</span> ${label}`;
+            opt.style.left = `${180 + Math.cos(a) * 122}px`; opt.style.top = `${180 + Math.sin(a) * 122}px`;
+            wheel.appendChild(opt);
+        });
+        wheel.addEventListener('mousemove', e => {
+            if (!emoteWheel) return;
+            const r = wheel.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+            if (dx * dx + dy * dy < 30 * 30) return;   // dead zone in the middle
+            const a = (Math.atan2(dy, dx) + Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
+            setEmoteSelection(Math.round(a / (2 * Math.PI / EMOTES.length)) % EMOTES.length);
+        });
+        wheel.addEventListener('mousedown', e => { e.stopPropagation(); if (emoteWheel) pickEmote(emoteWheel.sel); });
+    }
+    scorer.emoteWait = true; scorer.currentMoveSpeed = 0;
+    emoteWheel = { scorer, sel: 0, left: EMOTE_PICK_TIME };
+    setEmoteSelection(Math.floor(Math.random() * EMOTES.length));
+    wheel.classList.remove('hidden');
+}
+
+function setEmoteSelection(i) {
+    if (!emoteWheel) return;
+    emoteWheel.sel = i;
+    document.querySelectorAll('#emote-wheel .emote-opt').forEach((o, k) => o.classList.toggle('active', k === i));
+}
+
+function pickEmote(i) {
+    const w = emoteWheel;
+    if (!w) return;
+    emoteWheel = null;
+    document.getElementById('emote-wheel').classList.add('hidden');
+    const p = w.scorer, f = new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion);
+    p.emoteWait = false;
+    p.emote = { name: EMOTES[i][0], t: 0, yaw: Math.atan2(f.x, f.z), start: p.group.position.clone() };
+    flashBanner(EMOTES[i][1] + '!', 1500);
+}
+
+// Every frame during the touchdown: the wheel's countdown, and the dance itself
+function updateEmotes(dt) {
+    if (emoteWheel) {
+        emoteWheel.left -= dt;
+        document.getElementById('emote-timer').style.width = `${Math.max(0, emoteWheel.left / EMOTE_PICK_TIME) * 100}%`;
+        if (emoteWheel.left <= 0) pickEmote(Math.floor(Math.random() * EMOTES.length));
+        return;
+    }
+    const p = tdCam && tdCam.scorer;
+    if (!p || !p.emote) return;
+    const e = p.emote;
+    e.t += dt;
+    poseEmote(p, e);
+    if (e.t >= EMOTE_TIME) {
+        // Back on his feet, arms down, then the replay and the extra point
+        p.emote = null;
+        p.group.quaternion.copy(yawPitchQuat(e.yaw, 0)); p.group.position.y = 0;
+        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg].forEach(o => o.rotation.set(0, 0, 0));
+        tdCam = null; startReplay(triggerExtraPoint);
+    }
+}
+
+// The dances, built from the same joints the game animates. Arms hang down: rotation.x negative
+// raises an arm forward/up, rotation.z spreads it out (+ for the right arm). Legs: negative x kicks forward.
+function poseEmote(p, e) {
+    const t = e.t, R = p.rightUpper.rotation, Rl = p.rightLower.rotation, L = p.leftUpper.rotation, Ll = p.leftLower.rotation;
+    const lift = (y, pitch = 0, yawOff = 0) => { p.group.position.y = y; p.group.quaternion.copy(yawPitchQuat(e.yaw + yawOff, pitch)); };
+    if (e.name === 'griddy') {
+        // Heel taps side to side, arms swinging up to the eyes in turn
+        const s = Math.sin(t * 9);
+        lift(0.12 * Math.abs(s));
+        p.leftLeg.rotation.set(-0.55 * Math.max(0, s), 0, 0); p.rightLeg.rotation.set(-0.55 * Math.max(0, -s), 0, 0);
+        R.set(-1.35 - 0.55 * s, 0, 0.25); Rl.set(-1.25, 0, 0);
+        L.set(-1.35 + 0.55 * s, 0, -0.25); Ll.set(-1.25, 0, 0);
+    } else if (e.name === 'scuba') {
+        // Leaning forward, swimming strokes with both arms, little flutter kicks
+        const s = Math.sin(t * 5);
+        lift(0.05 * Math.abs(s), 0.35);
+        R.set(-Math.PI / 2 + 1.2 * s, 0, 0.45); Rl.set(-0.3, 0, 0);
+        L.set(-Math.PI / 2 - 1.2 * s, 0, -0.45); Ll.set(-0.3, 0, 0);
+        p.leftLeg.rotation.set(0.25 * Math.sin(t * 8), 0, 0); p.rightLeg.rotation.set(-0.25 * Math.sin(t * 8), 0, 0);
+    } else if (e.name === 'scenario') {
+        // Raise the roof, hips swaying, bouncing on the beat
+        const s = Math.sin(t * 7);
+        lift(0.1 * Math.abs(s), 0, 0.35 * Math.sin(t * 3.5));
+        R.set(-Math.PI * 0.85 + 0.25 * s, 0, 0.5); Rl.set(-0.6 - 0.4 * Math.abs(s), 0, 0);
+        L.set(-Math.PI * 0.85 + 0.25 * s, 0, -0.5); Ll.set(-0.6 - 0.4 * Math.abs(s), 0, 0);
+        p.leftLeg.rotation.set(-0.15, 0, 0.12 * s); p.rightLeg.rotation.set(-0.15, 0, 0.12 * s);
+    } else if (e.name === 'whop') {
+        // Knees bouncing, elbows bent, fists pumping down in turn with a shoulder twist
+        const s = Math.sin(t * 8);
+        lift(-0.08 + 0.08 * Math.cos(t * 16), 0, 0.25 * s);
+        p.leftLeg.rotation.set(-0.3, 0, 0); p.rightLeg.rotation.set(-0.3, 0, 0);
+        R.set(-0.6 + 0.5 * s, 0, 0.2); Rl.set(-1.4, 0, 0);
+        L.set(-0.6 - 0.5 * s, 0, -0.2); Ll.set(-1.4, 0, 0);
+    } else if (e.name === 'worm') {
+        // Down on the turf, rolling a wave from chest to feet, inching forward; up again at the end
+        const down = Math.min(1, t / 0.35) * Math.min(1, (EMOTE_TIME - t) / 0.35);
+        const w = Math.sin(t * 7);
+        lift(0.45 * down + 0.16 * Math.max(0, w) * down, (Math.PI / 2 + 0.25 * w) * down);
+        p.leftLeg.rotation.set(0.7 * Math.max(0, -w) * down, 0, 0); p.rightLeg.rotation.set(0.7 * Math.max(0, -w) * down, 0, 0);
+        R.set(-Math.PI * 0.85 * down, 0, 0.3); Rl.set(-0.2, 0, 0);
+        L.set(-Math.PI * 0.85 * down, 0, -0.3); Ll.set(-0.2, 0, 0);
+        const fwd = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw));
+        p.group.position.x = e.start.x + fwd.x * 0.5 * t * down; p.group.position.z = e.start.z + fwd.z * 0.5 * t * down;
+    }
 }
 
 // Where defender d should aim to meet ball carrier c: ahead of him along the way he's running, by
@@ -3031,7 +3245,7 @@ function pursuitPoint(d, c, speed) {
     const dist = d.group.position.distanceTo(c.group.position);
     const t = Math.min(1.8, dist / Math.max(4, speed)) * (d.mind ? d.mind.lead : 0.8);
     const p = c.group.position.clone().addScaledVector(v, t);
-    p.x = THREE.MathUtils.clamp(p.x, -48.5, 48.5); p.y = 0;
+    p.x = THREE.MathUtils.clamp(p.x, -SIDELINE_X + 1, SIDELINE_X - 1); p.y = 0;
     return p;
 }
 
@@ -3987,12 +4201,13 @@ function checkInputs(e) {
     if (e.code === 'KeyE' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { switchDefender(); return; }
     if (e.code === 'KeyE' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { koSwitch(); return; }
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
-    if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { hitStick(); return; }
+    if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
     if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     
     if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
+    if (emoteWheel && e.type === 'keydown' && /^Digit[1-5]$/.test(e.code)) { pickEmote(Number(e.code.slice(5)) - 1); return; }   // touchdown emote wheel
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
 
     if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') {
@@ -4419,9 +4634,17 @@ function steerTo(p, target, speed, dt) {
     const step = Math.min(len, speed * dt);
     d.normalize();
     p.group.position.addScaledVector(d, step);
-    p.group.lookAt(p.group.position.clone().add(d));
+    turnToward(p, d, dt);
     p.currentMoveSpeed = step / dt;
     return len - step;
+}
+
+// Swing a player around to face dir over a moment instead of snapping there in one frame
+// (rate: how quickly — about 90% of the way in a quarter second at the default)
+function turnToward(p, dir, dt, rate = 10) {
+    if (dir.x * dir.x + dir.z * dir.z < 1e-6) return;
+    const want = yawPitchQuat(Math.atan2(dir.x, dir.z), 0);
+    p.group.quaternion.slerp(want, 1 - Math.exp(-rate * Math.min(dt, 0.1)));
 }
 
 const isFalling = p => tackleFalls.some(f => f.carrier === p || f.tackler === p);
@@ -4442,7 +4665,7 @@ function pickRunLane(pos, up, threats, speed, prevDir) {
         let room = 8;
         for (const t of [0.3, 0.6, 0.9, 1.2]) {
             pt.copy(pos).addScaledVector(dir, speed * t); pt.y = 0;
-            room = Math.min(room, (48 - Math.abs(pt.x)) * 1.5);
+            room = Math.min(room, (SIDELINE_X - 1.5 - Math.abs(pt.x)) * 1.5);
             for (const th of threats) room = Math.min(room, Math.hypot(th.pos.x - pt.x, th.pos.z - pt.z) - th.speed * t - 1);
         }
         const score = Math.cos(r) * 2.2 + Math.max(-6, room) * 0.7 + (prevDir ? prevDir.dot(dir) * 0.8 : 0);
@@ -4546,7 +4769,7 @@ function updateIntReturn(dt) {
                 updateScoreboard(); triggerBoo();
                 document.getElementById('instructions').innerText = `PICK SIX! TOUCHDOWN ${currentOpponent.id}`; document.getElementById('instructions').classList.remove('hidden');
                 setTimeout(() => { intRet = null; if (walkOff) endGame(); else startKickReturnAnim('opp_kickoff'); }, 2800);
-            } else if (Math.abs(cp.x) > 49) {
+            } else if (Math.abs(cp.x) >= SIDELINE_X) {
                 R.down = true; c.currentMoveSpeed = 0;
                 document.getElementById('instructions').innerText = 'OUT OF BOUNDS'; document.getElementById('instructions').classList.remove('hidden');
                 setTimeout(() => finishIntReturn(cp.z), 900);
@@ -4821,7 +5044,7 @@ function updateKickoffReturn(dt) {
                     document.getElementById('instructions').classList.remove('hidden');
                     setTimeout(() => endFullKickoff(walkOff ? () => endOvertimeWith(`${MY_TEAM.id} WINS IN OVERTIME!`) : triggerExtraPoint), 2800);
                 }
-            } else if (Math.abs(r.group.position.x) > 49) {
+            } else if (Math.abs(r.group.position.x) >= SIDELINE_X) {
                 k.phase = 'over';
                 document.getElementById('instructions').innerText = 'OUT OF BOUNDS';
                 document.getElementById('instructions').classList.remove('hidden');
@@ -5048,7 +5271,10 @@ function setDefenseMode(mode) {
 
 function setControlled(p) {
     if (!dp) return;
+    // Each defender has his own legs: hand back the one you had, pick up the new guy's (he's been running too)
+    if (dp.ctrl) dp.ctrl.stam = defStamina;
     dp.ctrl = p;
+    defStamina = p.stam ?? 100;
     ensureCtrlRing();
     ctrlRing.visible = true;
 }
@@ -5103,7 +5329,9 @@ function switchDefender() {
         flashBanner(`YOU: ${DEF_POS_NAMES[next.role] || next.role}`, 900);
         return;
     }
+    // (easy: before the throw, the man under the yellow marker — go cover the guy who's getting it)
     const target = P.thrown && ball.velocity && P.target ? P.target.group.position
+                 : P.planned && !P.thrown && P.carrier === P.qb ? P.planned.group.position
                  : P.carrier ? P.carrier.group.position : ball.position;
     const pick = P.def.filter(d => d !== P.ctrl && !isFalling(d))
         .reduce((a, b) => (a && a.group.position.distanceTo(target) < b.group.position.distanceTo(target)) ? a : b, null);
@@ -5188,7 +5416,7 @@ function updateFlyingHelmets(dt) {
 // Your defense has the ball (a pick or a fumble recovery): you take control of whoever has it
 // and run it back toward +Z while the offense chases and your teammates block.
 function startDefReturn(P, carrier, label) {
-    updateDefHints(null);
+    updateDefHints(null); hidePickRings();
     attachBallToCarrier(carrier);
     P.carrier = carrier; P.ret = { carrier, t: 0, z0: carrier.group.position.z, blocks: new Map(), label };
     setControlled(carrier); carrier.userShed = 0; carrier.hitStun = 0;
@@ -5216,7 +5444,7 @@ function updateDefReturn(P, dt) {
         } else if (cp.z >= 100) {
             triggerCheer(); flashBanner('TOUCHDOWN!', 2000);
             endDefPlay({ yards: yds(100), turnover: true, userTD: true, desc: desc(' <span style="color:#ffcc00;">TOUCHDOWN!</span>') }, 2200);
-        } else if (Math.abs(cp.x) >= 49.5) {
+        } else if (Math.abs(cp.x) >= SIDELINE_X) {
             endDefPlay({ yards: yds(cp.z), turnover: true, desc: desc(' Out of bounds.') }, 900);
         }
     }
@@ -5292,10 +5520,10 @@ function startLiveDefensePlay(down, toGo, onDone) {
     detachBallToScene(); ball.velocity = null; ball.position.set(0, 0.3, L);
     GAME_STATE = 'DEFENSE';
     // Catch your breath between plays; the stamina bar shows in the corner
-    defStamina = Math.min(100, defStamina + 30);
+    defStamina = 100; def.forEach(d => { d.stam = 100; }); // fresh legs for everybody every snap
     document.getElementById('right-hud').classList.remove('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     document.getElementById('stamina-bar').classList.remove('hidden'); updateStaminaBar(defStamina);
-    document.getElementById('instructions').innerText = 'DEFENSE!  WASD MOVE · SHIFT SPRINT · SPACE JUMP · E SWITCH · F HIT STICK';
+    document.getElementById('instructions').innerText = 'DEFENSE!  WASD MOVE · SHIFT SPRINT · SPACE JUMP · E SWITCH · F HIT STICK / INTERCEPT';
     document.getElementById('instructions').classList.remove('hidden');
 }
 
@@ -5307,7 +5535,7 @@ function endDefPlay(result, delay = 1300) {
     setTimeout(() => {
         if (dp !== P) return;
         dp = null; if (ctrlRing) ctrlRing.visible = false;
-        updateDefHints(null);
+        updateDefHints(null); hidePickRings();
         document.getElementById('instructions').classList.add('hidden');
         document.getElementById('right-hud').classList.add('hidden');
         GAME_STATE = 'DRONE_SIM';
@@ -5351,6 +5579,7 @@ function updateDefensePlay(dt) {
         // Sprinting burns stamina (none left, no sprint); otherwise it slowly comes back
         const sprint = (keys['ShiftLeft'] || keys['ShiftRight']) && mv.lengthSq() > 0 && defStamina > 0 && P.phase === 'live';
         defStamina = THREE.MathUtils.clamp(defStamina + (sprint ? -16 : 5) * dt, 0, 100);
+        P.def.forEach(d => { if (d !== ctrl && d.currentMoveSpeed > 6) d.stam = Math.max(60, (d.stam ?? 100) - 3.5 * dt); }); // teammates tire a little as they run
         const speed = ctrl.baseSpeed * (sprint ? 1.25 : 1) * (blocker ? 0.3 : 1) * (ctrl.hitStun > 0 ? 0.35 : 1);
         if (mv.lengthSq() > 0) steerTo(ctrl, ctrl.group.position.clone().add(mv.normalize().multiplyScalar(3)), speed, dt);
         else ctrl.currentMoveSpeed = 0;
@@ -5483,20 +5712,22 @@ function updateDefensePlay(dt) {
         ball.velocity.x += weather.wind * 0.07 * dt;
         const r = P.target;
         const nearBall = d => d.group.position.distanceTo(ball.position);
+        updatePickRings(P);
+        const timing = P.ring && !P.ring.done;   // your F press decides it; the receiver waits out your window
         if (ball.position.y < 2.6 && ball.velocity.y < 0) {
-            const closest = P.def.filter(d => !isFalling(d)).reduce((a, c) => nearBall(c) < nearBall(a) ? c : a);
-            const dDist = nearBall(closest), mine = closest === ctrl;
-            if (dDist < (mine ? 2.0 : 1.3) && Math.random() < (mine ? 0.7 : 0.35)) {
+            // Your teammates can pick it off or knock it down on their own; you have to time it (rings)
+            const closest = P.def.filter(d => !isFalling(d) && d !== ctrl).reduce((a, c) => nearBall(c) < nearBall(a) ? c : a);
+            const dDist = nearBall(closest);
+            if (dDist < 1.3 && Math.random() < 0.35) {
                 // Picked off
                 ball.velocity = null; attachBallToCarrier(closest);
-                if (mine) gameStats.defInt++;
                 triggerCheer();
-                flashBanner(mine ? 'INTERCEPTED BY YOU!' : 'INTERCEPTED!', 1400);
-                startDefReturn(P, closest, mine ? 'INTERCEPTED BY YOU!' : 'INTERCEPTED!');
+                flashBanner('INTERCEPTED!', 1400);
+                startDefReturn(P, closest, 'INTERCEPTED!');
                 return;
             }
-            if (dDist < 1.8) { ball.velocity.multiplyScalar(-0.3); ball.velocity.y = 3; P.brokenUp = mine ? 'BROKEN UP BY YOU!' : 'BROKEN UP!'; }
-            else if (r.group.position.distanceTo(ball.position) < 2.4 && !P.brokenUp && Math.random() > 0.03 + dropChance(r)) {
+            if (dDist < 1.8) { ball.velocity.multiplyScalar(-0.3); ball.velocity.y = 3; P.brokenUp = 'BROKEN UP!'; }
+            else if (!timing && r.group.position.distanceTo(ball.position) < 2.4 && !P.brokenUp && Math.random() > 0.03 + dropChance(r)) {
                 ball.velocity = null; attachBallToCarrier(r); P.carrier = r; P.catchZ = r.group.position.z; sfxCatch();
             }
         }
@@ -5557,7 +5788,7 @@ function updateDefensePlay(dt) {
                 P.result = { yards: y, desc: what + (mine ? ` <span style="color:#ffcc00;">${sack ? 'SACK' : 'TACKLE'} BY YOU!</span>` : '') };
             }, 650);
             endDefPlay({ get yards() { return P.result ? P.result.yards : 0; }, get desc() { return P.result ? P.result.desc : ''; } }, 1400);
-        } else if (Math.abs(c.group.position.x) >= 49.5) {
+        } else if (Math.abs(c.group.position.x) >= SIDELINE_X) {
             const y = Math.round((L - c.group.position.z) / 2);
             endDefPlay({ yards: y, desc: `${P.kind === 'run' || c === qb ? 'Run' : 'Pass complete'}, ${y} yds. Out of bounds.` }, 900);
         } else if (c.group.position.z <= GOAL_LINE_Z) {
@@ -5582,11 +5813,72 @@ function throwDefPass(r) {
     const err = (1.15 - P.offSkill) * 4; // better offenses throw tighter balls
     P.catchPt = r.group.position.clone().addScaledVector(vel.lengthSq() > 0.0001 ? vel.normalize() : new THREE.Vector3(0, 0, -1), 9 * T)
         .add(new THREE.Vector3((Math.random() - 0.5) * err, 0, (Math.random() - 0.5) * err));
-    P.catchPt.x = THREE.MathUtils.clamp(P.catchPt.x, -48, 48);
+    P.catchPt.x = THREE.MathUtils.clamp(P.catchPt.x, -SIDELINE_X + 3, SIDELINE_X - 3);
     detachBallToScene(); ball.position.copy(from);
     const tgt = P.catchPt.clone().setY(1.6);
     ball.velocity = new THREE.Vector3((tgt.x - from.x) / T, (tgt.y - from.y + 15 * T * T) / T, (tgt.z - from.z) / T);
     P.thrown = true; P.target = r; P.carrier = null; qb.throwTimer = 0.55;
+    P.arriveAt = P.t + T;   // when it comes down to catching height at catchPt (the interception rings time to this)
+}
+
+// ─── INTERCEPTION TIMING ─────────────────────────────────────────────────────
+// When their pass is coming down near you, two rings show on the turf where it lands: a fixed one
+// and one closing in on it. Press F the moment they meet: dead on is a pick, close is a breakup,
+// off is a whiff. The window is wider on easy defense and tighter on hard.
+let pickRingFixed = null, pickRingClosing = null;
+function showPickRings(spot, k) {
+    if (!pickRingFixed) {
+        const mk = (inner, outer, color) => {
+            const m = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 48), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false }));
+            m.rotation.x = -Math.PI / 2; m.renderOrder = 3; scene.add(m); return m;
+        };
+        pickRingFixed = mk(1.5, 1.8, 0xffffff);
+        pickRingClosing = mk(1.5, 1.75, 0xffcc00);
+    }
+    pickRingFixed.visible = pickRingClosing.visible = true;
+    pickRingFixed.position.set(spot.x, 0.1, spot.z);
+    pickRingClosing.position.set(spot.x, 0.11, spot.z);
+    pickRingClosing.scale.setScalar(Math.max(0.05, 1 + 3 * k));   // meets the fixed ring (scale 1) right as the ball arrives
+}
+function hidePickRings() { if (pickRingFixed) pickRingFixed.visible = pickRingClosing.visible = false; }
+
+// Start the rings when the ball is about a second out and you're near where it lands
+function updatePickRings(P) {
+    const ctrl = P.ctrl, remain = P.arriveAt - P.t;
+    if (!P.ring && ctrl && !isFalling(ctrl) && remain < 1.0 && remain > 0.2 &&
+        Math.hypot(ctrl.group.position.x - P.catchPt.x, ctrl.group.position.z - P.catchPt.z) < 4.5) {
+        P.ring = { start: remain, done: false, win: ddiff().pickWindow };
+        document.getElementById('instructions').innerText = 'F WHEN THE RINGS MEET!';
+        document.getElementById('instructions').classList.remove('hidden');
+    }
+    if (!P.ring || P.ring.done) return;
+    if (remain < -P.ring.win) { P.ring.done = true; hidePickRings(); document.getElementById('instructions').classList.add('hidden'); return; }
+    showPickRings(P.catchPt, remain / P.ring.start);
+}
+
+// F during the rings: returns false if there's nothing to time (then F is the hit stick)
+function tryPickTiming() {
+    const P = dp;
+    if (!P || !P.ring || P.ring.done || !ball.velocity || P.ended) return false;
+    P.ring.done = true; hidePickRings(); document.getElementById('instructions').classList.add('hidden');
+    const ctrl = P.ctrl, off = P.arriveAt - P.t, miss = Math.abs(off);
+    const near = Math.hypot(ctrl.group.position.x - P.catchPt.x, ctrl.group.position.z - P.catchPt.z) < 5.5;
+    if (near && miss <= P.ring.win) {
+        // Dead on: he jumps the route and takes it
+        ctrl.group.position.set(ball.position.x, 0, ball.position.z);
+        ball.velocity = null;
+        gameStats.defInt++; triggerCheer(); sfxCatch();
+        flashBanner('INTERCEPTED BY YOU!', 1400);
+        startDefReturn(P, ctrl, 'INTERCEPTED BY YOU!');
+    } else if (near && miss <= P.ring.win * 2.2) {
+        // Close: gets a hand on it
+        ball.velocity.multiplyScalar(-0.3); ball.velocity.y = 3;
+        P.brokenUp = 'BROKEN UP BY YOU!'; flashBanner('BROKEN UP!', 1000);
+    } else {
+        flashBanner(off > 0 ? 'TOO EARLY!' : 'TOO LATE!', 900);
+        ctrl.hitStun = 0.5;
+    }
+    return true;
 }
 
 // Every kick runs on the full 11-on-11 kick engine (startFullKickoff)
@@ -6167,7 +6459,8 @@ function launchConfetti() {
 function goToMainMenu() {
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
     challengeMode = null; // quitting a challenge just ends it
-    droneDownText = null; intRet = null; trickPitch = null; fumbleBall = null; updateDefHints(null);
+    droneDownText = null; intRet = null; trickPitch = null; fumbleBall = null; updateDefHints(null); hidePickRings();
+    if (emoteWheel) { emoteWheel = null; document.getElementById('emote-wheel').classList.add('hidden'); }
     // Quitting mid-drive: stop the drive and clear its players
     clearTimeout(droneSimTimer); dp = null; droneSimPlay = null; if (ctrlRing) ctrlRing.visible = false;
     droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
@@ -6684,7 +6977,7 @@ function animate() {
         }
 
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
-        updateTdCam(dt);
+        updateTdCam(dt); updateEmotes(dt);
     }
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else recordReplayFrame(dt);
