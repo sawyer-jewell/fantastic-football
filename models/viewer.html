@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Player Model Viewer</title>
+<style>
+    html, body { margin: 0; height: 100%; background: #002244; overflow: hidden; font-family: monospace; }
+    #hint { position: absolute; top: 12px; left: 0; right: 0; text-align: center; color: #ffcc00; font-size: 14px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="hint">DRAG TO SPIN · SCROLL TO ZOOM · RIGHT-DRAG TO MOVE</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// Spin-around preview of models/player.glb (served next to this page)
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x002244);
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(3, 2.4, -5.5);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9); sun.position.set(4, 8, -6); scene.add(sun);
+const back = new THREE.DirectionalLight(0xffffff, 0.4); back.position.set(-4, 5, 6); scene.add(back);
+const turf = new THREE.Mesh(new THREE.CircleGeometry(3, 48), new THREE.MeshLambertMaterial({ color: 0x2e7d32 }));
+turf.rotation.x = -Math.PI / 2; scene.add(turf);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.5, 0); controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.5;
+controls.addEventListener('start', () => { controls.autoRotate = false; });
+
+// A lineup of players: every one gets his own skin tone and eye black (or none), the way the game
+// will dress each roster player. Materials named "Skin" (face, neck, arms) and "Brows" are per player.
+const SKIN_TONES = ['#f2c9a8', '#dba47c', '#bd8256', '#94603e', '#6a4129', '#43281a'];
+const EYE_BLACK = ['EyeBlack_Bars', 'EyeBlack_Smear', 'EyeBlack_Slash', null];
+// The Eagles starters from the game's roster, each with his own name and number
+const LINEUP = [
+    { name: 'HURTS', num: 1 }, { name: 'A.BROWN', num: 11 }, { name: 'SANDERS', num: 22 },
+    { name: 'GOEDERT', num: 88 }, { name: 'KELCE', num: 60 }, { name: 'D.SMITH', num: 14 },
+];
+// Name and number art drawn per player (white with a dark outline, like the jersey)
+function textTexture(text, w, h, size) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.font = `900 ${size}px "Arial Black", Arial, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = size * 0.12; g.strokeStyle = '#111';
+    let s = size; while (g.measureText(text).width > w * 0.94 && s > 10) { s -= 2; g.font = `900 ${s}px "Arial Black", Arial, sans-serif`; }
+    g.strokeText(text, w / 2, h / 2 + s * 0.05); g.fillStyle = '#fff'; g.fillText(text, w / 2, h / 2 + s * 0.05);
+    const t = new THREE.CanvasTexture(c); t.flipY = false; t.encoding = THREE.sRGBEncoding; // glTF UVs
+    return t;
+}
+function dressPlayer(p, skinHex, eyeBlack, who) {
+    const numTex = textTexture(String(who.num), 256, 256, 150), nameTex = textTexture(who.name, 512, 96, 70);
+    const skin = new THREE.Color(skinHex).convertSRGBToLinear();
+    const brows = skin.clone().multiplyScalar(0.25);
+    const own = {};
+    p.traverse(o => {
+        if (o.name.startsWith('EyeBlack_')) o.visible = o.name === eyeBlack;
+        if (!o.isMesh) return;
+        const name = o.material.name;
+        if (name === 'Skin' || name === 'Brows') {
+            own[name] = own[name] || o.material.clone();
+            own[name].color.copy(name === 'Skin' ? skin : brows);
+            o.material = own[name];
+        }
+        // his own name and number; cut out the clear parts cleanly
+        if (/^(Number|Name)/.test(name)) {
+            o.material = o.material.clone();
+            o.material.map = name === 'NameBack' ? nameTex : numTex;
+            o.material.alphaTest = 0.4; o.material.transparent = false;
+        }
+    });
+}
+new THREE.GLTFLoader().load('player.glb?v=' + Date.now(), gltf => {
+    const lineup = new URLSearchParams(location.search).get('one') === null;
+    const count = lineup ? SKIN_TONES.length : 1;
+    for (let i = 0; i < count; i++) {
+        const p = i === 0 ? gltf.scene : gltf.scene.clone(true);
+        p.position.x = (i - (count - 1) / 2) * 1.6;
+        dressPlayer(p, SKIN_TONES[i], EYE_BLACK[i % EYE_BLACK.length], LINEUP[i]);
+        scene.add(p);
+    }
+    if (lineup) {
+        turf.scale.setScalar(3.4);
+        camera.position.set(0, 3.4, 14.5); controls.target.set(0, 1.6, 0); controls.autoRotate = false;
+    }
+}, undefined, err => { document.getElementById('hint').innerText = 'Could not load player.glb: ' + err.message; });
+
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+</script>
+</body>
+</html>
