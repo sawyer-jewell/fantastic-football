@@ -7287,6 +7287,7 @@ function checkInputs(e) {
     if (e.code === 'KeyQ' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { switchDefender(); return; }
     if (e.code === 'KeyQ' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { koSwitch(); return; }
     if (e.code === 'KeyE' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { userDefDive(); return; }
+    if (GAME_STATE === 'DEFENSE' && dp && dp.phase === 'presnap' && e.type === 'keydown' && /^Digit[1-5]$/.test(e.code)) { setDefCall(Number(e.code.slice(5)) - 1); return; }
     if (e.code === 'KeyE' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { if (ko && ko.userKicks && ko.phase === 'return') startUserDive(ko.user, ko.returner.group.position); return; }
     if (GAME_STATE === 'FG_BLOCK' && e.type === 'keydown' && !e.repeat) { if (e.code === 'KeyQ') { fgSwitch(); return; } if (e.code === 'Space') { fgJump(); return; } }
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
@@ -8919,6 +8920,13 @@ function pickCpuDefPlay(down, toGo) {
         else w *= reps ? 0.55 : 1;
         if (n === 'deep') w *= (0.5 + B.aggr) * (redZone ? 0.35 : 1) * (late && lead < 0 ? 1.8 : 1);
         if (n === 'pa' && B.runStops >= 2) w *= 2.2;   // you keep stuffing the run: time to fake it
+        // What you've been calling on defense: blitz-happy gets quick throws and screens, man gets
+        // tested deep, soft zones and prevent get picked apart underneath and run at
+        const uc = B.userCalls || {}, tot = Object.values(uc).reduce((s, v) => s + v, 0) || 1, share = k => (uc[k] || 0) / tot;
+        if (n === 'quick' || n === 'screen') w *= 1 + 2 * share('blitz');
+        if (n === 'deep') w *= (1 + 1.5 * share('man')) * (1 - 0.7 * share('prevent'));
+        if (n === 'mid') w *= 1 + share('zone') + share('prevent');
+        if (n === 'inside' || n === 'outside' || n === 'draw') w *= 1 + share('prevent') + 0.5 * share('zone');
         if (redZone && (n === 'quick' || n === 'screen')) w *= 1.5;
         return [n, Math.max(0, w) + 0.01];
     });
@@ -9013,6 +9021,19 @@ function startUserDive(p, target) {
     const dir = target && target.distanceTo(p.group.position) < 9 ? target.clone().sub(p.group.position) : new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion);
     dir.y = 0; if (dir.lengthSq() < 0.01) return; dir.normalize();
     p.uDive = { t: 0, dir, yaw: Math.atan2(dir.x, dir.z), down: false };
+}
+// ─── YOUR DEFENSIVE CALL (1–5 before their snap) ─────────────────────────────
+const DEF_CALLS = [['base', 'BASE'], ['blitz', 'BLITZ'], ['man', 'MAN'], ['zone', 'ZONE'], ['prevent', 'PREVENT']];
+function setDefCall(i) {
+    const P = dp; if (!P || P.phase !== 'presnap') return;
+    P.call = setDefCall.cur = DEF_CALLS[i][0];
+    showDefCallPrompt();
+    if (sfxOn()) sfxTone(0.06, 700, 1000, 0.12);
+}
+function showDefCallPrompt() {
+    const cur = (dp && dp.call) || 'base';
+    showLadderPrompt('YOUR CALL:  ' + DEF_CALLS.map(([k, n], i) => `${i + 1} ${k === cur ? '[' + n + ']' : n}`).join(' · ')
+        + '\nWASD MOVE · SHIFT SPRINT · SPACE JUMP · Q SWITCH · E DIVE · F HIT STICK / INTERCEPT');
 }
 function userDefDive() {
     const P = dp;
@@ -9234,7 +9255,8 @@ function startLiveDefensePlay(down, toGo, onDone) {
     defStamina = 100; def.forEach(d => { d.stam = 100; }); // fresh legs for everybody every snap
     document.getElementById('right-hud').classList.remove('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     document.getElementById('stamina-bar').classList.remove('hidden'); updateStaminaBar(defStamina);
-    document.getElementById('instructions').innerText = 'DEFENSE!  WASD MOVE · SHIFT SPRINT · SPACE JUMP · Q SWITCH · E DIVE · F HIT STICK / INTERCEPT';
+    dp.call = setDefCall.cur || 'base';
+    showDefCallPrompt();
     document.getElementById('instructions').classList.remove('hidden');
 }
 
@@ -9319,8 +9341,10 @@ function updateDefensePlay(dt) {
     if (P.phase === 'presnap') {
         P.t += dt;
         P.off.concat(P.def).forEach(p => { if (p !== ctrl) p.currentMoveSpeed = 0; p.animateLimbs(dt); });
-        if (P.t > 2.4) {
+        if (P.t > 3.2) {
             P.phase = 'live'; P.t = 0; sfxHut(); attachBallToQB(P.qb); P.carrier = P.qb; document.getElementById('instructions').classList.add('hidden');
+            if (P.call === 'blitz') P.def.forEach(d => { if (d.role === 'DL') d.dShed *= 0.6; });   // everybody's coming: the line gets off blocks quicker
+            if (oppQB) { const u = oppQB.userCalls || (oppQB.userCalls = {}); u[P.call] = (u[P.call] || 0) + 1; }   // he's watching what you call
             // Easy defense: he picks his man at the snap — the marker shows him right away and the ball
             // doesn't come out for 3 seconds
             if (ddiff().hints && P.kind === 'pass') {
@@ -9438,7 +9462,7 @@ function updateDefensePlay(dt) {
             const pressured = P.def.some(d => !isFalling(d) && d.group.position.distanceTo(qb.group.position) < 2.4);
             const base = ddiff().qbRead;
             if (P.readDelay == null) P.readDelay = (Math.random() - 0.5) * 0.7 * B.patience;   // some plays he lets it rip, some he waits
-            const firstRead = base + P.readDelay + ({ quick: -0.55, deep: 0.5, pa: 0.8 }[P.play] || 0);
+            const firstRead = base + P.readDelay + ({ quick: -0.55, deep: 0.5, pa: 0.8 }[P.play] || 0) - (P.call === 'blitz' ? 0.35 : 0);   // blitz coming: he gets it out quicker
             const wantOpen = 5 - Math.max(0, t - firstRead) * 1.6 / B.patience;
             // Under pressure with nobody open: a scrambler rolls out away from the rush and keeps looking
             if (pressured && !P.scramble && t > 0.9 && openness(best) < wantOpen && Math.random() < B.scramble * 0.35) {
@@ -9514,12 +9538,26 @@ function updateDefensePlay(dt) {
             steerTo(d, tgt, (role === 'LB' ? 8.6 : 9.4) * d.mind.pace, dt); return;
         }
         if (P.thrown && P.catchPt) { steerTo(d, P.catchPt, role === 'LB' ? 8.6 : 9.4, dt); return; }
-        if (role === 'CB') { const wr = P.off[7 + (i - 7)]; steerTo(d, wr.group.position.clone().add(V(0, -1.4)), 9.2, dt); return; }
-        if (role === 'LB' && P.play === 'pa' && t < 0.8) { steerTo(d, V(d.droneHome.x, L - 3), 6, dt); return; } // bit on the fake
-        if (role === 'LB') { steerTo(d, V(d.droneHome.x, L - 10), 6, dt); return; }
-        // Safeties: stay deep over the deepest route
+        // Your call (see setDefCall): blitz sends the linebackers, man locks the corners on tight,
+        // zone drops everybody into thirds, prevent plays deep and keeps everything in front
+        const call = P.call || 'base';
+        if (role === 'LB' && call === 'blitz' && !P.thrown && P.carrier === qb) { steerTo(d, qb.group.position, 8.2, dt); return; }
+        if (role === 'CB') {
+            const wr = P.off[7 + (i - 7)];
+            if (call === 'zone') { steerTo(d, V(d.droneHome.x * 1.05, L - 22), 8.6, dt); return; }
+            if (call === 'prevent') { steerTo(d, V(d.droneHome.x, Math.min(L - 26, wr.group.position.z - 6)), 9, dt); return; }
+            const cushion = call === 'man' ? -0.6 : call === 'blitz' ? -2.8 : -1.4;
+            steerTo(d, wr.group.position.clone().add(V(0, cushion)), call === 'man' ? 9.6 : 9.2, dt); return;
+        }
+        if (role === 'LB' && P.play === 'pa' && t < 0.8 && call !== 'prevent') { steerTo(d, V(d.droneHome.x, L - 3), 6, dt); return; } // bit on the fake
+        if (role === 'LB') {
+            if (call === 'man') { const man = i % 2 ? rb : wrs[wrs.length - 1]; steerTo(d, man.group.position.clone().add(V(0, -1)), 8.4, dt); return; }   // on the back or the tight end
+            steerTo(d, V(d.droneHome.x * (call === 'zone' ? 1.6 : 1), L - (call === 'prevent' ? 16 : call === 'zone' ? 12 : 10)), 6, dt); return;
+        }
+        // Safeties: stay deep over the deepest route (deeper still in prevent; split the deep middle in zone)
         const deep = wrs.reduce((a, r) => r.group.position.z < a.group.position.z ? r : a);
-        steerTo(d, V((deep.group.position.x + d.droneHome.x) / 2, Math.min(L - 18, deep.group.position.z - 6)), 8.5, dt);
+        if (call === 'zone') { steerTo(d, V(d.droneHome.x * 0.3, L - 28), 8.5, dt); return; }
+        steerTo(d, V((deep.group.position.x + d.droneHome.x) / 2, Math.min(L - (call === 'prevent' ? 34 : 18), deep.group.position.z - 6)), 8.5, dt);
     });
 
     // ── Tackles, sacks, sideline, end zone ──
