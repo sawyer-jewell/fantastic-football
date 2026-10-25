@@ -119,6 +119,7 @@
         #coin-toss.hidden { display: none; }
         #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
         #kick-choice.hidden { display: none; }
+        #achv-toast { position: fixed; top: 20px; right: 20px; z-index: 300; background: #002244; border: 3px solid #ffcc00; color: #fff; padding: 12px 16px; font-size: 0.7rem; box-shadow: 4px 4px 0 #000; pointer-events: none; }
         #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
         body.egg-on #scoreboard, body.egg-on #hud, body.egg-on #right-hud, body.egg-on #instructions, body.egg-on #quarter-break { visibility: hidden; }
         .coin { width: 120px; height: 120px; position: relative; transform-style: preserve-3d; perspective: 600px; }
@@ -444,6 +445,7 @@
                     <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
                     <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🏆</span>BRACKET</button>
                     <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
+                    <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -809,6 +811,7 @@
     </div>
 
     <div id="egg-fade"></div>
+    <div id="achv-toast" class="hidden"></div>
     <div id="kick-choice" class="hidden">
         <h1 style="font-size:1.8rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">KICKOFF</h1>
         <div id="kick-choice-sub" style="font-size:0.7rem; margin-bottom:22px;"></div>
@@ -1710,6 +1713,68 @@ function signFreeAgent(i) {
     flashBanner(`SIGNED ${f.p.name}`, 1200);
     renderFreeAgency();
 }
+// ─── ACHIEVEMENTS ────────────────────────────────────────────────────────────
+// Trophies for big moments, kept across every save (localStorage 'ff-achievements'). Unlocking one
+// pops a toast in the corner; the ACHIEVEMENTS tile shows them all, locked ones as a hint.
+const ACHIEVEMENTS = [
+    ['td', '🏈', 'FIRST BLOOD', 'Score your first touchdown'],
+    ['win', '✅', 'IN THE WIN COLUMN', 'Win a game'],
+    ['shutout', '🧱', 'SHUTOUT', 'Win without giving up a point'],
+    ['blowout', '💥', 'BLOWOUT', 'Win by 35 or more'],
+    ['comeback', '🔥', 'COMEBACK KIDS', 'Win after trailing by 14 or more'],
+    ['air300', '🎯', 'AIR RAID', 'Throw for 300 yards in a game'],
+    ['sacks3', '🦖', 'QB HUNTER', 'Get 3 sacks yourself in one game'],
+    ['defTD', '↩️', 'HOUSE CALL', 'Score on defense (pick six or scoop and score)'],
+    ['returnTD', '⚡', 'TO THE HOUSE', 'Return a kick or punt for a touchdown'],
+    ['hitstick', '🔨', 'LAID OUT', 'Force a fumble with the hit stick'],
+    ['dive', '🦅', 'LAYOUT', 'Make a diving catch'],
+    ['onehand', '🖐️', 'ONE HAND', 'Make a one-handed grab'],
+    ['toetap', '👟', 'TIPPY TOES', 'Toe-tap a catch at the sideline'],
+    ['pancake', '🥞', 'PANCAKE HOUSE', 'Your line pancakes somebody'],
+    ['showboat', '🕺', 'SHOWBOAT', 'Celebrate on the way into the end zone'],
+    ['onside', '🎲', 'HANDS TEAM', 'Recover an onside kick'],
+    ['fakepunt', '🎭', 'GUTSY', 'Call a fake punt'],
+    ['victory', '🧎', 'TAKE A KNEE', 'Kneel out a win in victory formation'],
+    ['trade', '🔁', 'WHEELER DEALER', 'Make a trade'],
+    ['perfect', '💯', 'PERFECTION', 'Go 17-0 in the regular season'],
+    ['champ', '🏆', 'CHAMPIONS', 'Win the Super Bowl'],
+    ['hof', '🎖️', 'CANTON', 'Send one of yours to the Hall of Fame'],
+    ['egg', '❓', '???', '...something at midfield'],
+];
+function achieved() {
+    if (!achieved.set) { try { achieved.set = new Set(JSON.parse(localStorage.getItem('ff-achievements') || '[]')); } catch (e) { achieved.set = new Set(); } }
+    return achieved.set;
+}
+function achieve(id) {
+    const got = achieved(); if (got.has(id) || challengeMode) return;
+    const a = ACHIEVEMENTS.find(x => x[0] === id); if (!a) return;
+    got.add(id);
+    try { localStorage.setItem('ff-achievements', JSON.stringify([...got])); } catch (e) {}
+    const el = document.getElementById('achv-toast');
+    el.innerHTML = `<div style="font-size:0.5rem; color:#ffcc00;">ACHIEVEMENT UNLOCKED</div><div style="margin-top:6px;">${a[1]} ${a[2]}</div>`;
+    el.classList.remove('hidden'); clearTimeout(achieve.t); achieve.t = setTimeout(() => el.classList.add('hidden'), 3200);
+    if (sfxOn()) { sfxTone(0.12, 880, 880, 0.15); sfxTone(0.18, 1320, 1320, 0.15, 'sine', 0.12); }
+}
+// At the final whistle: the game's own trophies
+function checkGameAchievements() {
+    if (scoreOff <= scoreDef) return;
+    achieve('win');
+    if (scoreDef === 0) achieve('shutout');
+    if (scoreOff - scoreDef >= 35) achieve('blowout');
+    if ((checkGameAchievements.down || 0) >= 14) achieve('comeback');
+    if (gameStats.passYds >= 300) achieve('air300');
+    if ((gameStats.defSacks || 0) >= 3) achieve('sacks3');
+}
+function openAchievements() {
+    const got = achieved();
+    const rows = ACHIEVEMENTS.map(([id, icon, name, desc]) => {
+        const on = got.has(id);
+        return `<div class="pcard" style="${on ? 'border-color:#ffcc00;' : 'opacity:0.55;'}"><div class="pcard-top"><span style="font-size:1.4rem;">${on ? icon : '🔒'}</span><span class="pcard-name">${name}</span><span class="pcard-stars">${on ? '✓' : ''}</span></div><div class="pcard-age">${desc}</div></div>`;
+    }).join('');
+    showOffseason('ACHIEVEMENTS', `<div class="stats-head">${got.size} / ${ACHIEVEMENTS.length} UNLOCKED</div><div class="roster-grid" style="width:min(1000px,96vw);">${rows}</div>`,
+        [['BACK TO MENU', "hideOffseason(); showOnly('main-menu'); updateMenuUI();"]]);
+}
+
 // ─── TRADES ──────────────────────────────────────────────────────────────────
 // Put any of your players (starter or backup) on the block and three teams call with an offer of
 // one of theirs at the same spot. Some offers are fair, some a steal for you, some a fleecing —
@@ -1750,7 +1815,7 @@ function acceptTrade(i) {
     // Their side: they get your guy (a better player makes them a little better)
     const L = league[o.team]; if (L) L.rating = THREE.MathUtils.clamp(L.rating + (starRating(mine, slot) - starRating(o.p, slot)) * 1.2, 50, 95);
     openTrades.offers[openTrades.shop] = null; openTrades.shop = null;
-    flashBanner(`TRADED ${mine.name} TO ${o.team} FOR ${o.p.name}`, 2200);
+    flashBanner(`TRADED ${mine.name} TO ${o.team} FOR ${o.p.name}`, 2200); achieve('trade');
     saveSeason(); renderTrades();
 }
 function renderTrades() {
@@ -1797,7 +1862,7 @@ function retirements() {
         gone.push(p.name);
         const c = p.career;
         if (c.gp >= 34 && ((p.peak || 0) >= 4.5 || p.awards >= 3 || c.pyd >= 15000 || c.ryd >= 6000 || c.yds >= 6000 || c.sk >= 40 || c.int >= 25)) {
-            hallOfFame.push({ name: p.name, slot, team: MY_TEAM.id, inducted: career.seasons, gp: c.gp, line: playerLineText(slot, c), stars: p.peak, awards: p.awards });
+            achieve('hof'); hallOfFame.push({ name: p.name, slot, team: MY_TEAM.id, inducted: career.seasons, gp: c.gp, line: playerLineText(slot, c), stars: p.peak, awards: p.awards });
         }
         const young = genPlayer(slot, 60, 22, 23); giveContract(young, slot, true);
         if (kind === 'starter') { roster[slot] = bench[slot]; bench[slot] = young; } else bench[slot] = young;
@@ -1949,7 +2014,7 @@ function callTackle(carrier, tackler, message) {
     else if (/HIT STICK/.test(message)) commentate(pick([`BOOM! ${t} LAYS ${c} OUT!`, `WHAT A HIT BY ${t}!`]));
     else commentate(pick([`${c} BROUGHT DOWN BY ${t} AT ${at}.`, `${t} MAKES THE STOP AT ${at}.`, `${c} GETS TO ${at} BEFORE ${t} TAKES HIM DOWN.`]));
 }
-function callTouchdown(p) { sfxFanfare(); commentate(pick([`TOUCHDOWN ${MY_TEAM.name}! ${nameOf(p)} TAKES IT IN!`, `HE'S IN! ${nameOf(p)} SCORES!`, `${nameOf(p)}... TOUCHDOWN!`]), 4200); }
+function callTouchdown(p) { sfxFanfare(); achieve('td'); commentate(pick([`TOUCHDOWN ${MY_TEAM.name}! ${nameOf(p)} TAKES IT IN!`, `HE'S IN! ${nameOf(p)} SCORES!`, `${nameOf(p)}... TOUCHDOWN!`]), 4200); }
 function callPick(d) { sfxSadTrombone(); commentate(pick([`INTERCEPTED! ${nameOf(d)} JUMPS THE ROUTE!`, `PICKED OFF BY ${nameOf(d)}!`]), 3600); }
 
 // ── Replay challenges ──
@@ -2191,6 +2256,7 @@ function startPostseason() {
         simRestOfPlayoffs(); checkGoals(); return;
     }
     career.playoffApps++;
+    if (myRecord.w >= 17 && myRecord.l === 0) achieve('perfect');
     seasonPhase = 'playoffs';
     playoffs = { seeds, alive: [...seeds], round: 0, userSeed, opp: null, history: [] };
     setPlayoffOpponent();
@@ -2217,7 +2283,7 @@ function playoffGameDone(userWon) {
     playoffs.alive = results.map(r => r.w);
     if (!userWon) { seasonPhase = 'eliminated'; simRestOfPlayoffs(); return; }   // the rest of the bracket still crowns someone
     playoffs.round++;
-    if (playoffs.alive.length === 1) { seasonPhase = 'champion'; career.titles++; playoffs.champion = MY_TEAM.id; return; }
+    if (playoffs.alive.length === 1) { seasonPhase = 'champion'; career.titles++; achieve('champ'); playoffs.champion = MY_TEAM.id; return; }
     setPlayoffOpponent();
 }
 
@@ -5415,6 +5481,7 @@ function startGame() {
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
     defBrain = newDefBrain(); // a fresh scouting report every game
     oppQB = newOppQB();       // and a different QB across from you, who learns as he goes
+    checkGameAchievements.down = 0;   // biggest deficit this game (for COMEBACK KIDS)
     eggUsed = false;
     fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // and their kick unit starts fresh too
     playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; recentPlays = []; defRead = ''; defKeyedPlay = null; // new film each game
@@ -5560,7 +5627,7 @@ function victoryKneel() {
         } else if (gameTime <= KNEEL_CLOCK * (kneelsLeft + 1)) {
             // Out of timeouts and the kneels can run it out: game over
             gameTime = 0; updateScoreboard();
-            flashBanner('VICTORY FORMATION — GAME OVER!', 2200); triggerCheer();
+            flashBanner('VICTORY FORMATION — GAME OVER!', 2200); triggerCheer(); achieve('victory');
             commentate(`${MY_TEAM.id} KNEELS IT OUT. THAT'S THE BALLGAME!`);
             setTimeout(_triggerQuarterTransition, 2200);
             return;
@@ -5616,6 +5683,7 @@ function addScore(team, pts) {
     if (team === 'off') { scoreOff += pts; qtrScores.off[currentQuarter-1] += pts; }
     else { scoreDef += pts; qtrScores.def[currentQuarter-1] += pts; }
     crowdReact(team === 'off');
+    checkGameAchievements.down = Math.max(checkGameAchievements.down || 0, scoreDef - scoreOff);
     const who = team === 'off' ? MY_TEAM.id : (currentOpponent ? currentOpponent.id : '');
     jumboMessage(pts === 6 ? `${who} TOUCHDOWN!` : pts === 3 ? `${who} FIELD GOAL!` : pts === 2 ? `${who} +2` : `${who} +${pts}`, 3500);
     updateScoreboard();
@@ -5668,7 +5736,7 @@ function triggerDive(carrier) {
 // black shorts is sprinting straight at you. Then you're back on the field like nothing happened.
 const EGG_BOOM = 2.8, EGG_BLACK = 0.9, EGG_ROOM = 1.75;
 function startEasterEgg() {
-    eggUsed = true;
+    eggUsed = true; achieve('egg');
     const fade = document.getElementById('egg-fade');
     easterEgg = { t: 0, prev: GAME_STATE, booms: [], debris: [], inRoom: false, camPos: camera.position.clone(), camQuat: camera.quaternion.clone(), fade,
                   jumbos: scenery ? scenery.jumbos.map(J => ({ g: J.g, pos: J.g.position.clone(), quat: J.g.quaternion.clone(), vel: new THREE.Vector3(0, 30 + Math.random() * 15, -Math.sign(J.g.position.z) * -30), spin: (Math.random() - 0.5) * 3 })) : [] };
@@ -7099,6 +7167,7 @@ function selectPlay(playType) {
         camera.position.set(-1.5, 6, los + 22); camera.lookAt(0, 3, los - 30);
     }
     if (playType === 'fakepunt') {
+        achieve('fakepunt');
         // Punt look: the QB 14 yards back as the punter, the back as the up-man, gunners split wide,
         // wings tight — then the punter throws it. Their returner is way back and the corners jam the gunners.
         const off = players.offense, V = (x, z) => new THREE.Vector3(x, 0, z);
@@ -7589,7 +7658,7 @@ function maybeStartCatchDive(p) {
 }
 
 function completeDivingCatch(p) {
-    p.catchDive.caught = true;
+    p.catchDive.caught = true; achieve('dive');
     statCatch(p); callCatch(p, true);
     activeReceiver = p; targetedReceiver = null; landingMarker.visible = false;
     // The ball stays in his outstretched hands through the dive; it's tucked when he gets up
@@ -8001,7 +8070,7 @@ function resolveOnside(k) {
     (ours ? k.ret : k.cover).filter(p => p.group.position.distanceTo(k.landing) < 7).slice(0, 2).forEach(p => startTackleFall(p, grabber, null));
     k.phase = 'over';
     if (ours) {
-        flashBanner('ONSIDE KICK — RECOVERED!', 2000); triggerCheer();
+        flashBanner('ONSIDE KICK — RECOVERED!', 2000); triggerCheer(); achieve('onside');
         commentate(pick([`THEY GOT IT BACK! ${MY_TEAM.id} RECOVERS THE ONSIDE KICK!`, `ONSIDE KICK... AND ${MY_TEAM.id} HAS IT!`]));
         setTimeout(() => endFullKickoff(() => { lineOfScrimmageZ = THREE.MathUtils.clamp(k.landing.z, -90, 90); currentDown = 1; yardsToGo = 10; setupFormation(); }), 2000);
     } else {
@@ -8824,7 +8893,7 @@ function updateKickoffReturn(dt) {
                     setTimeout(() => endFullKickoff(walkOff ? endGame : () => startKickReturnAnim('opp_kickoff')), 2800);
                 } else {
                     // Your return TD: then the extra point like any touchdown
-                    addScore('off', 6); updateScoreboard(); triggerCheer();
+                    addScore('off', 6); updateScoreboard(); triggerCheer(); achieve('returnTD');
                     document.getElementById('instructions').innerText = `${k.punt ? 'PUNT' : 'KICK'} RETURN TOUCHDOWN!`;
                     document.getElementById('instructions').classList.remove('hidden');
                     setTimeout(() => endFullKickoff(walkOff ? () => endOvertimeWith(`${MY_TEAM.id} WINS IN OVERTIME!`) : triggerExtraPoint), 2800);
@@ -9265,7 +9334,7 @@ function resolveHitStick(P, contact) {
         // Both of you go down; you pop back up to chase the loose ball
         startTackleFall(c, ctrl, () => { startRise(ctrl, ctrl.group.position.z + 10); startRise(c, c.group.position.z - 10); });
         gameStats.ff = (gameStats.ff || 0) + 1; creditPlayer(ctrl.rosterSlot, 'ff');
-        flashBanner('HIT STICK! FUMBLE!', 1500);
+        flashBanner('HIT STICK! FUMBLE!', 1500); achieve('hitstick');
         return;
     }
     // Whiffed: you stumble past and can't make the tackle for a moment
@@ -9337,7 +9406,7 @@ function updateDefReturn(P, dt) {
             startTackleFall(c, tackler, null);
             endDefPlay({ get yards() { return yds(cp.z); }, turnover: true, desc: desc() }, 1500);
         } else if (cp.z >= 100) {
-            triggerCheer(); flashBanner('TOUCHDOWN!', 2000);
+            triggerCheer(); flashBanner('TOUCHDOWN!', 2000); achieve('defTD');
             endDefPlay({ yards: yds(100), turnover: true, userTD: true, desc: desc(' <span style="color:#ffcc00;">TOUCHDOWN!</span>') }, 2200);
         } else if (Math.abs(cp.x) >= SIDELINE_X) {
             endDefPlay({ yards: yds(cp.z), turnover: true, desc: desc(' Out of bounds.') }, 900);
@@ -10582,6 +10651,7 @@ function finalizeGameStats() {
 }
 
 function endGame() {
+    checkGameAchievements();
     GAME_STATE = 'GAME_OVER';
     document.getElementById('scoreboard').classList.add('hidden');
     document.getElementById('playbook').classList.add('hidden');
@@ -11351,6 +11421,7 @@ function startPancake(p, by) {
     p.pancake = { t: 0, q0: p.group.quaternion.clone(), q1, rest: restHeight(p, q1), push: push.multiplyScalar(4) };
     p.rag = null; p.blockFoe = null; p.currentMoveSpeed = 0;
     // Only called out once in a while (the booth mentions it now and then; no big banner)
+    if (p.team === 'defense' && GAME_STATE !== 'DEFENSE') achieve('pancake');
     if (p.team === 'defense' && GAME_STATE !== 'DEFENSE' && Math.random() < 0.3) commentate(pick([`${nameOf(by)} PANCAKES HIS MAN!`, `PANCAKE BLOCK! HE PUT HIM ON HIS BACK!`]));
     sfxHit(0.9);
 }
@@ -11479,8 +11550,8 @@ function startCatchFlourish(p) {
     const toeTap = Math.abs(p.group.position.x) > SIDELINE_X - 5;
     const kind = toeTap ? 'toetap' : p.catchStyle || 'two';
     p.catchFlourish = { kind, t: toeTap ? 0.5 : 0.3, dur: toeTap ? 0.5 : 0.3 };
-    if (toeTap) flashBanner('TOE TAP!', 1000);
-    else if (kind === 'onehand') { flashBanner('ONE-HANDED GRAB!', 1100); commentate(pick([`ONE HAND! ${nameOf(p)} WITH THE SNAG!`, `ARE YOU KIDDING ME?! ONE HAND!`])); }
+    if (toeTap) { flashBanner('TOE TAP!', 1000); achieve('toetap'); }
+    else if (kind === 'onehand') { flashBanner('ONE-HANDED GRAB!', 1100); achieve('onehand'); commentate(pick([`ONE HAND! ${nameOf(p)} WITH THE SNAG!`, `ARE YOU KIDDING ME?! ONE HAND!`])); }
     else if (kind === 'shoulder') flashBanner('OVER THE SHOULDER!', 1000);
 }
 
@@ -11492,7 +11563,7 @@ function startShowboat(p) {
     if (!p || GAME_STATE !== 'POST_CATCH' || p !== activeReceiver || p.move || !inShowboatZone(p)) return;
     startShowboat.n = ((startShowboat.n || 0) + 1) % SHOWBOATS.length;
     const style = SHOWBOATS[(startShowboat.n + SHOWBOATS.length - 1) % SHOWBOATS.length];
-    p.showboat = { style, t: SHOWBOAT_TIME, dur: SHOWBOAT_TIME };
+    p.showboat = { style, t: SHOWBOAT_TIME, dur: SHOWBOAT_TIME }; achieve('showboat');
     triggerCheer();
     commentate(pick(style === 'highstep' ? [`${nameOf(p)} IS HIGH-STEPPING IN!`, `LOOK AT THOSE KNEES!`]
         : style === 'point' ? [`${nameOf(p)} POINTS TO THE CROWD!`, `HE'S SOAKING IT IN!`]
