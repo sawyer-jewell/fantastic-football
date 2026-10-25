@@ -3070,7 +3070,9 @@ class Player {
                 if (!this.isJumping && this.group.position.y < 0.5) { triggerTDCelebration(this); return; }
             }
 
-            if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN') { // no tackles during TD celebration or in end zone
+            // (the hook man on a hook and ladder gets a split second after the catch to get the pitch off)
+            const ladderGrace = hookLadder && ((hookLadder.catcher === this && hookLadder.phase === 'trail' && hookLadder.t < 0.45) || (hookLadder.trailer === this && hookLadder.phase === 'pitch'));   // nobody tackles the trailer while the pitch is in the air
+            if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN' && !ladderGrace) { // no tackles during TD celebration or in end zone
                 players.defense.forEach(d => {
                     if(d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
                         if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
@@ -4513,12 +4515,27 @@ function phillySwap(f) {
 }
 
 // Hook and ladder: when you throw the hook, the slot breaks across underneath so he's going full speed
-// just behind and outside the catcher as the ball arrives; the catcher pitches it to him (sooner if
-// he's about to get hit) and you take the trailer the rest of the way.
+// just behind and outside the catcher as the ball arrives. You pitch it with R: press it while the ball
+// is in the air and he pitches the instant he catches it (the way it's drawn up), or after the catch
+// once the trailer is close. Then you take the trailer the rest of the way.
+const LADDER_RANGE = 9;   // how far the trailer can be and still get the pitch
 function startHookLadder(catcher) {
     const trailer = players.offense[3];
     if (currentPlay !== 'hookladder' || catcher !== players.offense[1] || !trailer || isFalling(trailer)) return;
-    hookLadder = { catcher, trailer, t: 0, phase: 'run', side: Math.sign(catcher.group.position.x) || -1 };
+    hookLadder = { catcher, trailer, t: 0, phase: 'run', side: Math.sign(catcher.group.position.x) || -1, wantPitch: false };
+    showLadderPrompt('R: PITCH ON THE CATCH');
+}
+// R: pitch it (or call it, if the ball's still in the air)
+function pitchHookLadder() {
+    const H = hookLadder;
+    if (!H || H.phase === 'pitch') return;
+    if (H.phase === 'run') { H.wantPitch = true; showLadderPrompt('PITCH CALLED — ON THE CATCH'); return; }
+    if (H.trailer.group.position.distanceTo(H.catcher.group.position) > LADDER_RANGE) { flashBanner('TOO FAR TO PITCH', 700); return; }
+    H.wantPitch = true;
+}
+function showLadderPrompt(text) {
+    const el = document.getElementById('instructions');
+    el.innerText = text; el.classList.remove('hidden');
 }
 function updateHookLadder(dt) {
     const H = hookLadder;
@@ -4533,25 +4550,24 @@ function updateHookLadder(dt) {
     }
     if (GAME_STATE !== 'POST_CATCH') { hookLadder = null; return; }
     if (H.phase === 'trail') {
-        if (activeReceiver !== H.catcher) { hookLadder = null; return; }
-        const spot = new THREE.Vector3(c.x + side * 2.5, 0, c.z + 1.0);
+        if (activeReceiver !== H.catcher || isFalling(tr)) { hookLadder = null; return; }
+        // The trailer stays just behind and outside the man with the ball, wherever you take him
+        const spot = new THREE.Vector3(c.x + side * 3.4, 0, c.z + 1.4);
         steerTo(tr, spot, 10.5, dt); tr.animateLimbs(dt);
-        const gap = tr.group.position.distanceTo(spot);
-        // Pitch when he's there — or early, a little wider, when a tackler is about to hit the catcher
-        const danger = players.defense.some(d => !isFalling(d) && d.group.position.distanceTo(c) < 3.5);
-        if (gap < 3 || (danger && gap < 9)) {
-            H.phase = 'pitch'; H.p = 0;
-            detachBallToScene(); H.start = ball.position.clone();
-            activeReceiver = tr; tr.autoRun = true; tr.autoRunDir.set(side * 0.45, 0, -1).normalize(); tr.cutBurstTimer = 1.5;
-            H.catcher.currentMoveSpeed = 0;
-            // The man about to hit the catcher does: they go down together as the pitch goes out
-            const hitter = players.defense.filter(d => !isFalling(d) && d.group.position.distanceTo(c) < 3.5)
-                .sort((a, b) => a.group.position.distanceTo(c) - b.group.position.distanceTo(c))[0];
-            if (hitter) {
-                const catcher = H.catcher;
-                startTackleFall(catcher, hitter, () => { startRise(catcher, catcher.group.position.z - 4); startRise(hitter, hitter.group.position.z + 4); });
-            }
-        } else if (H.t > 1.5) hookLadder = null;   // he never got there: the catcher keeps it
+        const inRange = tr.group.position.distanceTo(c) <= LADDER_RANGE;
+        if (!H.wantPitch) { showLadderPrompt(inRange ? 'R: PITCH IT!' : 'TRAILER COMING...'); return; }
+        if (!inRange) return;
+        H.phase = 'pitch'; H.p = 0;
+        detachBallToScene(); H.start = ball.position.clone();
+        activeReceiver = tr; tr.autoRun = true; tr.autoRunDir.set(side * 0.45, 0, -1).normalize(); tr.cutBurstTimer = 1.5;
+        H.catcher.currentMoveSpeed = 0;
+        // The man about to hit the catcher does: they go down together as the pitch goes out
+        const hitter = players.defense.filter(d => !isFalling(d) && d.group.position.distanceTo(c) < 3.5)
+            .sort((a, b) => a.group.position.distanceTo(c) - b.group.position.distanceTo(c))[0];
+        if (hitter) {
+            const catcher = H.catcher;
+            startTackleFall(catcher, hitter, () => { startRise(catcher, catcher.group.position.z - 4); startRise(hitter, hitter.group.position.z + 4); });
+        }
     } else if (H.phase === 'pitch') {
         H.p += dt;
         const u = Math.min(1, H.p / 0.28);
@@ -4560,7 +4576,7 @@ function updateHookLadder(dt) {
         H.catcher.reachArmsToward(tr.group.position.clone().setY(1.5));
         if (u >= 1) {
             attachBallToCarrier(tr); hookLadder = null;
-            document.getElementById('instructions').innerText = 'LATERAL! RUN! (SHIFT TO SPRINT)';
+            showLadderPrompt('LATERAL! RUN! (SHIFT TO SPRINT)');
         }
     }
 }
@@ -4575,6 +4591,7 @@ function checkInputs(e) {
     if (GAME_STATE === 'FG_BLOCK' && e.type === 'keydown' && !e.repeat) { if (e.code === 'KeyE') { fgSwitch(); return; } if (e.code === 'Space') { fgJump(); return; } }
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
     if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
+    if (e.code === 'KeyR' && hookLadder && e.type === 'keydown' && !e.repeat) { pitchHookLadder(); return; }   // hook and ladder pitch
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
     if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
