@@ -345,6 +345,17 @@
         .bt.tbd { color: #556; }
         .bseed { background: #ffcc00; color: #000; padding: 1px 4px; }
         .brec { margin-left: auto; color: #8ab; font-size: 0.45rem; }
+        /* The broadcast: commentary line, the red flag, crunch time */
+        #commentary { position: absolute; left: 20px; bottom: 26px; max-width: min(520px, 60vw); z-index: 55; pointer-events: none;
+                      background: rgba(0, 10, 24, 0.88); border: 2px solid rgba(255, 255, 255, 0.5); border-left: 6px solid #ffcc00;
+                      color: #fff; font-size: 0.55rem; line-height: 1.7; padding: 9px 12px; box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.6); }
+        #commentary .mic { font-family: sans-serif; }
+        #commentary.pop { animation: comm-in 0.25s ease-out; }
+        @keyframes comm-in { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+        #btn-challenge { position: absolute; left: 20px; top: 150px; z-index: 60; pointer-events: auto; font-size: 0.6rem; padding: 10px 12px; margin: 0; background: #c8102e; }
+        #scoreboard.crunch .clock { color: #ff3b3b; text-shadow: 0 0 12px rgba(255, 40, 40, 0.9); animation: rec-blink 1s steps(2) infinite; }
+        #scoreboard.crunch { border-bottom-color: #ff3b3b; }
+        @media (max-width: 720px) { #commentary { bottom: auto; top: 118px; left: 8px; max-width: calc(100% - 16px); } #btn-challenge { top: 200px; left: 8px; } }
         .bchamp { text-align: center; font-size: 1rem; color: #ffcc00; text-shadow: 3px 3px 0 #000, 0 0 20px rgba(255, 204, 0, 0.6); margin: 8px 0; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
@@ -488,6 +499,7 @@
                 <div><span>Escape</span> Pause</div>
                 <div><span>H</span> No-Huddle</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
+                <div><span>C</span> Challenge the last play (red flag)</div>
                 <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
             </div>
             </div>
@@ -641,6 +653,8 @@
             </div>
         </div>
 
+        <div id="commentary" class="hidden"></div>
+        <button id="btn-challenge" class="btn-retro hidden" onclick="throwChallengeFlag()">🚩 CHALLENGE (C)</button>
         <div id="hud">
             <div id="instructions" class="hidden">SELECT PLAY</div>
         </div>
@@ -785,6 +799,10 @@ let awardHistory = []; // { season, mvp, opoy, dpoy, roty, proBowl: [names] }
 let rivals = {};       // team id → rivalry heat 0–100 (60+ is a rivalry game), see rivalryAfterGame
 let seasonGoals = [];  // this season's three goals { id, target, reward, done }, see newSeasonGoals
 let rivalWins = 0;     // rivalry games won this season (for that goal)
+let commentaryTimer = null;   // hides the play-by-play line, see commentate
+let lastSnap = null;          // down and spot at the snap (for a replay challenge)
+let challengeable = null;     // { kind, z, odds }: the last play, if you could challenge it, see throwChallengeFlag
+let challengesLeft = 2;       // red flags per game
 const SALARY_CAP = 100; // $M for all 24 players
 const BENCH_RESERVE = 18; // $M the starting draft leaves for the twelve backups
 const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
@@ -1695,6 +1713,126 @@ function openBracket() {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('standings-screen').classList.add('hidden');
     document.getElementById('bracket-screen').classList.remove('hidden');
+}
+
+// ─── THE BROADCAST: COMMENTARY, CHALLENGES, CHANGING WEATHER, CRUNCH TIME ─────
+// Commentary: a play-by-play line in the corner at the big moments (snap, throw, catch, tackle,
+// touchdown, pick), with the players' names.
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function nameOf(p) { return p ? (jerseyName(p.team, p.role, p.number) || `#${p.number}`) : ''; }
+function commentate(text, ms = 3200) {
+    const el = document.getElementById('commentary');
+    if (!el) return;
+    el.innerHTML = `<span class="mic">🎙️</span> ${text}`;
+    el.classList.remove('hidden'); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    clearTimeout(commentaryTimer);
+    commentaryTimer = setTimeout(() => el.classList.add('hidden'), ms);
+}
+function hideCommentary() { clearTimeout(commentaryTimer); const el = document.getElementById('commentary'); if (el) el.classList.add('hidden'); }
+const yardLineText = z => { const toGoal = Math.round((z - GOAL_LINE_Z) / 2); return toGoal <= 0 ? 'THE END ZONE' : toGoal === 50 ? 'MIDFIELD' : toGoal < 50 ? `THE ${currentOpponent ? currentOpponent.id : 'OPP'} ${toGoal}` : `THE ${MY_TEAM.id} ${100 - toGoal}`; };
+
+function callSnap(play) {
+    const qb = players.offense[0], rb = players.offense[5];
+    if (isRunPlay) commentate(pick([`${nameOf(qb)} TURNS AND HANDS IT TO ${nameOf(rb)}...`, `HANDOFF TO ${nameOf(rb)}...`, `${nameOf(rb)} TAKES THE HANDOFF...`]));
+    else if (TRICKS[play]) commentate(pick([`${PLAY_NAMES[play]}! WILL THEY FALL FOR IT?`, `HERE COMES THE ${PLAY_NAMES[play]}...`]));
+    else commentate(pick([`${nameOf(qb)} TAKES THE SNAP AND DROPS BACK...`, `${nameOf(qb)} IN THE SHOTGUN... SNAP...`, `${nameOf(qb)} LOOKING DOWNFIELD...`]));
+}
+function callThrow(qb, target, receiver) {
+    const yds = Math.round(qb.group.position.distanceTo(target) / 2), who = receiver ? nameOf(receiver) : 'HIS MAN';
+    commentate(yds >= 30 ? pick([`${nameOf(qb)} LAUNCHES IT DEEP FOR ${who}!`, `BOMBS AWAY! ${nameOf(qb)} GOES DEEP TO ${who}!`])
+             : yds >= 12 ? pick([`${nameOf(qb)} FIRES FOR ${who}...`, `${nameOf(qb)} THROWS OVER THE MIDDLE TO ${who}...`])
+             : pick([`QUICK THROW TO ${who}...`, `${nameOf(qb)} DUMPS IT OFF TO ${who}...`]));
+}
+function callCatch(p, diving) {
+    commentate(diving ? pick([`WHAT A GRAB! ${nameOf(p)} LAYS OUT FOR IT!`, `DIVING CATCH BY ${nameOf(p)}!`])
+                      : pick([`CAUGHT BY ${nameOf(p)}!`, `${nameOf(p)} HAULS IT IN!`, `COMPLETE TO ${nameOf(p)}!`]));
+}
+function callTackle(carrier, tackler, message) {
+    const at = yardLineText(carrier.group.position.z), c = nameOf(carrier), t = nameOf(tackler);
+    if (/SACK/.test(message)) commentate(pick([`${c} IS SACKED! ${t} GETS HIM!`, `SACK! ${t} DROPS ${c}!`]));
+    else if (/FUMBLE/.test(message)) commentate(pick([`FUMBLE! THE BALL IS LOOSE!`, `${t} KNOCKS IT LOOSE!`]));
+    else if (/HIT STICK/.test(message)) commentate(pick([`BOOM! ${t} LAYS ${c} OUT!`, `WHAT A HIT BY ${t}!`]));
+    else commentate(pick([`${c} BROUGHT DOWN BY ${t} AT ${at}.`, `${t} MAKES THE STOP AT ${at}.`, `${c} GETS TO ${at} BEFORE ${t} TAKES HIM DOWN.`]));
+}
+function callTouchdown(p) { commentate(pick([`TOUCHDOWN ${MY_TEAM.name}! ${nameOf(p)} TAKES IT IN!`, `HE'S IN! ${nameOf(p)} SCORES!`, `${nameOf(p)}... TOUCHDOWN!`]), 4200); }
+function callPick(d) { commentate(pick([`INTERCEPTED! ${nameOf(d)} JUMPS THE ROUTE!`, `PICKED OFF BY ${nameOf(d)}!`]), 3600); }
+
+// ── Replay challenges ──
+// After an incomplete pass or a spot that's just short of the line to gain, you can throw the red
+// flag (C, or the button) before the next snap. The ref goes under the hood: sometimes it's
+// overturned (a catch where it came down / a first down); if it stands you lose a timeout.
+function noteChallengeable(kind, z, odds) {
+    if (challengeMode || !lastSnap || isTwoPointAttempt || challengesLeft <= 0 || timeoutsOff <= 0) return;
+    challengeable = { kind, z, odds };
+}
+function updateChallengeButton() {
+    const b = document.getElementById('btn-challenge');
+    if (!b) return;
+    // The ball changed hands (or it's a kick): that play can't be challenged any more
+    if (['DRONE_SIM', 'DEFENSE', 'KICKOFF_RETURN', 'XP_ANIM', 'EXTRA_POINT', 'FIELD_GOAL', 'PUNT', 'KICKOFF', 'INT_RETURN', 'GAME_OVER'].includes(GAME_STATE)) challengeable = null;
+    const show = !!challengeable && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP');
+    b.classList.toggle('hidden', !show);
+    if (show) b.innerText = `🚩 CHALLENGE THE ${challengeable.kind === 'incomplete' ? 'INCOMPLETION' : 'SPOT'} (C)`;
+}
+function throwChallengeFlag() {
+    const C = challengeable;
+    if (!C || !(GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) return;
+    challengeable = null; challengesLeft--;
+    updateChallengeButton();
+    const before = GAME_STATE; GAME_STATE = 'MENU';
+    flashBanner('🚩 CHALLENGE! THE REFEREE IS UNDER THE HOOD...', 2400);
+    commentate('THEY\'RE GOING TO TAKE ANOTHER LOOK AT THIS ONE...', 2600);
+    setTimeout(() => {
+        const S = lastSnap;
+        if (Math.random() < C.odds) {
+            if (C.kind === 'incomplete') {
+                // It was a catch: the ball's where it came down
+                const gain = Math.round((S.los - C.z) / 2);
+                lineOfScrimmageZ = C.z;
+                if (gain >= S.toGo || C.z <= GOAL_LINE_Z) { currentDown = 1; yardsToGo = 10; }
+                else { currentDown = S.down + 1; yardsToGo = S.toGo - gain; }
+                gameStats.comp++; gameStats.passYds += gain; creditPlayer('QB', 'cmp'); creditPlayer('QB', 'pyd', gain);
+            } else { currentDown = 1; yardsToGo = 10; }   // he got there: first down
+            flashBanner('CALL OVERTURNED!', 1800); commentate(C.kind === 'incomplete' ? 'THE CATCH IS GOOD! IT\'S OVERTURNED!' : 'HE GOT THE FIRST DOWN! OVERTURNED!');
+            triggerCheer();
+        } else {
+            timeoutsOff = Math.max(0, timeoutsOff - 1); updateTimeoutDisplay();
+            flashBanner('THE CALL STANDS — YOU LOSE A TIMEOUT', 1800); commentate('THE RULING ON THE FIELD STANDS.');
+            triggerBoo();
+        }
+        GAME_STATE = before;
+        setupFormation();
+    }, 2600);
+}
+
+// ── Weather that changes during the game ──
+// Between quarters the sky can turn: rain moves in, snow starts at night in the cold, a storm
+// passes, the wind picks up or dies down. The field keeps what already fell.
+function maybeChangeWeather() {
+    const w = weather, r = Math.random();
+    let note = null;
+    if (w.kind === 'clear' && r < 0.18) { w.kind = 'rain'; note = 'THE RAIN IS MOVING IN'; }
+    else if (w.kind === 'clear' && w.night && r < 0.24) { w.kind = 'snow'; note = 'SNOW IS STARTING TO FALL'; }
+    else if ((w.kind === 'rain' || w.kind === 'snow') && r < 0.25) { const was = w.kind; w.kind = 'clear'; note = was === 'rain' ? 'THE RAIN HAS STOPPED' : 'THE SNOW HAS STOPPED'; }
+    else if (r < 0.4) { const before = Math.abs(w.wind); w.wind = Math.round(Math.max(-25, Math.min(25, w.wind + (Math.random() - 0.5) * 16))); if (Math.abs(w.wind) - before >= 6) note = 'THE WIND IS PICKING UP'; }
+    if (!note) return;
+    const cover = weatherCoverAmount();
+    applyWeather();
+    if (weatherCover && cover) setWeatherCover(cover);   // the field keeps what already fell
+    flashBanner(`🌦 ${note}`, 2400);
+    commentate(`${note.charAt(0)}${note.slice(1).toLowerCase()}. That could change things.`.toUpperCase());
+}
+
+// ── Crunch time ──
+// After the two-minute warning (end of the half and the game) the clock glows red and the crowd
+// gets louder every play.
+function crunchTime() { return (currentQuarter === 2 || currentQuarter >= 4) && !!twoMinWarned[currentQuarter] && gameTime > 0; }
+function updateCrunchTime() {
+    const on = crunchTime() && !['MENU', 'GAME_OVER', 'SIMULATING'].includes(GAME_STATE);
+    const sb = document.getElementById('scoreboard');
+    if (sb) sb.classList.toggle('crunch', on);
+    if (on && GAME_STATE === 'PLAY' && !crunchTime.cheered) { crunchTime.cheered = true; crowdReact(true, 0.5); }
+    if (GAME_STATE !== 'PLAY') crunchTime.cheered = false;
 }
 
 // ─── LEAGUE, PLAYOFFS & SAVING ───────────────────────────────────────────────
@@ -3409,7 +3547,7 @@ function jerseyArt(text, fill, outline, w, h, size) {
 
 class Player {
     constructor(x, z, team, role, number, homeFlag, opp) {
-        this.team = team; this.role = role;
+        this.team = team; this.role = role; this.number = String(number);   // (commentary reads his name off it)
         this.baseSpeed = role === 'RB' ? 11 : role === 'WR' ? 10 : (role === 'CB' || role === 'FS' || role === 'SS') ? 10 : (role === 'QB' || role === 'LB') ? 8.5 : role === 'TE' ? 7.5 : role === 'DL' ? 5 : role === 'OL' ? 4 : 6;
         this.speed = this.baseSpeed;
         // Every player is a little different, so teammates never move in lockstep: how far ahead he
@@ -4249,7 +4387,7 @@ class Player {
  * GAME LOGIC
  */
 function startGame() {
-    gameInjuries = [];
+    gameInjuries = []; challengesLeft = 2; challengeable = null; lastSnap = null;
     if(musicInterval) clearInterval(musicInterval);
     if(menuPlayerModel) scene.remove(menuPlayerModel.group);
     document.getElementById('matchup-screen').classList.add('hidden');
@@ -4329,6 +4467,7 @@ function triggerTDCelebration(scorer) {
         return;
     }
     finishPlayStat(GOAL_LINE_Z, true);
+    callTouchdown(scorer);
     if (currentQuarter === OT_QUARTER) {
         addScore('off', 6); triggerCheer();
         endOvertimeWith(`TOUCHDOWN!\n${MY_TEAM.id} WINS IN OVERTIME!`);
@@ -4568,6 +4707,7 @@ function triggerTackle(ballCarrier, tackler, message) {
     if (ballCarrier.team === 'offense') maybeInjure(ballCarrier.rosterSlot, 0.012);   // now and then a hit costs him a few weeks
     // A wet ball comes loose more often
     if (message === 'TACKLED' && weather.kind === 'rain' && Math.random() < 0.04) message = 'FUMBLE! LOST BALL.';
+    callTackle(ballCarrier, tackler, message);
     GAME_STATE = 'TACKLED';
     // A fumble pops the ball loose right away; otherwise he takes it to the ground with him
     if (message.includes('FUMBLE')) detachBallToScene();
@@ -4925,7 +5065,10 @@ function _continueHandlePlayResult(msg, finalZ, replayed) {
         else {
             currentDown++;
             if (currentDown > 4) { msg = "TURNOVER ON DOWNS"; isTurnover = true; }
-            else document.getElementById('instructions').innerText = msg;
+            else {
+                document.getElementById('instructions').innerText = msg;
+                if (yardsToGo <= 1.2 && !/INCOMPLETE/.test(msg)) noteChallengeable('spot', finalZ, 0.4);   // that close, you can ask for a measurement
+            }
         }
     }
     // The clock keeps running into the next play unless this play stopped it
@@ -5429,6 +5572,8 @@ function snapBall() {
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
+    lastSnap = { down: currentDown, toGo: yardsToGo, los: lineOfScrimmageZ }; challengeable = null;   // (a new snap ends the chance to challenge the last play)
+    callSnap(currentPlay);
     playStat = isTwoPointAttempt ? null : { kind: isRunPlay ? 'run' : 'pass', los: lineOfScrimmageZ, thrown: false, completed: false, rusher: currentPlay === 'sneak' ? 'QB' : 'RB' };
     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
 
@@ -5714,6 +5859,7 @@ function checkInputs(e) {
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     
     if ((e.code === 'KeyT' || e.code === 'Enter') && e.type === 'keydown' && GAME_STATE === 'TIMEOUT') { endTimeout(); return; }
+    if (e.code === 'KeyC' && e.type === 'keydown' && !e.repeat && challengeable) { throwChallengeFlag(); return; }   // red flag
     if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
     if (emoteWheel && e.type === 'keydown' && /^Digit[1-5]$/.test(e.code)) { pickEmote(Number(e.code.slice(5)) - 1); return; }   // touchdown emote wheel
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
@@ -5756,6 +5902,7 @@ function onMouseDown(e) {
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
         if (targetedReceiver) startHookLadder(targetedReceiver);   // the trailer breaks on the throw
+        callThrow(qb, passTarget, targetedReceiver);
         qb.throwTimer = 0.55; // trigger throw animation
         if (playStat) { playStat.thrown = true; gameStats.att++; creditPlayer('QB', 'att'); }
         brainNoteThrow(qb, passTarget, targetedReceiver); // the defense remembers where and to whom
@@ -5849,7 +5996,7 @@ function maybeStartCatchDive(p) {
 
 function completeDivingCatch(p) {
     p.catchDive.caught = true;
-    statCatch(p);
+    statCatch(p); callCatch(p, true);
     activeReceiver = p; targetedReceiver = null; landingMarker.visible = false;
     // The ball stays in his outstretched hands through the dive; it's tucked when he gets up
     ball.velocity = null; ball.userData.inHands = true;
@@ -6004,6 +6151,7 @@ function updateBallPhysics(dt) {
                     document.getElementById('stamina-bar').classList.remove('hidden');
                     document.getElementById('instructions').innerText = "RUN! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden'); triggerCheer();
                     if (hookLadder && hookLadder.catcher === p) updateHookLadder(0);   // the pitch may go right away
+                    else callCatch(p, false);
                 }
             }
         });
@@ -6038,7 +6186,12 @@ function updateBallPhysics(dt) {
         });
         if (intRet) return;
 
-        if (ball.position.y <= 0.2) { notePassInterference(); targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("INCOMPLETE", lineOfScrimmageZ); }
+        if (ball.position.y <= 0.2) {
+            // Close to his man? Worth a challenge (it might have been a catch)
+            const close = targetedReceiver && targetedReceiver.group.position.distanceTo(ball.position) < 3.5;
+            noteChallengeable('incomplete', ball.position.z, close ? 0.45 : 0.12);
+            notePassInterference(); targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("INCOMPLETE", lineOfScrimmageZ);
+        }
         // Ball behind the back of the end zone or out of bounds laterally
         if (ball.position.z < -120 || Math.abs(ball.position.x) > 54) { targetedReceiver = null; landingMarker.visible = false; triggerBoo(); handlePlayResult("OUT OF BOUNDS", lineOfScrimmageZ); }
     }
@@ -6280,6 +6433,7 @@ function pickRunLane(pos, up, threats, speed, prevDir) {
 function startIntReturn(p) {
     GAME_STATE = 'INT_RETURN';
     intRet = { carrier: p, t: 0, catchZ: p.group.position.z, blocks: new Map(), down: false };
+    callPick(p);
     activeReceiver = null; trajectoryLine.visible = false; landingMarker.visible = false;
     document.getElementById('hang-time-ui').classList.add('hidden');
     players.offense.concat(players.defense).forEach(o => { o.intHold = 0; o.intShed = false; o.catchReach = false; });
@@ -8546,7 +8700,7 @@ function launchConfetti() {
 
 function goToMainMenu() {
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
-    clearKickLeftovers();
+    clearKickLeftovers(); hideCommentary(); challengeable = null;
     challengeMode = null; // quitting a challenge just ends it
     droneDownText = null; intRet = null; trickPitch = null; hookLadder = null; teamCeleb = null; fumbleBall = null; updateDefHints(null); hidePickRings();
     if (emoteWheel) { emoteWheel = null; document.getElementById('emote-wheel').classList.add('hidden'); }
@@ -8611,6 +8765,7 @@ function toggleHurryUp() {
 
 function _triggerQuarterTransition() {
     pendingQuarterEnd = false;
+    if (currentQuarter < 4) setTimeout(maybeChangeWeather, 2600);   // the sky can turn between quarters
     if (currentQuarter === 2) {
         triggerHalftime();
     } else if (currentQuarter < 4) {
@@ -9125,6 +9280,7 @@ function animate() {
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
         updateTdCam(dt); updateEmotes(dt);
     }
+    updateChallengeButton(); updateCrunchTime();
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     renderer.render(scene, camera);
