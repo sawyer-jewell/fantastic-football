@@ -191,27 +191,23 @@
         <div id="main-menu" class="menu">
             <h1>FANTASTIC<br>FOOTBALL</h1>
             <div id="team-record-display">PHI EAGLES | 0-0-0</div>
-            <div class="controls-list">
-                <div><span>WASD</span> Move / Scramble</div>
-                <div><span>Mouse Click</span> Throw Pass</div>
-                <div><span>Q / E</span> Throw Power</div>
-                <div><span>Spacebar</span> Snap / Hurdle</div>
-                <div><span>SHIFT</span> Sprint (Post-throw/Scramble)</div>
-                <div><span>T</span> Call Timeout</div>
-                <div><span>Escape</span> Pause</div>
-                <div><span>H</span> No-Huddle</div>
-                <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
-            </div>
-            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center;">
-                <button class="btn-retro" onclick="openMatchupScreen()">PLAY WEEK 1</button>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:10px;">
+                <button id="btn-play" class="btn-retro" onclick="openMatchupScreen()">PLAY WEEK 1</button>
                 <button class="btn-retro" style="background:#00aaff;" onclick="openSchedule()">SCHEDULE</button>
-                <button id="btn-mute" class="btn-retro" style="background:#444;" onclick="toggleAudio()">MUTE AUDIO</button>
             </div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
                 <button class="btn-retro" style="background:#ffcc00; color:#000; font-size:0.7rem; padding:10px 20px;" onclick="openStandings()">STANDINGS</button>
                 <button class="btn-retro" style="background:#7a3cff; font-size:0.7rem; padding:10px 20px;" onclick="openStats()">STATS</button>
                 <button class="btn-retro" style="background:#e31837; font-size:0.7rem; padding:10px 20px;" onclick="openChallenges()">CHALLENGES</button>
             </div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
+                <button class="btn-retro" style="background:#444; font-size:0.7rem; padding:10px 20px;" onclick="openSettings()">⚙ SETTINGS</button>
+            </div>
+        </div>
+
+        <!-- Settings: difficulty, opponent drives, graphics, audio, Drive saves and the controls -->
+        <div id="settings-screen" class="menu hidden">
+            <h1 style="font-size:2rem;">SETTINGS</h1>
             <div class="diff-row">
                 <span>OFFENSE DIFFICULTY</span>
                 <button class="diff-btn" data-level="easy" onclick="setDifficulty('easy')">EASY</button>
@@ -239,11 +235,29 @@
                 <button class="diff-btn" data-gfx="low" onclick="setGraphics('low')">LOW</button>
                 <button class="diff-btn" data-gfx="high" onclick="setGraphics('high')">HIGH</button>
             </div>
-            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
+            <div class="diff-row" style="margin-top:8px;">
+                <span>AUDIO</span>
+                <button id="btn-mute" class="diff-btn" onclick="toggleAudio()">MUTE AUDIO</button>
+            </div>
+            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:12px;">
                 <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="saveToDrive()">SAVE TO DRIVE</button>
                 <button class="btn-retro" style="background:#4285f4; font-size:0.7rem; padding:10px 20px;" onclick="loadFromDrive()">LOAD FROM DRIVE</button>
             </div>
             <div id="drive-status" class="hidden" style="font-size:0.65rem; margin-top:10px; letter-spacing:2px;"></div>
+            <div class="stats-head" style="margin-top:14px;">CONTROLS</div>
+            <div class="controls-list">
+                <div><span>WASD</span> Move / Scramble</div>
+                <div><span>Mouse Click</span> Throw Pass</div>
+                <div><span>Q / E</span> Throw Power</div>
+                <div><span>Spacebar</span> Snap / Hurdle</div>
+                <div><span>SHIFT</span> Sprint (Post-throw/Scramble)</div>
+                <div><span>T</span> Call Timeout</div>
+                <div><span>Escape</span> Pause</div>
+                <div><span>H</span> No-Huddle</div>
+                <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
+                <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
+            </div>
+            <button class="btn-retro" onclick="closeInfoScreen('settings-screen')">BACK TO MENU</button>
         </div>
 
         <div id="standings-screen" class="menu hidden">
@@ -924,7 +938,7 @@ function updateMenuUI() {
         missed:     `MISSED THE PLAYOFFS (#${rank})`,
     }[seasonPhase];
     document.getElementById('team-record-display').innerText = `${MY_TEAM.id} ${MY_TEAM.name} | ${recStr(myRecord)}${status ? ' | ' + status : ''}`;
-    const playBtn = document.querySelector('#main-menu .btn-retro:nth-child(1)');
+    const playBtn = document.getElementById('btn-play');
     if (seasonPhase === 'playoffs') {
         playBtn.innerText = `PLAY ${PLAYOFF_ROUNDS[playoffs.round]}`;
     } else if (seasonPhase !== 'regular') {
@@ -1001,6 +1015,7 @@ function finishChallenge() {
 }
 
 function closeInfoScreen(id) { document.getElementById(id).classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); }
+function openSettings() { updateDifficultyButtons(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
 
 // League table; the red line marks the playoff cut (top 8)
 function openStandings() {
