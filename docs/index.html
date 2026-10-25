@@ -1114,6 +1114,7 @@ let blimpGroup = null;
 let scenery = null;   // skyline, clouds, sun and jumbotrons (buildScenery)
 let oppQB = null;     // the opposing QB's brain for this game (newOppQB)
 let easterEgg = null, eggUsed = false;   // ??? (startEasterEgg) — once a game
+let walkout = null;   // the pre-game run out of the tunnel (startWalkout)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -5312,7 +5313,118 @@ function startGame() {
     qtrScores = { off: [0,0,0,0,0], def: [0,0,0,0,0] };
     timeoutsOff = 3; timeoutsOpp = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
 
-    openCoinToss();
+    startWalkout(openCoinToss);
+}
+
+// ─── PRE-GAME WALKOUT ────────────────────────────────────────────────────────
+// Your team comes running out of the tunnel behind your end zone through a cloud of smoke, the
+// crowd on its feet, fireworks going off over the stadium and the starting lineup up on the
+// jumbotron — then they gather at midfield for the toss. SPACE or a click skips it.
+const WALKOUT_TIME = 9, TUNNEL_Z = 128;
+function startWalkout(then) {
+    const rn = slot => String(roster ? roster[slot].num : SLOT_NUMBERS[slot]);
+    const squad = [['QB', 'QB'], ['RB', 'RB'], ['WR', 'WR1'], ['WR', 'WR2'], ['WR', 'SLOT'], ['TE', 'TE']].map(([role, slot]) => ({ role, num: rn(slot), slot }))
+        .concat([0, 1, 2, 3, 4].map(i => ({ role: 'OL', num: String(myNum('OL', i, [60, 63, 69, 78, 70][i])) })))
+        .concat(['DL', 'LB', 'CB1', 'CB2', 'S'].map(slot => ({ role: SLOT_ROLE[slot] === 'FS' ? 'FS' : SLOT_ROLE[slot], num: rn(slot), slot })));
+    const men = squad.map((s, i) => {
+        const p = new Player((Math.random() - 0.5) * 6, TUNNEL_Z + 4 + i * 1.6, 'offense', s.role, s.num, isUserHome, currentOpponent);
+        p.group.rotation.y = Math.PI;
+        p.walk = { delay: 0.2 + i * 0.12, spot: new THREE.Vector3(-26 + (i % 8) * 7.4 + (Math.random() - 0.5) * 2, 0, 44 + Math.floor(i / 8) * 6 + Math.random() * 2), jump: Math.random() < 0.5 };
+        return p;
+    });
+    buildTunnel();
+    walkout = { t: 0, men, then, smoke: [], works: [], nextWork: 0.6, lineup: squad.filter(s => s.slot && roster && roster[s.slot]).map(s => `#${s.num} ${(roster[s.slot].name || '').toUpperCase()}`), li: 0 };
+    GAME_STATE = 'WALKOUT';
+    document.getElementById('instructions').innerText = 'SPACE / CLICK TO SKIP'; document.getElementById('instructions').classList.remove('hidden');
+    jumboMessage(`HERE COME THE ${MY_TEAM.name ? MY_TEAM.name.toUpperCase() : MY_TEAM.id}!`, 2600);
+    triggerCheer(); startCrowdWave();
+}
+// The players' tunnel: a dark archway into the stands behind your end zone with today's team on
+// the banner over it (rebuilt each game for the colors)
+function buildTunnel() {
+    if (buildTunnel.g) scene.remove(buildTunnel.g);
+    const g = new THREE.Group(), frame = new THREE.MeshLambertMaterial({ color: 0x2b3038 });
+    const dark = new THREE.Mesh(new THREE.BoxGeometry(12, 8, 12), new THREE.MeshBasicMaterial({ color: 0x050608 }));
+    dark.position.set(0, 4, BOWL_HZ + 5); g.add(dark);
+    [-7, 7].forEach(x => { const p = new THREE.Mesh(new THREE.BoxGeometry(2, 9, 2), frame); p.position.set(x, 4.5, BOWL_HZ - 0.5); g.add(p); });
+    const cvs = document.createElement('canvas'); cvs.width = 512; cvs.height = 96;
+    const c = cvs.getContext('2d'); c.fillStyle = MY_TEAM.color; c.fillRect(0, 0, 512, 96);
+    c.fillStyle = '#fff'; c.font = 'bold 54px Arial Black, Arial'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(MY_TEAM.name ? MY_TEAM.name.toUpperCase() : MY_TEAM.id, 256, 50);
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(16, 3, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cvs) }));
+    banner.position.set(0, 10, BOWL_HZ - 0.6); banner.rotation.y = Math.PI; g.add(banner);
+    scene.add(g); buildTunnel.g = g;
+}
+function walkoutPuff(x, y, z, color, size, life) {
+    const tex = walkoutPuff.tex || (walkoutPuff.tex = sceneryTexture((g, w, h) => {
+        const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+        grd.addColorStop(0, 'rgba(255,255,255,0.9)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = grd; g.fillRect(0, 0, w, h);
+    }, 64, 64));
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, depthWrite: false, fog: false }));
+    s.position.set(x, y, z); s.scale.setScalar(size); s.userData = { age: 0, life, grow: size * 1.8, vel: new THREE.Vector3((Math.random() - 0.5) * 2, 1.5 + Math.random(), -2 - Math.random() * 3) };
+    scene.add(s); return s;
+}
+// A firework: a burst of colored sparks that spread, fall and fade
+function walkoutFirework() {
+    const n = 70, pos = new Float32Array(n * 3), vel = [];
+    const at = new THREE.Vector3((Math.random() - 0.5) * 120, 70 + Math.random() * 40, (Math.random() - 0.5) * 220);
+    for (let i = 0; i < n; i++) {
+        pos.set([at.x, at.y, at.z], i * 3);
+        const d = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(18 + Math.random() * 10);
+        vel.push(d);
+    }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const col = [0xff3355, 0xffcc00, 0x33ccff, 0x66ff66, 0xffffff, new THREE.Color(MY_TEAM.color).getHex()][Math.floor(Math.random() * 6)];
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: col, size: 1.6, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    pts.userData = { age: 0, vel }; pts.frustumCulled = false;
+    scene.add(pts); walkout.works.push(pts);
+    if (audioCtx && !isMuted) { sfxNoise(0.5, 'lowpass', 700, 0.8, 0.35); sfxNoise(0.25, 'highpass', 3000, 0.5, 0.12, 0.1); }
+}
+function updateWalkout(dt) {
+    const W = walkout; W.t += dt;
+    // The team: out of the tunnel one after another, sprinting to midfield, some leaping as they come out
+    W.men.forEach(p => {
+        if ((p.walk.delay -= dt) > 0) { p.currentMoveSpeed = 0; p.animateLimbs(dt); return; }
+        const left = steerTo(p, p.walk.spot, 16, dt);
+        if (p.walk.jump && !p.walk.jumped && p.group.position.z < TUNNEL_Z - 8) { p.walk.jumped = true; p.isJumping = true; p.yVelocity = 9; }
+        if (p.isJumping) { p.yVelocity -= 30 * dt; p.group.position.y += p.yVelocity * dt; if (p.group.position.y <= 0) { p.group.position.y = 0; p.isJumping = false; } }
+        if (left < 0.3) { p.currentMoveSpeed = 0; p.group.lookAt(p.group.position.x, 0, p.group.position.z - 10); }
+        p.animateLimbs(dt);
+    });
+    // Smoke pouring out of the tunnel mouth
+    if (W.t < 4.5 && Math.random() < 0.6) W.smoke.push(walkoutPuff((Math.random() - 0.5) * 10, 1 + Math.random() * 3, TUNNEL_Z - 2, 0xdddddd, 5 + Math.random() * 4, 2.2));
+    W.smoke = W.smoke.filter(s => {
+        const u = s.userData; u.age += dt;
+        s.position.addScaledVector(u.vel, dt); s.scale.setScalar(s.scale.x + u.grow * dt * 0.5);
+        s.material.opacity = Math.max(0, 0.4 * (1 - u.age / u.life));
+        if (u.age >= u.life) { scene.remove(s); s.material.dispose(); return false; }
+        return true;
+    });
+    // Fireworks overhead
+    if (W.t > W.nextWork && W.t < WALKOUT_TIME - 1) { walkoutFirework(); W.nextWork = W.t + 0.35 + Math.random() * 0.6; }
+    W.works = W.works.filter(f => {
+        const u = f.userData; u.age += dt;
+        const a = f.geometry.attributes.position;
+        for (let i = 0; i < u.vel.length; i++) { u.vel[i].y -= 12 * dt; u.vel[i].multiplyScalar(1 - 1.2 * dt); a.array[i * 3] += u.vel[i].x * dt; a.array[i * 3 + 1] += u.vel[i].y * dt; a.array[i * 3 + 2] += u.vel[i].z * dt; }
+        a.needsUpdate = true; f.material.opacity = Math.max(0, 1 - u.age / 1.8);
+        if (u.age > 1.8) { scene.remove(f); f.geometry.dispose(); f.material.dispose(); return false; }
+        return true;
+    });
+    // The starting lineup on the big screens
+    if (W.t > 2.6 && W.lineup.length && W.t > (W.nextName || 0)) { jumboMessage(W.lineup[W.li++ % W.lineup.length], 900); W.nextName = W.t + 0.9; }
+    // Camera: by the tunnel as they burst out, then pulling back and up to midfield
+    const k = THREE.MathUtils.smoothstep(W.t, 1.5, 6.5);
+    camera.position.lerpVectors(new THREE.Vector3(10, 3.5, TUNNEL_Z - 26), new THREE.Vector3(0, 16, 16), k);
+    camera.lookAt(new THREE.Vector3(0, 2, TUNNEL_Z - 4).lerp(new THREE.Vector3(0, 1, 50), k));
+    if (W.t >= WALKOUT_TIME) endWalkout();
+}
+function endWalkout() {
+    const W = walkout; if (!W) return;
+    walkout = null;
+    W.men.forEach(p => scene.remove(p.group));
+    W.smoke.forEach(s => { scene.remove(s); s.material.dispose(); });
+    W.works.forEach(f => { scene.remove(f); f.geometry.dispose(); f.material.dispose(); });
+    document.getElementById('instructions').classList.add('hidden');
+    W.then();
 }
 
 // ─── VICTORY FORMATION ───────────────────────────────────────────────────────
@@ -7164,6 +7276,7 @@ function updateHookLadder(dt) {
 }
 
 function checkInputs(e) {
+    if (walkout && e.type === 'keydown' && (e.code === 'Space' || e.code === 'Enter')) { endWalkout(); return; }   // skip the walkout
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
@@ -7216,6 +7329,7 @@ function onMouseMove(e) {
     }
 }
 function onMouseDown(e) {
+    if (walkout) { endWalkout(); return; }
     if (GAME_STATE === 'REPLAY') { endReplay(); return; }
     if (performance.now() < trickThrowLockUntil || trickPitch) return; // still carrying out the fake
     if (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending && players.offense[0].group.position.z >= lineOfScrimmageZ) {
@@ -10841,7 +10955,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
@@ -10944,6 +11058,7 @@ function animate() {
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     if (easterEgg) updateEasterEgg(dt);
+    if (walkout) updateWalkout(dt);
     if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
     else renderer.render(scene, camera);
 }
