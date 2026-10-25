@@ -115,6 +115,13 @@
         #quarter-break-text { color: #ffcc00; font-family: 'Press Start 2P', monospace; font-size: 2.2rem; text-shadow: 4px 4px 0 #000, 0 0 30px rgba(255,204,0,0.6); text-align: center; line-height: 1.8; }
 
         /* Halftime overlay */
+        #coin-toss { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.6); color: #fff; pointer-events: auto; }
+        #coin-toss.hidden { display: none; }
+        .coin { width: 120px; height: 120px; position: relative; transform-style: preserve-3d; perspective: 600px; }
+        .coin-face { position: absolute; inset: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2.6rem; color: #6b4a00; background: radial-gradient(circle at 35% 30%, #fff3a0, #ffcc00 45%, #b88a00); border: 6px solid #8a6500; backface-visibility: hidden; }
+        .coin-tails { transform: rotateY(180deg); background: radial-gradient(circle at 35% 30%, #f0f0f0, #c0c0c0 45%, #7a7a7a); border-color: #555; color: #333; }
+        .coin.flipping { animation: coinflip 1.6s cubic-bezier(.2,.7,.3,1) forwards; }
+        @keyframes coinflip { 0% { transform: translateY(0) rotateY(0); } 40% { transform: translateY(-120px) rotateY(calc(var(--spins) * 0.5)); } 100% { transform: translateY(0) rotateY(var(--spins)); } }
         #halftime-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 160; background: rgba(0,0,0,0.55); color: white; }
 
         /* Timeout display */
@@ -579,7 +586,7 @@
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>C</span> Challenge the last play (red flag)</div>
                 <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle · G Celebrate (inside the 20)</div>
-                <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
+                <div><span>On Defense</span> WASD Move · SPACE Jump · Q Switch Player · E Dive · F Hit Stick / Intercept (when the rings meet)</div>
             </div>
             </div>
             <button class="btn-retro" onclick="closeInfoScreen('settings-screen')">BACK TO MENU</button>
@@ -730,6 +737,7 @@
                 <div class="play-card" onclick="selectPlay('fieldgoal')" style="border-color:#00ccff;">FIELD GOAL</div>
                 <div class="play-card" onclick="selectPlay('fakefg')" onmouseenter="previewPlay('fakefg')" onmouseleave="clearRoutePreview()" style="border-color:#00ccff;">FAKE FG</div>
                 <div class="play-card" onclick="selectPlay('punt')" style="border-color:#00ccff;">PUNT</div>
+                <div id="victory-card" class="play-card hidden" onclick="selectPlay('victory')" style="border-color:#ffcc00; color:#ffcc00;">🏆 VICTORY FORMATION</div>
             </div>
         </div>
 
@@ -788,6 +796,13 @@
             <span style="color:#aaa; font-size:0.55rem;">TIMEOUTS RESET FOR 2ND HALF</span>
         </div>
         <button class="btn-retro" onclick="resumeFromHalftime()">START 2ND HALF</button>
+    </div>
+
+    <div id="coin-toss" class="hidden">
+        <h1 style="font-size:2rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:10px;">COIN TOSS</h1>
+        <div id="coin" class="coin"><div class="coin-face coin-heads">H</div><div class="coin-face coin-tails">T</div></div>
+        <div id="coin-msg" style="font-size:0.8rem; margin:18px 0; line-height:2; text-align:center;">CALL IT!</div>
+        <div id="coin-buttons" style="display:flex; gap:16px;"></div>
     </div>
 
 <!-- The player model (models/player.glb, built in Blender), embedded so the game stays one file that works offline from disk -->
@@ -921,6 +936,7 @@ try { graphicsSetting = localStorage.getItem('ff-graphics') || 'auto'; } catch (
 let graphicsLevel = graphicsSetting === 'low' ? 'low' : 'high';
 let fpsWatch = { frames: 0, since: 0, slowFor: 0 }; // AUTO's frame-rate monitor
 let ko = null;          // full kickoff in progress, see startFullKickoff
+let firstHalfReceiver = 'user';   // who got the ball first (coin toss); the other team receives the second half
 const KICK_G = 21.4, KICK_CARRY = 39;   // kick gravity and carry speed, see kickVelocity
 let oppKick = null;     // their field goal / extra point you're trying to block, see startOppKick
 let fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // what their kick unit has seen from you this game, see startOppKick
@@ -1087,7 +1103,7 @@ let simPossession       = 'off';  // 'off' = user's team, 'def' = opponent
 let simDrive            = { z: 40, down: 1, toGo: 10 }; // sim offense's spot in its own frame (attacks z = -100)
 let blueLine, yellowLine;
 let scoreOff = 0; let scoreDef = 0; let gameTime = 120; let currentQuarter = 1;
-let timeoutsOff = 3; let pendingQuarterEnd = false;
+let timeoutsOff = 3; let pendingQuarterEnd = false; let timeoutsOpp = 3;
 let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
 let isTwoPointAttempt = false;
 let blimpGroup = null;
@@ -4334,6 +4350,7 @@ class Player {
 
     animateLimbs(dt) {
         if (this.emote) return; // dancing: poseEmote sets the limbs
+        if (this.uDive && !this.uDive.rising) return;   // diving (or down after a miss): updateUserDive poses him
         // Hands (when the fingers are showing): open and spread for a catch, a grip on the ball,
         // a loose fist on the run, relaxed standing
         if (this.fingersOn) {
@@ -5036,9 +5053,84 @@ function startGame() {
     twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false;
     gameStats = newStatLine();
     qtrScores = { off: [0,0,0,0,0], def: [0,0,0,0,0] };
-    timeoutsOff = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
-    
-    setupFormation();
+    timeoutsOff = 3; timeoutsOpp = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
+
+    openCoinToss();
+}
+
+// ─── VICTORY FORMATION ───────────────────────────────────────────────────────
+// Up late in the 4th: the QB takes the snap and kneels (a yard lost) and the clock runs ~40
+// seconds. While they have timeouts left they burn one after every kneel to stop it; once they're
+// out and your kneels can run out what's left, it's over.
+const KNEEL_CLOCK = 40;
+function victoryKneel() {
+    const qb = players.offense[0], center = players.offense.find(p => p.role === 'OL' && Math.abs(p.group.position.x) < 1);
+    if (center) qb.group.position.set(center.group.position.x, 0, lineOfScrimmageZ + 1.3);   // under center
+    qb.group.lookAt(qb.group.position.x, 0, qb.group.position.z - 10);
+    qb.kneel = true; qb.animateLimbs(0);
+    GAME_STATE = 'TACKLED'; sfxWhistle();
+    showLadderPrompt('VICTORY FORMATION — TAKING A KNEE');
+    setTimeout(() => {
+        qb.kneel = false;
+        const kneelsLeft = 4 - currentDown;   // after this one
+        if (timeoutsOpp > 0) {
+            timeoutsOpp--; updateTimeoutDisplay();
+            gameTime = Math.max(1, gameTime - 3); clockRunning = false;
+            flashBanner(`TIMEOUT ${currentOpponent.id} (${timeoutsOpp} LEFT)`, 1500);
+            commentate(pick([`${currentOpponent.id} USES A TIMEOUT TO STOP THE CLOCK.`, `THEY'RE NOT GOING AWAY QUIETLY — TIMEOUT ${currentOpponent.id}.`]));
+        } else if (gameTime <= KNEEL_CLOCK * (kneelsLeft + 1)) {
+            // Out of timeouts and the kneels can run it out: game over
+            gameTime = 0; updateScoreboard();
+            flashBanner('VICTORY FORMATION — GAME OVER!', 2200); triggerCheer();
+            commentate(`${MY_TEAM.id} KNEELS IT OUT. THAT'S THE BALLGAME!`);
+            setTimeout(_triggerQuarterTransition, 2200);
+            return;
+        } else gameTime = Math.max(0, gameTime - KNEEL_CLOCK);
+        GAME_STATE = 'TACKLED';
+        handlePlayResult('KNEEL', lineOfScrimmageZ + 2);
+    }, 1400);
+}
+
+// ─── COIN TOSS ───────────────────────────────────────────────────────────────
+// Call heads or tails. Win it and you choose to kick or receive; lose it and they choose (most
+// teams take the ball). Whoever receives first kicks off to start the second half.
+function openCoinToss() {
+    GAME_STATE = 'COIN_TOSS';
+    camera.position.set(0, 9, 14); camera.lookAt(0, 2, 0);
+    const coin = document.getElementById('coin'); coin.classList.remove('flipping'); coin.style.transform = '';
+    document.getElementById('coin-msg').innerText = `CAPTAINS AT MIDFIELD\n${currentOpponent.id} CALLS IT... NO — YOU CALL IT!`;
+    document.getElementById('coin-buttons').innerHTML =
+        `<button class="btn-retro" onclick="callCoin('heads')">HEADS</button><button class="btn-retro" onclick="callCoin('tails')">TAILS</button>`;
+    document.getElementById('coin-toss').classList.remove('hidden');
+}
+function callCoin(call) {
+    const side = Math.random() < 0.5 ? 'heads' : 'tails', won = side === call;
+    const coin = document.getElementById('coin');
+    coin.style.setProperty('--spins', (side === 'heads' ? 1800 : 1980) + 'deg');   // whole turns, plus a half turn for tails
+    coin.classList.remove('flipping'); void coin.offsetWidth; coin.classList.add('flipping');
+    document.getElementById('coin-buttons').innerHTML = '';
+    document.getElementById('coin-msg').innerText = `YOU CALLED ${call.toUpperCase()}...`;
+    sfxWhistle();
+    setTimeout(() => {
+        const res = `IT'S ${side.toUpperCase()}!`;
+        if (won) {
+            document.getElementById('coin-msg').innerText = `${res}\nYOU WIN THE TOSS — KICK OR RECEIVE?`;
+            document.getElementById('coin-buttons').innerHTML =
+                `<button class="btn-retro" onclick="finishCoinToss('user')">RECEIVE</button><button class="btn-retro" onclick="finishCoinToss('opp')">KICK</button>`;
+            triggerCheer();
+        } else {
+            const theyReceive = Math.random() < 0.75;
+            document.getElementById('coin-msg').innerText = `${res}\n${currentOpponent.id} WINS THE TOSS AND ELECTS TO ${theyReceive ? 'RECEIVE' : 'KICK'}`;
+            document.getElementById('coin-buttons').innerHTML =
+                `<button class="btn-retro" onclick="finishCoinToss('${theyReceive ? 'opp' : 'user'}')">CONTINUE</button>`;
+        }
+    }, 1700);
+}
+// receiver: who gets the opening kickoff ('user' or 'opp')
+function finishCoinToss(receiver) {
+    firstHalfReceiver = receiver;
+    document.getElementById('coin-toss').classList.add('hidden');
+    startKickReturnAnim(receiver === 'user' ? 'opp_kickoff' : 'kickoff');
 }
 
 function addScore(team, pts) {
@@ -6104,6 +6196,7 @@ function setupFormation() {
     const readText = [defRead, ...brainNotes].filter(Boolean).slice(0, 2).join(' · ');   // what it's keying on, and how it's adjusting to you
     document.getElementById('def-scheme-label').innerText = 'DEF: ' + (schemeNames[defScheme] || defScheme.toUpperCase()) + (readText ? ' · ' + readText : '');
     document.getElementById('playbook').classList.remove('hidden'); document.getElementById('right-hud').classList.remove('hidden');
+    document.getElementById('victory-card').classList.toggle('hidden', !(currentQuarter >= 4 && scoreOff > scoreDef));   // up late: take a knee
     document.getElementById('btn-sim').classList.remove('hidden'); document.getElementById('vertical-power-meter').classList.add('hidden');
     document.getElementById('instructions').classList.add('hidden');
     GAME_STATE = 'PLAYBOOK';
@@ -6297,6 +6390,7 @@ function selectPlay(playType) {
 
     if (playType === 'fieldgoal') { clearRoutePreview(); triggerFieldGoal(); return; }
     if (playType === 'punt') { clearRoutePreview(); gameTime = Math.max(0, gameTime - 5); startKickReturnAnim('punt'); return; }
+    if (playType === 'victory') { clearRoutePreview(); victoryKneel(); return; }
     notePlayCall(playType);
 
     if (playType === 'dive' || playType === 'sweepl' || playType === 'sweepr' || playType === 'draw' || playType === 'sneak') {
@@ -6627,9 +6721,12 @@ function checkInputs(e) {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
     if (e.code === 'Space' && GAME_STATE === 'REPLAY' && e.type === 'keydown') { endReplay(); return; }
-    if (e.code === 'KeyE' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { switchDefender(); return; }
-    if (e.code === 'KeyE' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { koSwitch(); return; }
-    if (GAME_STATE === 'FG_BLOCK' && e.type === 'keydown' && !e.repeat) { if (e.code === 'KeyE') { fgSwitch(); return; } if (e.code === 'Space') { fgJump(); return; } }
+    // On defense and kick coverage: Q takes over another man, E dives at the ball carrier
+    if (e.code === 'KeyQ' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { switchDefender(); return; }
+    if (e.code === 'KeyQ' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { koSwitch(); return; }
+    if (e.code === 'KeyE' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { userDefDive(); return; }
+    if (e.code === 'KeyE' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { if (ko && ko.userKicks && ko.phase === 'return') startUserDive(ko.user, ko.returner.group.position); return; }
+    if (GAME_STATE === 'FG_BLOCK' && e.type === 'keydown' && !e.repeat) { if (e.code === 'KeyQ') { fgSwitch(); return; } if (e.code === 'Space') { fgJump(); return; } }
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
     if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
     if (e.code === 'KeyR' && hookLadder && e.type === 'keydown' && !e.repeat) { pitchHookLadder(); return; }   // hook and ladder pitch
@@ -6916,6 +7013,7 @@ function updateBallPhysics(dt) {
     if (GAME_STATE === 'PLAY') {
         camera.position.x = THREE.MathUtils.lerp(camera.position.x, ball.position.x, 0.1); camera.position.y = THREE.MathUtils.lerp(camera.position.y, ball.position.y + 8, 0.1); camera.position.z = THREE.MathUtils.lerp(camera.position.z, ball.position.z + 15, 0.1); camera.lookAt(ball.position);
 
+        retargetPass();
         players.offense.forEach(p => {
             if (p.role === 'WR') { // only WRs are eligible receivers
                 const dist = p.group.position.distanceTo(ball.position);
@@ -7873,7 +7971,7 @@ function updateKickoffReturn(dt) {
             // NFL hang times: kickoffs about 3.6–4.2 s, punts about 4.0–4.6 s, under real gravity
             const T = k.punt ? 4.0 + Math.random() * 0.6 : 3.6 + Math.random() * 0.6, vy = KICK_G * T / 2;
             ball.velocity = new THREE.Vector3((k.landing.x - ball.position.x) / T, vy, (k.landing.z - ball.position.z) / T);
-            document.getElementById('instructions').innerText = k.userKicks ? 'COVER IT!  WASD MOVE · SHIFT SPRINT · E SWITCH' : 'WASD TO RETURN IT · SHIFT SPRINT';
+            document.getElementById('instructions').innerText = k.userKicks ? 'COVER IT!  WASD MOVE · SHIFT SPRINT · Q SWITCH · E DIVE' : 'WASD TO RETURN IT · SHIFT SPRINT';
         }
 
     } else if (k.phase === 'flight') {
@@ -7955,7 +8053,8 @@ function updateKickoffReturn(dt) {
                 if (c.koHold <= 0) c.koShed = true;
                 return;
             }
-            if (c === k.user && uDir) steerTo(c, c.group.position.clone().addScaledVector(uDir, 4), userRunSpeed(9.5, koSprint(), dt), dt);
+            if (c.uDive) { updateUserDive(c, dt); if (!isUserDiving(c)) return; }
+            else if (c === k.user && uDir) steerTo(c, c.group.position.clone().addScaledVector(uDir, 4), userRunSpeed(9.5, koSprint(), dt), dt);
             else {
                 // His own read of the returner (a beat late, his own angle), staying in his lane until he's
                 // close, and the outside men keeping contain — then momentum, so cuts make him overrun
@@ -7965,7 +8064,7 @@ function updateKickoffReturn(dt) {
                 if (Math.abs(c.koLaneX || 0) >= 24 && d > 7) tgt.x = r.group.position.x + Math.sign(c.koLaneX) * 4.5;   // contain: stay outside him
                 chaseMomentum(c, tgt, k.coverSpeed * c.mind.pace, dt);
             }
-            if (c.group.position.distanceTo(r.group.position) < 1.5) {
+            if (c.group.position.distanceTo(r.group.position) < (isUserDiving(c) ? DIVE_REACH : 1.5)) {
                 k.phase = 'down';
                 document.getElementById('instructions').innerText = 'TACKLED!';
                 document.getElementById('instructions').classList.remove('hidden');
@@ -8288,6 +8387,48 @@ function switchDefender() {
     if (pick) setControlled(pick);
 }
 
+// ─── DIVE (E) ON DEFENSE AND KICK COVERAGE ───────────────────────────────────
+// The man you control launches himself flat out — at the ball carrier if he's close, otherwise the
+// way he's facing: a few yards of extra reach in a blink. Get there and it's a tackle; miss and
+// you're on the turf for a moment before you get back up.
+const DIVE_FLY = 0.38, DIVE_REACH = 2.4;
+function startUserDive(p, target) {
+    if (!p || p.uDive || isFalling(p) || riseAnims.some(r => r.p === p)) return;
+    const dir = target && target.distanceTo(p.group.position) < 9 ? target.clone().sub(p.group.position) : new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion);
+    dir.y = 0; if (dir.lengthSq() < 0.01) return; dir.normalize();
+    p.uDive = { t: 0, dir, yaw: Math.atan2(dir.x, dir.z), down: false };
+}
+function userDefDive() {
+    const P = dp;
+    if (!P || P.ended || P.phase !== 'live' || !P.ctrl || P.hitStick || P.ret) return;
+    startUserDive(P.ctrl, P.carrier ? P.carrier.group.position : null);
+}
+function isUserDiving(p) { return !!(p && p.uDive && !p.uDive.down); }
+// Moves and poses him; true while the dive (or lying there after a miss, or getting up) runs
+function updateUserDive(p, dt) {
+    const D = p.uDive; if (!D) return false;
+    if (isFalling(p)) { p.uDive = null; return false; }   // he got him: the tackle takes it from here
+    D.t += dt; p.currentMoveSpeed = 0;
+    if (D.t < DIVE_FLY) {
+        const u = D.t / DIVE_FLY;
+        p.group.position.addScaledVector(D.dir, 15 * dt * (1 - 0.4 * u));
+        p.group.position.y = 0.55 * Math.sin(Math.PI * u) + 0.4 * u;
+        p.group.quaternion.copy(yawPitchQuat(D.yaw, Math.PI / 2 * Math.min(1, u * 1.6)));
+        // Arms out ahead reaching, legs trailing
+        p.rightUpper.rotation.set(-2.9, 0, 0.2); p.leftUpper.rotation.set(-2.9, 0, -0.2);
+        p.rightLower.rotation.set(-0.1, 0, 0); p.leftLower.rotation.set(-0.1, 0, 0);
+        p.leftLeg.rotation.set(0.35, 0, 0); p.rightLeg.rotation.set(0.15, 0, 0);
+        if (p.leftKnee) { p.leftKnee.rotation.x = 0.5; p.rightKnee.rotation.x = 0.25; p.spine.rotation.x = 0.1; p.neck.rotation.x = -0.6; }
+        if (p.fingersOn) p.poseFingers(dt, 0.1, 0.1, 0.7);
+        return true;
+    }
+    if (!D.down) { D.down = true; D.rest = restHeight(p, p.group.quaternion); sfxHit(0.35); }
+    if (D.t < 1.15) { p.group.position.y = D.rest; return true; }
+    if (!D.rising) { D.rising = true; startRise(p, p.group.position.z + D.dir.z * 10); }
+    if (D.t < 1.8) return true;
+    p.uDive = null; return false;
+}
+
 // F: hit stick. Lunge at the ball carrier for a big hit — costs half your stamina. Some (1 in 3 on
 // easy, 1 in 5 on medium, 1 in 10 on hard) jar the ball loose (and the helmet off); the rest you whiff, stumble, and he keeps running.
 function hitStick() {
@@ -8476,7 +8617,7 @@ function startLiveDefensePlay(down, toGo, onDone) {
     defStamina = 100; def.forEach(d => { d.stam = 100; }); // fresh legs for everybody every snap
     document.getElementById('right-hud').classList.remove('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     document.getElementById('stamina-bar').classList.remove('hidden'); updateStaminaBar(defStamina);
-    document.getElementById('instructions').innerText = 'DEFENSE!  WASD MOVE · SHIFT SPRINT · SPACE JUMP · E SWITCH · F HIT STICK / INTERCEPT';
+    document.getElementById('instructions').innerText = 'DEFENSE!  WASD MOVE · SHIFT SPRINT · SPACE JUMP · Q SWITCH · E DIVE · F HIT STICK / INTERCEPT';
     document.getElementById('instructions').classList.remove('hidden');
 }
 
@@ -8529,6 +8670,8 @@ function updateDefensePlay(dt) {
         const h = P.hitStick; h.t += dt;
         const gap = isFalling(h.target) || h.target !== P.carrier ? 99 : steerTo(ctrl, h.target.group.position, 16, dt);
         if (gap < 1.3 || h.t > 0.3) { P.hitStick = null; resolveHitStick(P, gap < 1.8); }
+    } else if (ctrl && ctrl.uDive) {
+        updateUserDive(ctrl, dt);
     } else if (ctrl && !isFalling(ctrl) && !P.ended) {
         const mv = new THREE.Vector3((keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0), 0, (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0));
         if (P.phase === 'presnap' && ctrl.group.position.z + mv.z * 0.5 > L - 1.2) mv.z = Math.min(mv.z, 0); // stay onside
@@ -8731,7 +8874,8 @@ function updateDefensePlay(dt) {
     // ── Tackles, sacks, sideline, end zone ──
     if (c && !P.ended && !isFalling(c)) {
         // Your reach is a touch longer than the AI's on ball carriers, but not on the QB
-        const reach = d => (d === ctrl && c !== qb ? 1.6 : 1.45) * (d.rating && d.rating.tackle ? tackleFactor(d.rating.tackle) : 1);
+        const reach = d => d.uDive ? (isUserDiving(d) ? DIVE_REACH : 0)   // diving at him: a long reach; down on the turf after a miss: none
+            : (d === ctrl && c !== qb ? 1.6 : 1.45) * (d.rating && d.rating.tackle ? tackleFactor(d.rating.tackle) : 1);
         // (easy: your teammates can't sack him before he's had his 3 seconds after you were shown his target — you still can)
         const holdsForHint = d => P.planned && !P.thrown && c === qb && d !== ctrl && t < 3.25; // (his throw check comes every 0.15 s)
         const tackler = P.def.find(d => !isFalling(d) && !d.dHeld && !(d.hitStun > 0) && !(d === ctrl && P.hitStick) && !holdsForHint(d) && d.group.position.distanceTo(c.group.position) < reach(d));
@@ -8906,7 +9050,7 @@ function startOppKick(opts) {
     ensureCtrlRing(); ctrlRing.visible = true;
     GAME_STATE = 'FG_BLOCK';
     document.getElementById('right-hud').classList.add('hidden');
-    document.getElementById('instructions').innerText = `${opts.xp ? 'EXTRA POINT' : `${opts.dist}-YD FIELD GOAL`} — BLOCK IT!  WASD · SHIFT SPRINT · SPACE JUMP · E SWITCH`;
+    document.getElementById('instructions').innerText = `${opts.xp ? 'EXTRA POINT' : `${opts.dist}-YD FIELD GOAL`} — BLOCK IT!  WASD · SHIFT SPRINT · SPACE JUMP · Q SWITCH`;
     document.getElementById('instructions').classList.remove('hidden');
 }
 
@@ -9819,11 +9963,13 @@ function triggerHalftime() {
 function resumeFromHalftime() {
     clearCheerleaders();
     document.getElementById('halftime-screen').classList.add('hidden');
-    timeoutsOff = 3;
+    timeoutsOff = 3; timeoutsOpp = 3;
     updateTimeoutDisplay();
     camera.position.set(0, 15, lineOfScrimmageZ + 25);
     camera.lookAt(0, 0, lineOfScrimmageZ);
-    setupFormation();
+    // Second half: whoever received the opening kick kicks off now
+    flashBanner(firstHalfReceiver === 'user' ? `${MY_TEAM.id} KICKS OFF TO START THE HALF` : `${MY_TEAM.id} RECEIVES TO START THE HALF`, 1600);
+    startKickReturnAnim(firstHalfReceiver === 'user' ? 'kickoff' : 'opp_kickoff');
 }
 
 class CheerleaderModel {
@@ -9995,9 +10141,9 @@ function delayOfGame() {
 }
 
 function updateTimeoutDisplay() {
-    const dots = '●'.repeat(timeoutsOff) + '○'.repeat(Math.max(0, 3 - timeoutsOff));
+    const dots = n => '●'.repeat(n) + '○'.repeat(Math.max(0, 3 - n));
     const el = document.getElementById('timeout-display');
-    if (el) el.innerText = `TO: ${dots}`;
+    if (el) el.innerText = `TO: ${dots(timeoutsOff)}   ${currentOpponent ? currentOpponent.id : 'OPP'} TO: ${dots(timeoutsOpp)}`;
 }
 
 function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
@@ -10158,7 +10304,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
@@ -10285,6 +10431,22 @@ function startCarrierMove(p, kind) {
         startCarrierMove.saidJuke = false;
     }
 }
+// Receivers read the ball in the air: whoever can actually get to where it comes down first
+// breaks off his route and goes for it (not just the man nearest the aim point when it was
+// thrown). A clear margin is needed to switch, so two receivers don't trade it back and forth.
+function retargetPass() {
+    if (!ball.velocity || !targetedReceiver || ball.userData.dropped || hookLadder || targetedReceiver.catchDive) return;
+    const at = ballAtHeight(1.6); if (!at) return;
+    const late = p => p.group.position.distanceTo(at.spot) / Math.max(1, p.speed) - at.t;   // how late he'd get there (s)
+    let best = targetedReceiver, bestLate = late(targetedReceiver);
+    players.offense.forEach(p => {
+        if (p.role !== 'WR' || p === targetedReceiver || isFalling(p) || p.catchDive) return;
+        const l = late(p);
+        if (l < bestLate - 0.3) { best = p; bestLate = l; }
+    });
+    if (best !== targetedReceiver) { targetedReceiver = best; best.cutBurstTimer = Math.max(best.cutBurstTimer || 0, 0.6); }
+}
+
 // ─── SPECIAL CATCHES ─────────────────────────────────────────────────────────
 // How he goes up for it, decided as the ball gets to him: over the shoulder when it's coming down
 // from behind him (he's running away from the throw), now and then a one-handed grab, otherwise
