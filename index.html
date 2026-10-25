@@ -1107,6 +1107,7 @@ let timeoutsOff = 3; let pendingQuarterEnd = false; let timeoutsOpp = 3;
 let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
 let isTwoPointAttempt = false;
 let blimpGroup = null;
+let scenery = null;   // skyline, clouds, sun and jumbotrons (buildScenery)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -2844,7 +2845,7 @@ function resetCrowd() { fadeCrowd(); }
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
-    scene.fog = new THREE.Fog(0x87CEEB, 80, 400);
+    scene.fog = new THREE.Fog(0x87CEEB, 140, 950);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 15, 40); camera.lookAt(0, 0, 0);
@@ -3313,6 +3314,163 @@ function buildStadium() {
 
     buildSidelineCharacters();
     buildBlimp();
+    buildScenery();
+}
+
+// ─── THE CITY, THE SKY AND THE BIG SCREENS ───────────────────────────────────
+// A downtown skyline rings the stadium (skyscrapers of glass and concrete, rooftop antennas, office
+// windows that light up for night games), clouds drift high overhead, the sun hangs in the sky on
+// clear days, and a jumbotron over each end zone shows the score, clock, down and the big moments.
+// Everything out here is far away, so it's cheap: one box per building, every cloud puff in one
+// instanced mesh, and the screens only redraw when what they show changes.
+function sceneryTexture(draw, w = 128, h = 128) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+}
+function buildScenery() {
+    const few = graphicsLevel === 'low';
+    // Facades: glass (blue-gray panes in thin frames) or concrete (warm stone, rows of windows)
+    const glass = sceneryTexture((g, w, h) => {
+        g.fillStyle = '#5d6f82'; g.fillRect(0, 0, w, h);
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 4; x++) {
+            g.fillStyle = `rgb(${70 + Math.random() * 40},${95 + Math.random() * 40},${125 + Math.random() * 45})`;
+            g.fillRect(x * 32 + 3, y * 16 + 2, 26, 12);
+        }
+    });
+    const concrete = sceneryTexture((g, w, h) => {
+        g.fillStyle = '#a99f92'; g.fillRect(0, 0, w, h);
+        g.fillStyle = '#4a515a';
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 4; x++) g.fillRect(x * 32 + 8, y * 16 + 4, 16, 9);
+    });
+    // Lit windows (for the night): a random scatter of offices with the lights still on
+    const lit = sceneryTexture((g, w, h) => {
+        g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 4; x++) if (Math.random() < 0.45) {
+            g.fillStyle = Math.random() < 0.8 ? '#ffd98a' : '#cfe6ff'; g.fillRect(x * 32 + 5, y * 16 + 3, 22, 10);
+        }
+    });
+    scenery = { buildings: [], clouds: null, sun: null, jumbos: [] };
+    const antennaMat = new THREE.MeshLambertMaterial({ color: 0x3a3f46 });
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
+    const n = few ? 36 : 70;
+    for (let i = 0; i < n; i++) {
+        // A ring outside the bowl, thicker downtown (behind the -Z end zone, where the camera looks)
+        const a = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
+        const downtown = Math.max(0, -Math.sin(a));   // 1 straight behind the far end zone
+        const rx = 250 + Math.random() * 170, rz = 300 + Math.random() * 170;
+        const x = Math.cos(a) * rx, z = Math.sin(a) * rz;
+        const wdt = 14 + Math.random() * 18, dep = 14 + Math.random() * 18;
+        const hgt = 45 + Math.random() * 70 + downtown * (60 + Math.random() * 110);
+        const isGlass = Math.random() < 0.6, base = isGlass ? glass : concrete;
+        const map = base.clone(); map.needsUpdate = true; map.repeat.set(Math.max(1, Math.round(wdt / 8)), Math.max(1, Math.round(hgt / 8)));
+        const em = lit.clone(); em.needsUpdate = true; em.repeat.copy(map.repeat); em.offset.set(Math.random(), Math.random());
+        const mat = new THREE.MeshLambertMaterial({ map, emissiveMap: em, emissive: 0x000000, color: isGlass ? 0xdde6f0 : 0xffffff });
+        const b = new THREE.Mesh(new THREE.BoxGeometry(wdt, hgt, dep), mat);
+        b.position.set(x, hgt / 2 - 2, z); b.rotation.y = Math.random() * 0.5;
+        scene.add(b); scenery.buildings.push(b);
+        // The tall ones get a setback crown and an antenna with a red beacon
+        if (hgt > 130) {
+            const crown = new THREE.Mesh(new THREE.BoxGeometry(wdt * 0.6, hgt * 0.08, dep * 0.6), mat);
+            crown.position.set(x, hgt - 2 + hgt * 0.04, z); crown.rotation.y = b.rotation.y; scene.add(crown);
+            const ant = new THREE.Mesh(new THREE.BoxGeometry(0.8, 22, 0.8), antennaMat);
+            ant.position.set(x, hgt + hgt * 0.08 + 9, z); scene.add(ant);
+            const bea = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6), beaconMat);
+            bea.position.set(x, hgt + hgt * 0.08 + 20.5, z); scene.add(bea);
+        }
+    }
+    // Clouds: lumpy clusters of soft white puffs, high up and drifting
+    const puffs = few ? 60 : 130, cloudGeo = new THREE.IcosahedronGeometry(1, 1);
+    const clouds = new THREE.InstancedMesh(cloudGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9aa4ad, fog: false }), puffs);
+    const d = new THREE.Object3D();
+    for (let i = 0, c = 0; i < puffs; c++) {
+        const a = Math.random() * Math.PI * 2, r = 280 + Math.random() * 420, cy = 140 + Math.random() * 80;
+        const cx = Math.cos(a) * r, cz = Math.sin(a) * r, len = 30 + Math.random() * 40;
+        for (let k = 0; k < 7 && i < puffs; k++, i++) {
+            const s = 9 + Math.random() * 12 * (1 - Math.abs(k - 3) / 4);   // bigger in the middle
+            d.position.set(cx + (k - 3) / 3 * len * 0.5 + (Math.random() - 0.5) * 8, cy + Math.random() * 6 - Math.abs(k - 3) * 1.5, cz + (Math.random() - 0.5) * 18);
+            d.scale.set(s * 1.4, s * 0.75, s); d.updateMatrix(); clouds.setMatrixAt(i, d.matrix);
+        }
+    }
+    clouds.frustumCulled = false; scene.add(clouds); scenery.clouds = clouds;
+    // The sun: a bright disc and a soft glow around it, low in the sky beyond the far end zone
+    const sun = new THREE.Group();
+    sun.add(new THREE.Mesh(new THREE.SphereGeometry(16, 20, 14), new THREE.MeshBasicMaterial({ color: 0xfff6d0, fog: false })));
+    const glowTex = sceneryTexture((g, w, h) => {
+        const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+        grd.addColorStop(0, 'rgba(255,245,200,0.9)'); grd.addColorStop(0.25, 'rgba(255,230,160,0.35)'); grd.addColorStop(1, 'rgba(255,220,150,0)');
+        g.fillStyle = grd; g.fillRect(0, 0, w, h);
+    });
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.set(170, 170, 1); sun.add(glow);
+    sun.position.set(-330, 230, -640); scene.add(sun); scenery.sun = sun;
+    // Jumbotrons: up over the top row behind each end zone, angled down at the field
+    [-1, 1].forEach(end => {
+        const g = new THREE.Group();
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(66, 32, 3), new THREE.MeshLambertMaterial({ color: 0x16191e }));
+        g.add(frame);
+        const cvs = document.createElement('canvas'); cvs.width = 512; cvs.height = 240;
+        const tex = new THREE.CanvasTexture(cvs);
+        const screen = new THREE.Mesh(new THREE.PlaneGeometry(62, 28), new THREE.MeshBasicMaterial({ map: tex }));
+        screen.position.z = 1.6; g.add(screen);
+        [-22, 22].forEach(px => { const leg = new THREE.Mesh(new THREE.BoxGeometry(2.5, 30, 2.5), new THREE.MeshLambertMaterial({ color: 0x555a62 })); leg.position.set(px, -30, -1); g.add(leg); });
+        g.position.set(0, BOWL_TIERS * BOWL_RISE + 34, end * (BOWL_HZ + BOWL_TIERS * BOWL_STEP + 2));
+        g.lookAt(0, 0, 0);
+        scene.add(g);
+        scenery.jumbos.push({ g, cvs, tex, last: '' });
+    });
+    drawJumbotrons();
+}
+// What's on the big screens: the score bug, and the big moment of the play when there is one
+function jumboMessage(text, ms = 2500) { if (!scenery) return; scenery.msg = text; scenery.msgUntil = performance.now() + ms; drawJumbotrons(); }
+function drawJumbotrons() {
+    if (!scenery) return;
+    const home = MY_TEAM, away = currentOpponent || NFL_TEAMS[0];
+    const msg = scenery.msg && performance.now() < scenery.msgUntil ? scenery.msg : '';
+    const live = !['MENU', 'MATCHUP'].includes(GAME_STATE);
+    const key = [home.id, away.id, scoreOff, scoreDef, currentQuarter, gameTime, currentDown, Math.round(yardsToGo), msg, live].join('|');
+    scenery.jumbos.forEach(J => {
+        if (J.last === key) return;
+        J.last = key;
+        const g = J.cvs.getContext('2d'), W = J.cvs.width, H = J.cvs.height;
+        g.fillStyle = '#05070c'; g.fillRect(0, 0, W, H);
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        if (!live) {
+            g.fillStyle = '#ffcc00'; g.font = 'bold 54px Arial Black, Arial'; g.fillText('FANTASTIC', W / 2, H / 2 - 32);
+            g.fillStyle = '#ffffff'; g.fillText('FOOTBALL', W / 2, H / 2 + 34);
+        } else if (msg) {
+            g.fillStyle = '#e31837'; g.fillRect(0, 0, W, H);
+            g.fillStyle = '#ffcc00'; g.font = `bold ${msg.length > 12 ? 44 : 64}px Arial Black, Arial`; g.fillText(msg, W / 2, H / 2, W - 30);
+        } else {
+            // Team boxes with the scores, then the clock and the down
+            [[home, scoreOff, 0], [away, scoreDef, W / 2]].forEach(([t, s, x0]) => {
+                g.fillStyle = t.color; g.fillRect(x0 + 8, 8, W / 2 - 16, 130);
+                g.fillStyle = '#fff'; g.font = 'bold 42px Arial Black, Arial'; g.fillText(t.id, x0 + W / 4, 42);
+                g.font = 'bold 66px Arial Black, Arial'; g.fillText(String(s), x0 + W / 4, 102);
+            });
+            const sfx = ['ST', 'ND', 'RD', 'TH'][Math.min(3, currentDown - 1)] || 'TH';
+            g.fillStyle = '#ffcc00'; g.font = 'bold 40px Arial Black, Arial';
+            g.fillText(`${typeof periodLabel === 'function' ? periodLabel() : 'Q' + currentQuarter}  ${Math.floor(gameTime / 60)}:${String(gameTime % 60).padStart(2, '0')}`, W / 2, 172);
+            g.fillStyle = '#ffffff'; g.font = 'bold 30px Arial Black, Arial'; g.fillText(`${currentDown}${sfx} & ${Math.max(1, Math.round(yardsToGo))}`, W / 2, 214);
+        }
+        J.tex.needsUpdate = true;
+    });
+}
+// Day or night, clear or stormy: lights in the windows, the sun out or not, grey or white clouds
+function updateScenery(night, kind) {
+    if (!scenery) return;
+    const storm = kind === 'rain' || kind === 'snow';
+    scenery.buildings.forEach(b => b.material.emissive.setHex(night ? 0xffe2a8 : 0x000000));
+    scenery.sun.visible = !night && !storm;
+    scenery.clouds.visible = !night;
+    scenery.clouds.material.color.setHex(storm ? 0x8a9099 : 0xffffff);
+    scenery.clouds.material.emissive.setHex(storm ? 0x3a3f46 : 0x9aa4ad);
+}
+function animateScenery(dt) {
+    if (!scenery) return;
+    scenery.clouds.rotation.y += dt * 0.004;   // the clouds drift across the sky
+    if ((scenery.drawT = (scenery.drawT || 0) + dt) > 0.5) { scenery.drawT = 0; drawJumbotrons(); }
 }
 
 // Merge non-indexed copies of simple geometries into one BufferGeometry (positions + normals)
@@ -3463,7 +3621,9 @@ function applyWeather() {
     const night = weather.night, k = weather.kind;
     const sky = night ? 0x070b18 : k === 'rain' ? 0x6f7d8c : k === 'snow' ? 0xc4cfda : 0x87CEEB;
     scene.background = new THREE.Color(sky);
-    scene.fog = new THREE.Fog(sky, k === 'clear' || k === 'wind' ? 80 : 40, k === 'clear' || k === 'wind' ? 400 : 260);
+    // Clear days: the city skyline shows through a light haze; in a storm it disappears into the murk
+    scene.fog = new THREE.Fog(sky, k === 'clear' || k === 'wind' ? 140 : 40, k === 'clear' || k === 'wind' ? 950 : 430);
+    updateScenery(night, k);
     hemiLight.intensity = night ? 0.45 : k === 'rain' ? 0.5 : 0.6;
     hemiLight.color.setHex(night ? 0x9fb0d0 : 0xffffff);
     dirLight.intensity = night ? 0.95 : k === 'rain' ? 0.55 : 0.8;
@@ -5137,6 +5297,8 @@ function addScore(team, pts) {
     if (team === 'off') { scoreOff += pts; qtrScores.off[currentQuarter-1] += pts; }
     else { scoreDef += pts; qtrScores.def[currentQuarter-1] += pts; }
     crowdReact(team === 'off');
+    const who = team === 'off' ? MY_TEAM.id : (currentOpponent ? currentOpponent.id : '');
+    jumboMessage(pts === 6 ? `${who} TOUCHDOWN!` : pts === 3 ? `${who} FIELD GOAL!` : pts === 2 ? `${who} +2` : `${who} +${pts}`, 3500);
     updateScoreboard();
 }
 
@@ -10177,15 +10339,16 @@ function animate() {
         cheerleaders.forEach(c => c.animate(elapsed));
     }
 
+    animateScenery(dt);
     // Blimps orbit the stadium in opposite directions
     if (blimpGroup) {
         const bt = clock.getElapsedTime() * 0.08;
-        blimpGroup.position.set(Math.cos(bt) * 70, 35, Math.sin(bt) * 70);
+        blimpGroup.position.set(Math.cos(bt) * 95, 80, Math.sin(bt) * 95);   // high over the top of the stands
         blimpGroup.rotation.y = -bt - Math.PI / 2;
     }
     if (blimpGroup2) {
         const bt2 = clock.getElapsedTime() * 0.08 + Math.PI; // opposite phase
-        blimpGroup2.position.set(Math.cos(bt2) * 70, 38, Math.sin(bt2) * 70);
+        blimpGroup2.position.set(Math.cos(bt2) * 95, 90, Math.sin(bt2) * 95);
         blimpGroup2.rotation.y = -bt2 - Math.PI / 2;
     }
 
