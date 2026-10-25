@@ -590,6 +590,7 @@
                 <div><span>M</span> Send the slot in motion (before the snap)</div>
                 <div><span>1-4</span> Hot route WR1 / WR2 / SLOT / TE (go, slant, out, curl)</div>
                 <div><span>V</span> Audible to another play at the line</div>
+                <div><span>B</span> Camera: default / broadcast / behind the play / All-22</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>C</span> Challenge the last play (red flag)</div>
                 <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle · G Celebrate (inside the 20)</div>
@@ -7310,6 +7311,7 @@ function updateHookLadder(dt) {
 function checkInputs(e) {
     if (walkout && e.type === 'keydown' && (e.code === 'Space' || e.code === 'Enter')) { endWalkout(); return; }   // skip the walkout
     if (GAME_STATE === 'KICK_CHOICE' && e.type === 'keydown' && (e.code === 'KeyK' || e.code === 'KeyO')) { chooseKick(e.code === 'KeyO'); return; }
+    if (e.code === 'KeyB' && e.type === 'keydown' && !e.repeat) { cycleCamera(); return; }
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
@@ -11175,6 +11177,7 @@ function animate() {
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     if (easterEgg) updateEasterEgg(dt);
     if (walkout) updateWalkout(dt);
+    applyCameraMode(dt);
     if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
     else renderer.render(scene, camera);
 }
@@ -11266,6 +11269,39 @@ function updatePancake(p, dt) {
     poseFallLimbs(p, false, 'bighit', dt, fl < 1 ? 1 : 0);
     p.currentMoveSpeed = 0;
     if (k.t > 1.7) { p.pancake = null; startRise(p, p.group.position.z + 10); }
+}
+
+// ─── CAMERA OPTIONS (B) ──────────────────────────────────────────────────────
+// B cycles the camera during plays: the game's own camera, a TV broadcast angle from up in the
+// press box on the sideline, low behind the play over the shoulder, and the All-22 coach's view
+// from high above. It follows the ball wherever it is, and your pick is remembered.
+const CAM_MODES = [['default', 'DEFAULT'], ['broadcast', 'BROADCAST'], ['behind', 'BEHIND THE PLAY'], ['all22', 'ALL-22']];
+const CAM_STATES = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH', 'TACKLED', 'GETTING_UP', 'DEFENSE', 'INT_RETURN']);
+function camMode() {
+    if (camMode.cur == null) { try { camMode.cur = localStorage.getItem('ff-cam') || 'default'; } catch (e) { camMode.cur = 'default'; } }
+    return camMode.cur;
+}
+function cycleCamera() {
+    const i = CAM_MODES.findIndex(([k]) => k === camMode());
+    const [k, name] = CAM_MODES[(i + 1) % CAM_MODES.length];
+    camMode.cur = k; camMode.pos = null;
+    try { localStorage.setItem('ff-cam', k); } catch (e) {}
+    flashBanner(`CAMERA: ${name}`, 900);
+}
+// Runs last each frame (after the game has placed its own camera) and replaces it for the other modes
+function applyCameraMode(dt) {
+    const m = camMode();
+    if (m === 'default' || !CAM_STATES.has(GAME_STATE) || replay || easterEgg) { camMode.pos = null; return; }
+    const f = ball.getWorldPosition(camMode._f || (camMode._f = new THREE.Vector3())); f.y = 0;
+    const s = GAME_STATE === 'DEFENSE' ? -1 : 1;   // your side of the ball: behind your offense is +Z, behind your defense −Z
+    const want = m === 'broadcast' ? new THREE.Vector3(f.x * 0.3 + 40, 19, f.z + 5 * s)
+               : m === 'behind' ? new THREE.Vector3(f.x, 5.5, f.z + 12 * s)
+               : new THREE.Vector3(f.x * 0.2, 62, f.z + 32 * s);
+    const look = m === 'broadcast' ? f.clone().setY(1) : m === 'behind' ? f.clone().add(new THREE.Vector3(0, 1.5, -14 * s)) : new THREE.Vector3(f.x * 0.2, 0, f.z - 8 * s);
+    const k = 1 - Math.exp(-6 * Math.min(dt, 0.1));
+    if (!camMode.pos) { camMode.pos = want.clone(); camMode.look = look.clone(); }
+    camMode.pos.lerp(want, k); camMode.look.lerp(look, k);
+    camera.position.copy(camMode.pos); camera.lookAt(camMode.look);
 }
 
 // ─── HOT ROUTES (1–4) & AUDIBLES (V) ─────────────────────────────────────────
