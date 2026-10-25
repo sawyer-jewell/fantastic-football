@@ -69,6 +69,7 @@
         .rbar-fill { height: 100%; background: linear-gradient(90deg, #e31837, #ffcc00 50%, #00ff88); }
         .pcard-line { color: #00ff88; margin-top: 6px; }
         .pcard-career { color: #8ab; }
+        .draft-pick { font-size: 0.6rem; padding: 8px 12px; margin-top: 8px; width: 100%; background: #34a853; }
         #slot-list { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 900px; }
         .slot-card { width: 250px; min-height: 170px; border: 4px solid #555; background: rgba(0, 20, 40, 0.9); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; box-shadow: 6px 6px 0 #000; }
         .slot-n { color: #aaa; font-size: 0.65rem; letter-spacing: 2px; }
@@ -250,6 +251,14 @@
             <div id="roster-team" class="stats-head" style="margin-bottom:6px;"></div>
             <div id="roster-list"></div>
             <button class="btn-retro" onclick="closeInfoScreen('roster-screen')">BACK TO MENU</button>
+        </div>
+
+        <!-- The draft: starting draft for a new save, rookie draft every offseason -->
+        <div id="draft-screen" class="menu hidden">
+            <h1 id="draft-title" style="font-size:1.8rem;">DRAFT</h1>
+            <div id="draft-sub" class="stats-head" style="margin-bottom:8px;"></div>
+            <div id="draft-board" class="roster-grid" style="width:min(1000px, 96vw);"></div>
+            <button id="draft-pass" class="btn-retro hidden" style="background:#444; margin-top:12px;" onclick="draftPass()">PASS ON THIS PICK</button>
         </div>
 
         <!-- New save: pick your team -->
@@ -977,14 +986,118 @@ function developPlayers() {
     });
 }
 
-// Offseason: everyone a year older; young players develop a little; season stat lines reset
+// Offseason: everyone a year older; young players develop a little, 30-somethings start to slip
+// (faster past 33); season stat lines reset
 function offseasonDevelopment() {
     ALL_SLOTS.forEach(slot => {
         const p = roster[slot];
         p.age++;
-        SLOT_RATINGS[slot].forEach(k => { p[k] = Math.min(99, p[k] + (p.age <= 27 ? Math.floor(Math.random() * 3) : 0)); });
+        const change = () => p.age <= 27 ? Math.floor(Math.random() * 3) : p.age >= 33 ? -(1 + Math.floor(Math.random() * 3)) : p.age >= 30 ? -Math.floor(Math.random() * 3) : 0;
+        SLOT_RATINGS[slot].forEach(k => { p[k] = Math.max(45, Math.min(99, p[k] + change())); });
         p.season = newPlayerLine();
     });
+}
+
+// ─── THE DRAFT ───────────────────────────────────────────────────────────────
+// STARTING DRAFT (a new save, right after you pick your team): one round for each spot on the roster,
+// choosing from four — your team's own guy, a veteran star, a young player and a solid starter.
+// ROOKIE DRAFT (after every season): three rounds of college prospects, 21–22 years old with one
+// skill hidden until you take him. The worse your record, the earlier you pick and the better the
+// board. A rookie replaces the starter at his spot (and wears his number); you can pass on a pick.
+let draft = null;   // { kind, round, rounds, board, onDone }
+
+function makeProspect(slot, base, age) {
+    const first = ['J.', 'M.', 'D.', 'A.', 'T.', 'C.', 'K.', 'R.', 'B.', 'L.', 'S.', 'N.', 'E.', 'Z.'];
+    const taken = new Set(Object.values(roster).map(p => p.name));
+    let name;
+    do { name = `${first[Math.floor(Math.random() * first.length)]} ${LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)]}`; } while (taken.has(name));
+    const p = { name, num: roster[slot].num, age, xp: 0, season: newPlayerLine(), career: newPlayerLine() };
+    SLOT_RATINGS[slot].forEach(k => { p[k] = Math.max(50, Math.min(97, Math.round(base + (Math.random() - 0.5) * 16))); });
+    return { slot, p, hidden: [] };
+}
+
+// Where you pick this year: worst record picks first
+function myDraftPick() {
+    const order = standings().slice().reverse();
+    return order.indexOf(MY_TEAM.id) + 1;
+}
+
+function openDraft(kind, onDone) {
+    draft = { kind, round: 0, onDone };
+    if (kind === 'start') draft.rounds = ALL_SLOTS.length;
+    else {
+        draft.rounds = 3;
+        draft.pick = myDraftPick();
+        draft.quality = 75 - 9 * (draft.pick / allTeams().length);   // first pick ~75 base, last ~66
+    }
+    ['main-menu', 'save-select', 'team-select'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    document.getElementById('draft-screen').classList.remove('hidden');
+    nextDraftRound();
+}
+
+function nextDraftRound() {
+    if (draft.round >= draft.rounds) { finishDraft(); return; }
+    if (draft.kind === 'start') {
+        const slot = ALL_SLOTS[draft.round];
+        const own = { slot, p: roster[slot], hidden: [], own: true };
+        draft.board = [own,
+            Object.assign(makeProspect(slot, 81, 29 + Math.floor(Math.random() * 4)), { tag: 'VETERAN STAR' }),
+            Object.assign(makeProspect(slot, 70, 22 + Math.floor(Math.random() * 2)), { tag: 'YOUNG' }),
+            Object.assign(makeProspect(slot, 75, 24 + Math.floor(Math.random() * 4)), { tag: 'SOLID STARTER' })]
+            .sort(() => Math.random() - 0.5);
+    } else {
+        // Five prospects at different spots; later rounds are thinner
+        const slots = ALL_SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 5);
+        draft.board = slots.map(slot => {
+            const pr = makeProspect(slot, draft.quality - draft.round * 3 + (Math.random() < 0.12 ? 8 : 0), 21 + Math.floor(Math.random() * 2));
+            pr.hidden = [SLOT_RATINGS[slot][Math.floor(Math.random() * SLOT_RATINGS[slot].length)]];   // scouts can't see everything
+            return pr;
+        });
+    }
+    renderDraft();
+}
+
+function renderDraft() {
+    const D = draft;
+    document.getElementById('draft-title').innerText = D.kind === 'start' ? `${MY_TEAM.id} STARTING DRAFT` : `ROOKIE DRAFT · SEASON ${career.seasons + 1}`;
+    document.getElementById('draft-sub').innerText = D.kind === 'start'
+        ? `ROUND ${D.round + 1} OF ${D.rounds} · PICK YOUR ${SLOT_LABEL[ALL_SLOTS[D.round]]}`
+        : `ROUND ${D.round + 1} · PICK #${D.round * allTeams().length + D.pick} OVERALL · TAKE ONE OR PASS`;
+    document.getElementById('draft-board').innerHTML = D.board.map((pr, i) => {
+        const p = pr.p, slot = pr.slot, cur = roster[slot];
+        const bars = SLOT_RATINGS[slot].map(k => {
+            const hide = pr.hidden.includes(k);
+            return `<div class="rbar"><span>${slot === 'K' && k === 'power' ? 'KICK POWER' : RATING_NAMES[k]}</span>
+                <div class="rbar-track"><div class="rbar-fill" style="width:${hide ? 0 : p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${hide ? '??' : p[k]}</span><span></span></div>`;
+        }).join('');
+        const stars = pr.hidden.length ? '?' : starsText(starRating(p, slot));
+        const note = pr.own ? `YOUR ${MY_TEAM.name}` : pr.tag || '';
+        const vs = D.kind === 'rookie' ? `<div class="pcard-career">REPLACES #${cur.num} ${cur.name} ${starsText(starRating(cur, slot))} (AGE ${cur.age})</div>` : '';
+        return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${stars}</span></div>
+            <div class="pcard-age">AGE ${p.age}${note ? ' · ' + note : ''}</div>${bars}${vs}
+            <button class="btn-retro draft-pick" onclick="draftPick(${i})">${D.kind === 'start' && pr.own ? 'KEEP HIM' : 'DRAFT HIM'}</button></div>`;
+    }).join('');
+    document.getElementById('draft-pass').classList.toggle('hidden', D.kind === 'start');
+}
+
+function draftPick(i) {
+    const pr = draft.board[i];
+    if (!pr.own) {
+        const old = roster[pr.slot];
+        pr.p.num = old.num;   // he takes the number of the man he replaces
+        roster[pr.slot] = pr.p;
+        flashBanner(`${pr.p.name} · ${SLOT_LABEL[pr.slot]}${pr.hidden.length ? ` · ${RATING_NAMES[pr.hidden[0]]} ${pr.p[pr.hidden[0]]}` : ''}`, 1600);
+    }
+    draft.round++;
+    nextDraftRound();
+}
+function draftPass() { draft.round++; nextDraftRound(); }
+
+function finishDraft() {
+    const D = draft;
+    draft = null;
+    document.getElementById('draft-screen').classList.add('hidden');
+    D.onDone();
 }
 
 // ─── LEAGUE, PLAYOFFS & SAVING ───────────────────────────────────────────────
@@ -1173,7 +1286,8 @@ function pickTeam(id) {
     setMyTeam(id);
     startFreshSave();
     saveSeason();
-    updateMenuUI(); showOnly('main-menu');
+    // Then the starting draft: build your roster spot by spot, and on to the menu
+    openDraft('start', () => { saveSeason(); updateMenuUI(); showOnly('main-menu'); });
 }
 
 
@@ -1378,7 +1492,8 @@ function closeSchedule() { document.getElementById('schedule-screen').classList.
 
 function openMatchupScreen() {
     if(!audioCtx) initAudio();
-    if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { startNewSeason(); updateMenuUI(); return; }
+    // Season over: the rookie draft first, then the new season
+    if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openDraft('rookie', () => { startNewSeason(); updateMenuUI(); showOnly('main-menu'); }); return; }
 
     if (seasonPhase === 'playoffs') {
         // Higher seed hosts

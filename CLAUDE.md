@@ -33,6 +33,9 @@ There is nothing to build, install, or test. Edits are live on browser refresh.
 The single `<script>` block at the bottom of the HTML is organized into two halves:
 
 1. **Franchise / scheduling layer** (top): pure data + DOM. Tracks `MY_TEAM`, `NFL_TEAMS`, `seasonSchedule`, `myRecord`, `currentWeek`, `currentOpponent`, and the quarter-by-quarter `qtrScores`. Functions like `generateSchedule`, `updateMenuUI`, `openSchedule`, `openMatchupScreen`, `advanceWeek` only touch DOM and franchise state — they do not touch Three.js.
+   - **Saves:** three slots in localStorage (`SAVE_KEY-1..3`, `activeSlot`); the game opens on `openSaveSelect`. Each save holds its team (`setMyTeam` rewrites `MY_TEAM`/`NFL_TEAMS` in place from `ALL_TEAMS`, all 32), league, `roster`, `credits` and stats (`getSaveData`/`applySaveData`).
+   - **Roster:** twelve starters (`ALL_SLOTS`: the six on offense in formation order, `K`, and `DEF_SLOTS`), each with the skills in `SLOT_RATINGS`, an age, and season/career lines (`creditPlayer` during a game, rolled up in `finalizeGameStats`). Coaching credits (`awardCredits`, `upgradeRating`) and the starting/rookie drafts (`openDraft`) change it.
+   - Anything that runs at startup (before the end of the script) must only use function declarations or globals declared above it — `const`/`let` further down are still in their temporal dead zone.
 
 2. **Three.js engine** (rest): one scene, one camera, one renderer, one `animate()` loop driven by `requestAnimationFrame`. Field/stadium/players/ball are all built imperatively in `init()` → `buildField()` / `buildStadium()` / `setupFormation()`. The ball uses a hand-rolled physics integrator in `updateBallPhysics(dt)` (gravity is the constant `30`, not 9.8 — tuned for arcade feel).
 
