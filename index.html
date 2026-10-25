@@ -142,7 +142,7 @@
         .coin-tails { transform: rotateY(180deg); background: radial-gradient(circle at 35% 30%, #f0f0f0, #c0c0c0 45%, #7a7a7a); border-color: #555; color: #333; }
         .coin.flipping { animation: coinflip 1.6s cubic-bezier(.2,.7,.3,1) forwards; }
         @keyframes coinflip { 0% { transform: translateY(0) rotateY(0); } 40% { transform: translateY(-120px) rotateY(calc(var(--spins) * 0.5)); } 100% { transform: translateY(0) rotateY(var(--spins)); } }
-        #halftime-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 160; background: rgba(0,0,0,0.55); color: white; }
+        #halftime-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: flex-start; padding-top: 40px; box-sizing: border-box; align-items: center; pointer-events: auto; z-index: 160; background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0) 45%); color: white; }   /* the show is visible behind it */
 
         /* Timeout display */
         #timeout-display { font-size: 0.55rem; color: #00ffcc; margin-top: 6px; letter-spacing: 2px; cursor: pointer; pointer-events: auto; }
@@ -1212,6 +1212,7 @@ let pro = null;   // a Be a Pro game in progress (see BE A PRO)
 let practice = null;   // a practice drill in progress (see PRACTICE)
 let teamLook = null;   // your custom team name and colors, or null for the real team's look (see TEAM LOOK)
 let refs = [];   // the officiating crew on the field (see REFS)
+let halftimeShow = null;   // the marching band at halftime (see HALFTIME SHOW)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -11859,6 +11860,7 @@ function launchConfetti() {
 }
 
 function goToMainMenu() {
+    endHalftimeShow();
     if (pro) { roster[pro.slot] = pro.orig; defenseMode = pro.defenseMode; pro = null; }   // quit a pro game: the lineup back as it was
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
     clearKickLeftovers(); hideCommentary(); challengeable = null;
@@ -11996,7 +11998,88 @@ function triggerQuarterBreak() {
     }, 4000);
 }
 
+// ─── HALFTIME SHOW ───────────────────────────────────────────────────────────
+// A 48-piece marching band in your colors takes the field: a block, then your team's letters
+// spelled out on the turf, a spinning circle, the letters again — high-stepping to a march, while
+// the jumbotrons run the first-half numbers.
+const BAND_N = 48, BAND_Z = -50;
+const FONT3x5 = { A: '010101111101101', B: '110101110101110', C: '011100100100011', D: '110101101101110', E: '111100110100111', F: '111100110100100', G: '011100101101011', H: '101101111101101', I: '111010010010111', J: '001001001101010', K: '101101110101101', L: '100100100100111', M: '101111111101101', N: '101111111111101', O: '010101101101010', P: '110101110100100', Q: '010101101111011', R: '110101110101101', S: '011100010001110', T: '111010010010010', U: '101101101101111', V: '101101101101010', W: '101101111111101', X: '101101010101101', Y: '101101010010010', Z: '111001010100111' };
+const BAND_MARCH = [67, 0, 67, 72, 76, 0, 72, 0, 74, 74, 71, 67, 72, 0, 0, 0, 69, 0, 69, 72, 77, 0, 74, 0, 72, 71, 69, 71, 72, 0, 0, 0];
+function bandFormation(kind) {
+    const pts = [];
+    if (kind === 'block') for (let i = 0; i < BAND_N; i++) pts.push([(i % 8 - 3.5) * 3.2, BAND_Z + (Math.floor(i / 8) - 2.5) * 3.2]);
+    else if (kind === 'circle') for (let i = 0; i < BAND_N; i++) { const a = i / BAND_N * Math.PI * 2; pts.push([Math.cos(a) * 18, BAND_Z + Math.sin(a) * 18]); }
+    else {   // the team's letters, 3x5 dots each, read from your end zone looking up the field
+        const word = MY_TEAM.id.slice(0, 3), cell = 3.6, w = word.length * 4 - 1;
+        [...word].forEach((ch, li) => {
+            const g = FONT3x5[ch] || FONT3x5.O;
+            for (let k = 0; k < 15; k++) if (g[k] === '1') pts.push([((li * 4 + k % 3) - (w - 1) / 2) * cell, BAND_Z + (Math.floor(k / 3) - 2) * cell]);
+        });
+        let extra = 0;
+        while (pts.length < BAND_N) { pts.push([(extra - 4) * 3.2, BAND_Z + 13 + Math.floor(extra / 9) * 3]); extra++; }   // the rest line up below
+    }
+    return pts.slice(0, BAND_N);
+}
+function startHalftimeShow() {
+    endHalftimeShow();
+    const color = new THREE.Color(MY_TEAM.color), mk = (geo, col) => { const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: col }), BAND_N); m.frustumCulled = false; scene.add(m); return m; };
+    const tr = (g, y) => { g.translate(0, y, 0); return g; };
+    const parts = [mk(tr(new THREE.BoxGeometry(0.62, 0.8, 0.4), 1.45), color), mk(tr(new THREE.BoxGeometry(0.58, 1.0, 0.36), 0.55), 0xffffff),
+                   mk(tr(new THREE.BoxGeometry(0.4, 0.4, 0.4), 2.08), 0xc68642), mk(tr(new THREE.BoxGeometry(0.44, 0.6, 0.44), 2.55), color),
+                   mk(tr(new THREE.BoxGeometry(0.12, 0.35, 0.12), 3.0), 0xffffff), mk(tr(new THREE.BoxGeometry(0.22, 0.22, 0.7), 1.6).translate(0, 0, 0.45), 0xd4af37)];   // jacket, pants, face, shako, plume, horn
+    const start = bandFormation('block').map(([x, z]) => new THREE.Vector3(x, 0, z + 60));   // they march on from your end of the field
+    halftimeShow = { parts, pos: start, seq: ['block', 'letters', 'circle', 'letters', 'block'], i: 0, t: 0, spin: 0, beat: 0, stat: 0 };
+    setBandTargets();
+    // The march
+    if (audioCtx) {
+        let step = 0;
+        halftimeShow.music = setInterval(() => {
+            if (isMuted || !halftimeShow) return;
+            const time = audioCtx.currentTime + 0.02, s = step % 32;
+            if (BAND_MARCH[s]) chipNote(time, midiHz(BAND_MARCH[s]), 0.18, 'square', 0.05);
+            if (s % 4 === 0) chipNote(time, midiHz(BAND_MARCH[s] ? BAND_MARCH[s] - 24 : 43), 0.25, 'triangle', 0.12);
+            if (s % 2 === 0) sfxTone(0.08, 140, 60, 0.16, 'sine', 0.02);      // the bass drum, every step
+            if (s % 4 === 2) sfxNoise(0.06, 'bandpass', 2500, 1.2, 0.08, 0.02);   // snare
+            step++;
+        }, 165);
+    }
+}
+function setBandTargets() {
+    const H = halftimeShow, kind = H.seq[H.i % H.seq.length];
+    H.kind = kind; H.targets = bandFormation(kind).map(([x, z]) => new THREE.Vector3(x, 0, z));
+}
+function updateHalftimeShow(dt) {
+    const H = halftimeShow; if (!H) return;
+    H.t += dt; H.beat += dt * 6;
+    if (H.t > 7) { H.t = 0; H.i++; setBandTargets(); }
+    if (H.kind === 'circle') H.spin += dt * 0.5;
+    const d = new THREE.Object3D(), c = Math.cos(H.spin), s = Math.sin(H.spin);
+    H.pos.forEach((p, i) => {
+        let t = H.targets[i];
+        if (H.kind === 'circle') { const x = t.x, z = t.z - BAND_Z; t = new THREE.Vector3(x * c - z * s, 0, BAND_Z + x * s + z * c); }
+        const to = t.clone().sub(p), dist = to.length();
+        if (dist > 0.05) p.addScaledVector(to.normalize(), Math.min(dist, 7 * dt));
+        d.position.set(p.x, 0.12 * Math.abs(Math.sin(H.beat + (i % 2) * Math.PI)), p.z);   // high-stepping in time
+        d.rotation.set(0, Math.PI, 0); d.updateMatrix();
+        H.parts.forEach(m => m.setMatrixAt(i, d.matrix));
+    });
+    H.parts.forEach(m => { m.instanceMatrix.needsUpdate = true; });
+    // The first half on the big screens
+    if ((H.stat -= dt) <= 0) {
+        H.stat = 2.6;
+        const g = gameStats, lines = [`HALFTIME: ${MY_TEAM.id} ${scoreOff} — ${currentOpponent ? currentOpponent.id : 'OPP'} ${scoreDef}`,
+            `PASSING ${g.comp}/${g.att} · ${g.passYds} YDS · ${g.passTD} TD`, `RUSHING ${g.rushAtt} CAR · ${g.rushYds} YDS`, `TURNOVERS: ${g.int || 0} INT`];
+        jumboMessage(lines[(H.statI = ((H.statI || 0) + 1) % lines.length)], 2500);
+    }
+}
+function endHalftimeShow() {
+    if (!halftimeShow) return;
+    halftimeShow.parts.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    clearInterval(halftimeShow.music);
+    halftimeShow = null;
+}
 function triggerHalftime() {
+    startHalftimeShow();
     GAME_STATE = 'HALFTIME';
     startCrowdWave();
     currentQuarter++;
@@ -12010,6 +12093,7 @@ function triggerHalftime() {
 }
 
 function resumeFromHalftime() {
+    endHalftimeShow();
     clearCheerleaders();
     document.getElementById('halftime-screen').classList.add('hidden');
     timeoutsOff = 3; timeoutsOpp = 3;
@@ -12465,7 +12549,7 @@ function animate() {
     if (walkout) updateWalkout(dt);
     if (matchOn()) { net.ecam = [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w]; net.camSwapped = true; }   // the offense's camera, for whoever has the ball (restored next frame under any override)
     applyCameraMode(dt);
-    proTick(dt); proCamera(dt); practiceTick(dt); updateRefs(dt);
+    proTick(dt); proCamera(dt); practiceTick(dt); updateRefs(dt); updateHalftimeShow(dt);
     updateP2(dt);
     netHostTick(dt); netGuestTick();
     // Online match, you're on defense: the defense camera, and none of their offense's aiming lines
