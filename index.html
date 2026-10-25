@@ -570,7 +570,7 @@
             <div class="controls-list">
                 <div><span>WASD</span> Move / Scramble</div>
                 <div><span>Mouse Click</span> Throw Pass</div>
-                <div><span>Q / E</span> Throw Power</div>
+                <div><span>Q / E</span> Throw Power (before or after the snap)</div>
                 <div><span>Spacebar</span> Snap / Hurdle</div>
                 <div><span>SHIFT</span> Sprint (Post-throw/Scramble)</div>
                 <div><span>T</span> Call Timeout</div>
@@ -578,7 +578,7 @@
                 <div><span>H</span> No-Huddle</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>C</span> Challenge the last play (red flag)</div>
-                <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle</div>
+                <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle · G Celebrate (inside the 20)</div>
                 <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
             </div>
             </div>
@@ -4237,6 +4237,55 @@ class Player {
         }
     }
 
+    // Just after the catch. Toe-tap: both feet dragged along the turf to stay in bounds — toes
+    // pointed, legs trailing, leaning back toward the field, ball held up high. Otherwise he pulls
+    // the ball down from where he caught it into the tuck (one hand, or both).
+    poseCatchFlourish(dt) {
+        const f = this.catchFlourish;
+        if ((f.t -= dt) <= 0) { this.catchFlourish = null; return; }
+        const k = f.t / f.dur, L = THREE.MathUtils.lerp;   // 1 → 0
+        if (f.kind === 'toetap') {
+            const towardField = -Math.sign(this.group.position.x) || 1;
+            this.leftLeg.rotation.x = 0.35; this.rightLeg.rotation.x = 0.55;
+            this.leftKnee.rotation.x = 0.45; this.rightKnee.rotation.x = 0.7;
+            this.leftAnkle.rotation.x = 0.95; this.rightAnkle.rotation.x = 0.95;   // toes down, dragging
+            this.spine.rotation.x = -0.2; this.spine.rotation.z = 0.3 * towardField * k;
+            this.rightUpper.rotation.x = L(this.rightUpper.rotation.x, -2.6, k); this.leftUpper.rotation.x = L(this.leftUpper.rotation.x, -2.6, k);
+            this.rightLower.rotation.x = L(this.rightLower.rotation.x, -0.3, k); this.leftLower.rotation.x = L(this.leftLower.rotation.x, -0.3, k);
+        } else {
+            const e = k * k;
+            this.rightUpper.rotation.x = L(this.rightUpper.rotation.x, -2.3, e); this.rightLower.rotation.x = L(this.rightLower.rotation.x, -0.2, e);
+            if (f.kind !== 'onehand') { this.leftUpper.rotation.x = L(this.leftUpper.rotation.x, -2.3, e); this.leftLower.rotation.x = L(this.leftLower.rotation.x, -0.2, e); }
+            this.neck.rotation.x = L(this.neck.rotation.x, 0.3, e);   // eyes the ball all the way in
+        }
+    }
+
+    // Showboating on the way in (G inside the 20), the ball tucked under his left arm:
+    // high-step — knees up to his chest, the free arm pumping high, chin up;
+    // point — the free arm pointing up at the crowd, head turned to them;
+    // wave — looking back over his shoulder, waving bye-bye to the defense
+    poseShowboat(dt) {
+        const sb = this.showboat, s = Math.sin(this.gaitPhase || 0), t = sb.dur - sb.t;
+        const inK = Math.min(1, t / 0.2) * Math.min(1, sb.t / 0.2);   // ease in and out of it
+        const L = (o, ax, v) => { o.rotation[ax] = THREE.MathUtils.lerp(o.rotation[ax], v, inK); };
+        if (sb.style === 'highstep') {
+            L(this.leftLeg, 'x', -1.5 * Math.max(0, s) + 0.2); L(this.rightLeg, 'x', -1.5 * Math.max(0, -s) + 0.2);
+            L(this.leftKnee, 'x', 0.3 + 1.7 * Math.max(0, s)); L(this.rightKnee, 'x', 0.3 + 1.7 * Math.max(0, -s));
+            L(this.leftAnkle, 'x', 0.5 * Math.max(0, s)); L(this.rightAnkle, 'x', 0.5 * Math.max(0, -s));
+            L(this.spine, 'x', -0.18); L(this.neck, 'x', -0.15);
+            L(this.rightUpper, 'x', -0.3 - 2.0 * Math.max(0, s)); L(this.rightUpper, 'z', 0.25); L(this.rightLower, 'x', -1.2);
+        } else if (sb.style === 'point') {
+            L(this.rightUpper, 'x', -2.75); L(this.rightUpper, 'z', 0.55); L(this.rightLower, 'x', -0.05); L(this.rightWrist, 'x', -0.3);
+            L(this.spine, 'y', 0.25); L(this.spine, 'x', 0.05); L(this.neck, 'y', 0.45); L(this.neck, 'x', -0.35);
+            if (this.fingersOn) this.poseFingers(dt, 1, 0.75, 0);
+        } else {
+            const wave = Math.sin(t * 16);
+            L(this.spine, 'y', 0.45); L(this.neck, 'y', 1.05); L(this.neck, 'x', -0.1);
+            L(this.rightUpper, 'x', 0.7); L(this.rightUpper, 'z', 0.75); L(this.rightLower, 'x', -0.4 - 0.5 * wave); L(this.rightWrist, 'z', 0.5 * wave);
+            if (this.fingersOn) this.poseFingers(dt, 1, 0.05, 0.5);
+        }
+    }
+
     // Ease each hand toward a curl (0 = open flat, 1 = tight fist) and spread (fingers fanned apart)
     poseFingers(dt, curlL, curlR, spread = 0) {
         if (!this.fingersOn) return;
@@ -4308,24 +4357,33 @@ class Player {
         // QB throw animation — highest priority, overrides everything.
         if (this.throwTimer > 0) {
             this.throwTimer = Math.max(0, this.throwTimer - dt);
-            const t = this.throwTimer / 0.55; // 1 → 0
-            if (t > 0.55) {
-                // Wind-up: right arm cocks back over shoulder
-                this.rightUpper.rotation.set(-2.0, 0.5, 0.5);
-                this.rightLower.rotation.set(-0.6, 0, 0);
-                this.leftUpper.rotation.set(0.6, -0.3, -0.4);
-                this.leftLower.rotation.set(0.2, 0, 0);
-            } else {
-                // Release: arm whips through and extends forward
-                const r = 1 - (t / 0.55);
-                this.rightUpper.rotation.set(THREE.MathUtils.lerp(-2.0, 1.3, r), THREE.MathUtils.lerp(0.5, -0.1, r), THREE.MathUtils.lerp(0.5, 0, r));
-                this.rightLower.rotation.set(THREE.MathUtils.lerp(-0.6, -1.2, r), 0, 0);
-                this.leftUpper.rotation.set(THREE.MathUtils.lerp(0.6, -0.3, r), THREE.MathUtils.lerp(-0.3, 0, r), THREE.MathUtils.lerp(-0.4, 0, r));
-                this.leftLower.rotation.set(THREE.MathUtils.lerp(0.2, 0.1, r), 0, 0);
+            // A real throwing motion, from the ground up: the front foot steps at the target, the hips
+            // open, then the shoulders whip round; the arm comes over the top from its cocked spot by
+            // the ear and the wrist snaps; then the follow-through carries the arm down across his body
+            // and the back foot swings through. The front arm points at the target, then tucks.
+            const k = 1 - this.throwTimer / 0.55;   // 0 → 1 through the motion
+            const S = THREE.MathUtils.smoothstep, L = THREE.MathUtils.lerp;
+            const hips = S(k, 0.05, 0.35), whip = S(k, 0.18, 0.5), thru = S(k, 0.45, 1);
+            if (this.throwAt) {   // square up to where he's throwing
+                const to = this.throwAt.clone().sub(this.group.position); to.y = 0;
+                if (to.lengthSq() > 1) turnToward(this, to.normalize(), dt, 14);
             }
-            // Still swing legs while stepping into throw
-            const swing = Math.sin(clock.getElapsedTime() * 14) * 0.5;
-            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+            this.spine.rotation.set(L(-0.1, 0.32, whip) - 0.08 * thru, L(0.6, -0.5, whip) + 0.15 * thru, L(-0.12, 0.1, whip));
+            this.spine.position.y = this.spineY - 0.06 * hips;
+            this.neck.rotation.set(-this.spine.rotation.x * 0.8, -this.spine.rotation.y * 0.9, 0);   // eyes stay on the target
+            // Throwing arm: cocked (elbow up, ball by the ear) → over the top → down across
+            this.rightUpper.rotation.set(L(-2.2, -1.2, whip) + 1.4 * thru, L(0.5, -0.1, whip), L(0.85, 0.2, whip) - 0.35 * thru);
+            this.rightLower.rotation.set(L(-1.5, -0.1, whip) - 0.5 * thru, 0, 0);
+            this.rightWrist.rotation.x = L(-0.8, 0.9, whip);   // the snap
+            // Front arm: points at the target, then pulls in to the chest as the shoulders turn
+            this.leftUpper.rotation.set(L(-1.3, 0.2, whip), 0, L(-0.35, -0.15, whip));
+            this.leftLower.rotation.set(L(-0.2, -1.4, whip), 0, 0);
+            // Legs: stride at the target, weight onto the front foot, back foot comes through
+            this.leftLeg.rotation.x = L(-0.5 * hips, -0.15, thru); this.leftKnee.rotation.x = 0.25 + 0.2 * hips;
+            this.rightLeg.rotation.x = L(0.4 * hips, -0.55, thru); this.rightKnee.rotation.x = 0.15 + 0.45 * thru;
+            this.rightAnkle.rotation.x = 0.55 * hips * (1 - thru); this.leftAnkle.rotation.x = -0.15 * hips;
+            if (this.fingersOn) this.poseFingers(dt, 0.4, whip > 0.6 ? 0.25 : 0.95, whip > 0.6 ? 0.5 : 0.2);   // fingers open off the laces
+            if (this.throwTimer <= 0) this.throwAt = null;
             return;
         }
 
@@ -4342,7 +4400,31 @@ class Player {
 
         // Catch reach: hands track the incoming pass (catchReach is set each frame in updateBallPhysics)
         if (this.catchReach && GAME_STATE === 'PLAY' && ball.velocity) {
-            this.reachArmsToward(ball.position);
+            const style = this.catchStyle || 'two';
+            if (style === 'shoulder') {
+                // Over the shoulder: running away from the throw, he makes a basket out in front and
+                // turns his head back to track it coming down over him
+                this.group.updateMatrixWorld();
+                const local = this.group.worldToLocal(ball.position.clone());
+                this.reachArmsToward(this.group.localToWorld(new THREE.Vector3(0, 2.5, 1.0)));
+                const look = THREE.MathUtils.clamp(Math.atan2(local.x, -local.z), -1.2, 1.2);
+                this.neck.rotation.y = THREE.MathUtils.lerp(this.neck.rotation.y, -look, 0.3);
+                this.neck.rotation.x = THREE.MathUtils.lerp(this.neck.rotation.x, -0.45, 0.3);
+                this.spine.rotation.y = THREE.MathUtils.lerp(this.spine.rotation.y, -look * 0.3, 0.3);
+            } else {
+                this.reachArmsToward(ball.position);
+                if (style === 'onehand') {
+                    // One hand: the arm nearer the ball stretches for it, the other flies out for balance,
+                    // and he leans into the reach
+                    const r = new THREE.Vector3(), l = new THREE.Vector3();
+                    this.rightUpper.getWorldPosition(r); this.leftUpper.getWorldPosition(l);
+                    const rightReaches = r.distanceTo(ball.position) < l.distanceTo(ball.position);
+                    const off = rightReaches ? this.leftUpper : this.rightUpper;
+                    off.rotation.set(THREE.MathUtils.lerp(off.rotation.x, -0.4, 0.3), 0, THREE.MathUtils.lerp(off.rotation.z, rightReaches ? -1.2 : 1.2, 0.3));
+                    (rightReaches ? this.leftLower : this.rightLower).rotation.x = -0.5;
+                    this.spine.rotation.z = THREE.MathUtils.lerp(this.spine.rotation.z, rightReaches ? 0.28 : -0.28, 0.25);
+                }
+            }
             if (this.currentMoveSpeed > 0.1) {
                 const swing = Math.sin(clock.getElapsedTime() * 18);
                 this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
@@ -4391,6 +4473,8 @@ class Player {
                 this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
                                   TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
                 this.poseCarrierMove();   // a juke, spin, stiff-arm or hurdle on top of the run
+                if (this.showboat && !this.move && !this.brace && !this.isJumping) this.poseShowboat(dt);
+                if (this.catchFlourish) this.poseCatchFlourish(dt);
             } else if (isQBHolding) {
                 this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
                                   QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
@@ -4417,9 +4501,14 @@ class Player {
             if (isCarrying) {
                 this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
                                   TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
+                if (this.catchFlourish) this.poseCatchFlourish(dt);
             } else if (isQBHolding) {
+                // In the pocket: ball up high in both hands, feet never still (little choppy steps)
                 this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
                                   QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
+                const chop = Math.sin(clock.elapsedTime * 11);
+                this.leftKnee.rotation.x = 0.3 + 0.22 * Math.max(0, chop); this.rightKnee.rotation.x = 0.3 + 0.22 * Math.max(0, -chop);
+                this.leftLeg.rotation.x = -0.12 - 0.15 * Math.max(0, chop); this.rightLeg.rotation.x = -0.12 - 0.15 * Math.max(0, -chop);
             } else {
                 this.leftUpper.rotation.x  = THREE.MathUtils.lerp(this.leftUpper.rotation.x,  0, 0.1);
                 this.rightUpper.rotation.x = THREE.MathUtils.lerp(this.rightUpper.rotation.x, 0, 0.1);
@@ -4512,6 +4601,7 @@ class Player {
                         if (playStat && !playStat.thrown) { playStat.kind = 'run'; playStat.rusher = 'QB'; } // scramble counts as a rush
                         brainNoteScramble();
                         document.getElementById('instructions').innerText = "QB SCRAMBLE! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
+                        document.getElementById('vertical-power-meter').classList.add('hidden');
                         document.getElementById('stamina-bar').classList.remove('hidden');
                         while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
                         trajectoryLine.visible = false; landingMarker.visible = false; document.getElementById('hang-time-ui').classList.add('hidden');
@@ -4782,6 +4872,9 @@ class Player {
                 if (mv.t >= mv.dur) this.move = null;
             }
             if (this.moveCooldown > 0) this.moveCooldown -= dt;
+            // Showboating inside the 20 (G): it runs out on its own, or when he leaves the red zone
+            if (this.showboat && ((this.showboat.t -= dt) <= 0 || !inShowboatZone(this))) this.showboat = null;
+            if (!this.showboatHint && inShowboatZone(this) && this.team === 'offense') { this.showboatHint = true; flashBanner('INSIDE THE 20 — G TO CELEBRATE!', 1300); }
             // About to be hit? (a tackler right in front of him) — he braces for it
             {
                 const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.quaternion);
@@ -4804,7 +4897,7 @@ class Player {
                 this.runSpd = this.runSpd < want ? Math.min(want, this.runSpd + 20 * dt) : Math.max(want, this.runSpd - 30 * dt);
                 this.runDir = moveDir.clone();
                 this.runVel = moveDir.clone().multiplyScalar(this.runSpd);
-                const moveSlow = this.move ? (this.move.kind === 'spin' ? 0.8 : this.move.kind === 'stiff' ? 0.9 : 0.85) : 1;
+                const moveSlow = (this.move ? (this.move.kind === 'spin' ? 0.8 : this.move.kind === 'stiff' ? 0.9 : 0.85) : 1) * (this.showboat ? 0.9 : 1);
                 this.group.position.addScaledVector(moveDir, this.runSpd * moveSlow * dt);
                 if (this.move && this.move.kind === 'spin') {
                     // A full turn on the move, still heading downhill
@@ -5265,6 +5358,7 @@ function cpuHitStickFromFront(carrier, d) {
 function triggerTackle(ballCarrier, tackler, message) {
     // Two defenders arriving on the same frame used to tackle him twice (two results, two downs)
     if (GAME_STATE === 'TACKLED' || GAME_STATE === 'GETTING_UP' || isFalling(ballCarrier)) return;
+    document.getElementById('vertical-power-meter').classList.add('hidden');   // a sack before the throw
     if (ballCarrier.team === 'offense') maybeInjure(ballCarrier.rosterSlot, 0.012);   // now and then a hit costs him a few weeks
     // A wet ball comes loose more often
     if (message === 'TACKLED' && weather.kind === 'rain' && Math.random() < 0.04) message = 'FUMBLE! LOST BALL.';
@@ -5343,7 +5437,7 @@ function startTackleFall(carrier, tackler, onDown) {
     const mates = (players.defense.includes(tackler) ? players.defense : players.offense.includes(tackler) ? players.offense : droneSimPlayers)
         .filter(o => o !== tackler && o !== carrier && o.team === tackler.team && !isFalling(o) && o.group.position.distanceTo(carrier.group.position) < 2.7);
     const extra = kind !== 'shoestring' && mates.length ? mates[0] : null;
-    [carrier, tackler, extra].forEach(p => { if (!p) return; p.isJumping = false; p.yVelocity = 0; p.currentMoveSpeed = 0; p.catchReach = false; });
+    [carrier, tackler, extra].forEach(p => { if (!p) return; p.isJumping = false; p.yVelocity = 0; p.currentMoveSpeed = 0; p.catchReach = false; p.rag = null; });
     let x = null;
     if (extra) {
         const xq1 = yawPitchQuat(Math.atan2(carrier.group.position.x - extra.group.position.x, carrier.group.position.z - extra.group.position.z), Math.PI / 2 * 0.85, roll());
@@ -5357,52 +5451,109 @@ function startTackleFall(carrier, tackler, onDown) {
     });
 }
 
+// A small extra pitch (about his own left-right axis) for the rock on landing
+function rockQuat(a) { return (rockQuat.q || (rockQuat.q = new THREE.Quaternion())).setFromAxisAngle(rockQuat.ax || (rockQuat.ax = new THREE.Vector3(1, 0, 0)), a); }
+// Players lying on the turf whose limbs are still settling (kept on the function: the animate loop
+// runs before the script's later globals exist)
+function ragLying() { return updateTackleFalls.lying || (updateTackleFalls.lying = []); }
 // Little hop when bodies hit the turf
 function fallBounce(t) {
     const s = t - (FALL_START + FALL_TIME);
     return s > 0 && s < 0.22 ? 0.12 * Math.sin(Math.PI * s / 0.22) : 0;
 }
 
-// Carrier's arms fly out ahead of him, legs trail loosely — tripped up, his heels kick up behind
-// him; laid out by a big hit, arms and legs fly up; the body curls at the waist either way
-function poseFallLimbs(p, faceDown, kind) {
-    const k = 0.2, L = THREE.MathUtils.lerp;
-    const big = kind === 'bighit', trip = kind === 'shoestring';
-    p.rightUpper.rotation.x = L(p.rightUpper.rotation.x, big ? -3.0 : faceDown ? -2.7 : -2.9, k);
-    p.leftUpper.rotation.x  = L(p.leftUpper.rotation.x,  big ? -2.6 : faceDown ? -2.5 : -2.9, k);
-    p.rightUpper.rotation.z = L(p.rightUpper.rotation.z,  big ? 0.9 : 0.45, k);
-    p.leftUpper.rotation.z  = L(p.leftUpper.rotation.z,  big ? -0.9 : -0.45, k);
-    p.rightLower.rotation.x = L(p.rightLower.rotation.x, -0.3, k);
-    p.leftLower.rotation.x  = L(p.leftLower.rotation.x,  -0.3, k);
-    p.leftLeg.rotation.x    = L(p.leftLeg.rotation.x,   trip ? 0.6 : big ? -0.8 : 0.25, k);
-    p.rightLeg.rotation.x   = L(p.rightLeg.rotation.x,  trip ? 0.35 : big ? -0.5 : -0.15, k);
-    if (p.leftKnee) {
-        p.leftKnee.rotation.x  = L(p.leftKnee.rotation.x,  trip ? 1.3 : big ? 0.5 : 0.35, k);
-        p.rightKnee.rotation.x = L(p.rightKnee.rotation.x, trip ? 0.9 : big ? 0.9 : 0.6, k);
-        p.spine.rotation.x     = L(p.spine.rotation.x, big ? -0.3 : 0.25, k);
-        p.neck.rotation.x      = L(p.neck.rotation.x, faceDown ? -0.5 : 0.35, k);   // chin up off the turf / head lifting
-    }
+// ─── RAGDOLL LIMBS ───────────────────────────────────────────────────────────
+// A man going down isn't posed — every joint is a loose spring. It's pulled (weakly) toward a limp
+// shape but keeps its own momentum: the hit whips the limbs, they flail on the way down, slap the
+// turf and bounce when he lands, then go slack and settle wherever they ended up. Each joint gets
+// its own random kick, springiness and offset, so no two tackles (or two arms) look the same.
+// Joints that can't bend backward (knees, elbows) are held to their real range.
+const RAG_JOINTS = ['rightUpper', 'leftUpper', 'rightLower', 'leftLower', 'rightLeg', 'leftLeg', 'leftKnee', 'rightKnee', 'spine', 'neck', 'leftAnkle', 'rightAnkle', 'leftWrist', 'rightWrist'];
+const RAG_LIMITS = { leftKnee: [-0.05, 2.3], rightKnee: [-0.05, 2.3], rightLower: [-2.4, 0.1], leftLower: [-2.4, 0.1], neck: [-0.8, 0.8], spine: [-0.7, 0.9] };
+function ragStart(p, whip, only) {
+    const r = p.rag = { j: {}, t: 0, landed: false };
+    (only || RAG_JOINTS).forEach(k => {
+        if (!p[k]) return;
+        const arm = /Upper|Lower|Wrist/.test(k);
+        r.j[k] = { vx: (Math.random() - 0.5) * whip * (arm ? 14 : 8), vz: (Math.random() - 0.5) * whip * (arm ? 9 : 3),
+                   stiff: 14 + Math.random() * 16, ox: (Math.random() - 0.5) * 0.7, oz: (Math.random() - 0.5) * 0.5, seed: Math.random() * 10 };
+    });
 }
-// The tackler: wrapped up and low, knees bent; on a shoestring tackle stretched out flat
-function poseTacklerLimbs(p, kind) {
+// Hitting the ground: every joint gets slapped (more for the arms and legs that hit first)
+function ragLand(p, strength) {
+    const r = p.rag; if (!r || r.landed) return;
+    r.landed = true;
+    Object.entries(r.j).forEach(([k, s]) => { const arm = /Upper|Lower|Wrist|Leg|Knee/.test(k); s.vx += (Math.random() - 0.3) * strength * (arm ? 12 : 5); s.vz += (Math.random() - 0.5) * strength * 6; });
+}
+// One step: targets is { joint: [x, z] }; flail (0–1) adds thrashing while he's in the air
+function ragStep(p, targets, dt, flail) {
+    const r = p.rag; if (!r) return;
+    r.t += dt;
+    const limp = r.landed ? 0.35 : 1, damp = r.landed ? 6.5 : 3.2;
+    const h = Math.min(dt, 0.033) / 2;
+    Object.entries(r.j).forEach(([k, s]) => {
+        const o = p[k], tg = targets[k]; if (!o || !tg) return;
+        const wob = flail * 0.55 * Math.sin(r.t * (8 + s.seed) + s.seed * 3);
+        const tx = tg[0] + s.ox + wob, tz = (tg[1] || 0) + s.oz + wob * 0.6;
+        for (let i = 0; i < 2; i++) {   // two half-steps keep the springs steady at low frame rates
+            s.vx += ((tx - o.rotation.x) * s.stiff * limp - s.vx * damp) * h;
+            s.vz += ((tz - o.rotation.z) * s.stiff * limp - s.vz * damp) * h;
+            o.rotation.x += s.vx * h; o.rotation.z += s.vz * h;
+        }
+        const lim = RAG_LIMITS[k];
+        if (lim && (o.rotation.x < lim[0] || o.rotation.x > lim[1])) { o.rotation.x = THREE.MathUtils.clamp(o.rotation.x, lim[0], lim[1]); s.vx *= -0.3; }   // hits the end of the joint and bounces off it
+    });
+}
+
+// Carrier: arms thrown out ahead of him, legs trailing loose — tripped up, his heels kick up behind
+// him; laid out by a big hit, arms and legs fly up; the body curls at the waist either way
+function poseFallLimbs(p, faceDown, kind, dt = 0.016, flail = 0) {
+    const big = kind === 'bighit', trip = kind === 'shoestring';
+    if (!p.rag) ragStart(p, big ? 1.6 : 1);
+    ragStep(p, {
+        rightUpper: [big ? -3.0 : faceDown ? -2.7 : -2.6, big ? 0.9 : 0.45], leftUpper: [big ? -2.6 : faceDown ? -2.5 : -2.4, big ? -0.9 : -0.45],
+        rightLower: [-0.35, 0], leftLower: [-0.35, 0], rightWrist: [0.3, 0], leftWrist: [0.3, 0],
+        leftLeg: [trip ? 0.6 : big ? -0.8 : 0.25, 0.12], rightLeg: [trip ? 0.35 : big ? -0.5 : -0.15, -0.12],
+        leftKnee: [trip ? 1.3 : big ? 0.5 : 0.35, 0], rightKnee: [trip ? 0.9 : big ? 0.9 : 0.6, 0],
+        leftAnkle: [0.4, 0], rightAnkle: [0.4, 0],
+        spine: [big ? -0.3 : 0.25, 0], neck: [faceDown ? -0.5 : 0.35, 0],   // chin up off the turf / head lifting
+    }, dt, flail);
+    if (p.fingersOn) p.poseFingers(dt, 0.25, 0.25, 0.5);   // hands open, limp
+}
+// The tackler: wrapped up and low, knees bent; on a shoestring tackle stretched out flat. His arms
+// stay locked around the carrier — only the legs, back and head flop.
+const RAG_TACKLER = ['rightLeg', 'leftLeg', 'leftKnee', 'rightKnee', 'spine', 'neck', 'leftAnkle', 'rightAnkle'];
+function poseTacklerLimbs(p, kind, dt = 0.016, flail = 0) {
     if (!p.leftKnee) return;
-    const k = 0.2, L = THREE.MathUtils.lerp, flat = kind === 'shoestring';
-    p.leftKnee.rotation.x = L(p.leftKnee.rotation.x, flat ? 0.1 : 0.9, k); p.rightKnee.rotation.x = L(p.rightKnee.rotation.x, flat ? 0.2 : 1.1, k);
-    p.leftLeg.rotation.x = L(p.leftLeg.rotation.x, flat ? 0.2 : -0.5, k); p.rightLeg.rotation.x = L(p.rightLeg.rotation.x, flat ? 0.1 : -0.3, k);
-    p.spine.rotation.x = L(p.spine.rotation.x, flat ? 0 : 0.4, k); p.neck.rotation.x = L(p.neck.rotation.x, -0.4, k);
-    if (p.fingersOn) p.poseFingers(0.05, 0.9, 0.9, 0.3);
+    const flat = kind === 'shoestring';
+    if (!p.rag) ragStart(p, 0.7, RAG_TACKLER);
+    ragStep(p, {
+        leftKnee: [flat ? 0.1 : 0.9, 0], rightKnee: [flat ? 0.2 : 1.1, 0],
+        leftLeg: [flat ? 0.2 : -0.5, 0.1], rightLeg: [flat ? 0.1 : -0.3, -0.1],
+        leftAnkle: [0.5, 0], rightAnkle: [0.5, 0],
+        spine: [flat ? 0 : 0.4, 0], neck: [-0.4, 0],
+    }, dt, flail * 0.6);
+    if (p.fingersOn) p.poseFingers(dt, 0.9, 0.9, 0.3);
 }
 
 function updateTackleFalls(dt) {
     tackleFalls = tackleFalls.filter(f => {
         f.elapsed += dt;
-        const fall = smoothstep(THREE.MathUtils.clamp((f.elapsed - FALL_START) / FALL_TIME, 0, 1));
+        // Bodies fall like bodies: speeding up all the way into the turf (not easing to a stop), then
+        // rocking once or twice as they hit
+        const fl = THREE.MathUtils.clamp((f.elapsed - FALL_START) / FALL_TIME, 0, 1);
+        const fall = fl * fl * (1.6 - 0.6 * fl);
+        const landed = f.elapsed >= FALL_START + FALL_TIME, sinceLand = f.elapsed - FALL_START - FALL_TIME;
+        const rock = landed ? 0.16 * Math.exp(-7 * sinceLand) * Math.sin(24 * sinceLand) : 0;
+        const flail = landed ? 0 : Math.min(1, f.elapsed / 0.15);
         const slideU = 1 - Math.pow(1 - Math.min(1, f.elapsed / (FALL_START + FALL_TIME + 0.15)), 2); // ease-out slide
 
         const cp = f.c.p0.clone().addScaledVector(f.slide, slideU);
         f.carrier.group.position.set(cp.x, f.c.rest * fall + fallBounce(f.elapsed), cp.z);
         f.carrier.group.quaternion.slerpQuaternions(f.c.q0, f.c.q1, fall);
-        poseFallLimbs(f.carrier, f.c.faceDown, f.kind);
+        if (rock) f.carrier.group.quaternion.multiply(rockQuat(rock));
+        if (landed) { ragLand(f.carrier, f.kind === 'bighit' ? 1.5 : 1); if (f.tackler.rag) ragLand(f.tackler, 0.7); }
+        poseFallLimbs(f.carrier, f.c.faceDown, f.kind, dt, flail);
 
         // Tackler drives in and goes down just behind the carrier, arms wrapped around him (a
         // shoestring tackler dives flat, a bit quicker, at his ankles)
@@ -5413,7 +5564,8 @@ function updateTackleFalls(dt) {
         f.tackler.group.quaternion.slerpQuaternions(f.t.q0, f.t.q1, tFall);
         f.carrier.group.updateMatrixWorld();
         f.tackler.reachArmsToward(f.carrier.group.localToWorld(new THREE.Vector3(0, f.kind === 'shoestring' ? 0.4 : 1.5, 0)));
-        poseTacklerLimbs(f.tackler, f.kind);
+        if (rock) f.tackler.group.quaternion.multiply(rockQuat(-rock * 0.6));
+        poseTacklerLimbs(f.tackler, f.kind, dt, flail);
         // Gang tackle: the second man dives in on top of the pile a beat later
         if (f.extra) {
             const X = f.extra, xf = smoothstep(THREE.MathUtils.clamp((f.elapsed - FALL_START - 0.12) / FALL_TIME, 0, 1));
@@ -5421,13 +5573,21 @@ function updateTackleFalls(dt) {
             X.p.group.position.set(xp.x, X.rest * xf + fallBounce(f.elapsed - 0.15) * 0.5, xp.z);
             X.p.group.quaternion.slerpQuaternions(X.q0, X.q1, xf);
             X.p.reachArmsToward(f.carrier.group.localToWorld(new THREE.Vector3(0, 1.2, 0)));
-            poseTacklerLimbs(X.p, 'wrap');
+            if (xf >= 1 && X.p.rag) ragLand(X.p, 0.8);
+            poseTacklerLimbs(X.p, 'wrap', dt, xf < 1 ? 1 : 0);
         }
 
         if (f.elapsed >= FALL_START + FALL_TIME + FALL_HOLD) {
             if (f.extra) { const X = f.extra.p; setTimeout(() => { if (!isFalling(X)) startRise(X, X.group.position.z + (X.team === 'offense' ? -5 : 5)); }, 250 + Math.random() * 500); }
+            // Lying there: the limbs keep settling (slack) until he starts to get up
+            [f.carrier, f.tackler, f.extra && f.extra.p].forEach(p => { if (p && p.rag) ragLying().push({ p, faceDown: p === f.carrier ? f.c.faceDown : null, kind: f.kind, left: 1.2 }); });
             if (f.onDown) f.onDown(); return false;
         }
+        return true;
+    });
+    updateTackleFalls.lying = ragLying().filter(l => {
+        if ((l.left -= dt) <= 0 || !l.p.rag || isFalling(l.p) || riseAnims.some(r => r.p === l.p)) return false;
+        if (l.faceDown === null) poseTacklerLimbs(l.p, l.kind, dt, 0); else poseFallLimbs(l.p, l.faceDown, l.kind, dt, 0);
         return true;
     });
 
@@ -5449,6 +5609,7 @@ function updateTackleFalls(dt) {
 function startRise(p, faceZ) {
     const yaw = faceZ < p.group.position.z ? Math.PI : 0;
     riseAnims = riseAnims.filter(r => r.p !== p);
+    p.rag = null;
     riseAnims.push({ p, q0: p.group.quaternion.clone(), q1: yawPitchQuat(yaw, 0), y0: p.group.position.y, elapsed: 0 });
 }
 
@@ -6186,6 +6347,7 @@ function selectPlay(playType) {
 function snapBall() {
     if (GAME_STATE !== 'PRE_SNAP') return;
     if (!isTwoPointAttempt && Math.random() < 0.015) { falseStart(); return; }
+    players.offense.concat(players.defense).forEach(p => { p.showboat = null; p.showboatHint = false; p.catchStyle = null; p.catchFlourish = null; });
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
@@ -6282,7 +6444,7 @@ function snapBall() {
         return;
     }
 
-    document.getElementById('instructions').innerText = "CLICK TO THROW"; document.getElementById('vertical-power-meter').classList.add('hidden');
+    document.getElementById('instructions').innerText = "CLICK TO THROW · Q/E: POWER";   // the power meter stays up: you can still change it until the throw
     let qb = players.offense[0]; camera.position.set(qb.group.position.x, 10, qb.group.position.z + 15); camera.lookAt(qb.group.position.x, 0, qb.group.position.z - 20);
     attachBallToQB(qb);
     GAME_STATE = 'PLAY';
@@ -6478,6 +6640,7 @@ function checkInputs(e) {
         if (e.code === 'KeyQ') startCarrierMove(activeReceiver, 'juke');
         if (e.code === 'KeyF') startCarrierMove(activeReceiver, 'spin');
         if (e.code === 'KeyX') startCarrierMove(activeReceiver, 'stiff');
+        if (e.code === 'KeyG') startShowboat(activeReceiver);
     }
     
     if ((e.code === 'KeyT' || e.code === 'Enter') && e.type === 'keydown' && GAME_STATE === 'TIMEOUT') { endTimeout(); return; }
@@ -6487,7 +6650,7 @@ function checkInputs(e) {
     if (teamCeleb && teamCeleb.phase === 'pick' && e.type === 'keydown' && /^Digit[0-9]$/.test(e.code)) { chooseCelebration((Number(e.code.slice(5)) + 9) % 10); return; }   // celebration wheel: 1–9, 0 = tenth
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
 
-    if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') {
+    if ((GAME_STATE === 'PRE_SNAP' || (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending)) && e.type === 'keydown') {   // power can change after the snap too, until he lets it go
         if (e.code === 'KeyE' || e.code === 'ArrowUp')   passPower = Math.min(maxPassPower(), passPower + 0.1); // the QB's arm sets the cap
         if (e.code === 'KeyQ' || e.code === 'ArrowDown')  passPower = Math.max(0.1, passPower - 0.1);
         document.getElementById('vertical-power-fill').style.height = (passPower * 100) + '%';
@@ -6526,7 +6689,8 @@ function onMouseDown(e) {
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
         if (targetedReceiver) startHookLadder(targetedReceiver);   // the trailer breaks on the throw
         callThrow(qb, passTarget, targetedReceiver);
-        qb.throwTimer = 0.55; // trigger throw animation
+        qb.throwTimer = 0.55; qb.throwAt = passTarget.clone(); // trigger throw animation
+        document.getElementById('vertical-power-meter').classList.add('hidden');
         if (playStat) { playStat.thrown = true; gameStats.att++; creditPlayer('QB', 'att'); }
         brainNoteThrow(qb, passTarget, targetedReceiver); // the defense remembers where and to whom
     }
@@ -6576,13 +6740,24 @@ function detachBallToScene() {
 const STANDING_REACH = 3.3;  // hands-up height (shoulder 1.9 + ~1.4 arm and hand) without leaving the ground
 const JUMP_RISE_TIME = 11 / 30; // seconds from takeoff to peak for a jump of yVelocity 11 under gravity 30
 
-// When and how high the pass reaches this player (ignores the player's own movement), or null if no pass is in the air.
+// When and how high the pass reaches this player, and how far to the side of him it passes (miss),
+// or null if no pass is in the air. Worked out relative to him as he runs: a receiver running away
+// from the throw gets it later — and lower — than where he is now would say.
 function ballArrival(p) {
     if (!ball.velocity) return null;
-    const horizSpeed = Math.hypot(ball.velocity.x, ball.velocity.z);
-    const horizDist = Math.hypot(ball.position.x - p.group.position.x, ball.position.z - p.group.position.z);
-    const t = horizSpeed > 0.1 ? horizDist / horizSpeed : 0;
-    return { t, y: ball.position.y + ball.velocity.y * t - 15 * t * t };
+    const fwd = p._arrFwd || (p._arrFwd = new THREE.Vector3());
+    fwd.set(0, 0, 1).applyQuaternion(p.group.quaternion);
+    const run = p.currentMoveSpeed || 0;
+    const rvx = ball.velocity.x - fwd.x * run, rvz = ball.velocity.z - fwd.z * run;
+    const dx = p.group.position.x - ball.position.x, dz = p.group.position.z - ball.position.z;
+    const rs2 = rvx * rvx + rvz * rvz;
+    const t = rs2 > 0.01 ? Math.max(0, (dx * rvx + dz * rvz) / rs2) : 0;   // closest approach
+    return { t, y: ball.position.y + ball.velocity.y * t - 15 * t * t, miss: Math.hypot(dx - rvx * t, dz - rvz * t) };
+}
+// Only leave your feet for a ball that's coming right at you and will be over your hands
+function shouldJumpForBall(p, arrival) {
+    return arrival && !p.isJumping && arrival.miss < 2.2 && arrival.t < JUMP_RISE_TIME
+        && arrival.y > STANDING_REACH + 0.4 && arrival.y < STANDING_REACH + 3;
 }
 
 // ─── LAYOUT (DIVING) CATCHES ─────────────────────────────────────────────────
@@ -6748,6 +6923,7 @@ function updateBallPhysics(dt) {
                 // Reach as the ball closes in; only jump when it will arrive over the hands, timed to peak on arrival
                 const arrival = ballArrival(p);
                 p.catchReach = !!arrival && arrival.t < 0.8 && horizDist < (p === targetedReceiver ? 12 : 6);
+                if (p.catchReach && !p.catchStyle) p.catchStyle = pickCatchStyle(p);
                 const canCatch = (!targetedReceiver || p === targetedReceiver) && !ball.userData.dropped && !(performance.now() < (ball.userData.bobbleUntil || 0));
                 if (p.catchDive) {
                     // Laid out: it's a catch only if the ball gets to his outstretched hands
@@ -6757,7 +6933,7 @@ function updateBallPhysics(dt) {
                 if (p === targetedReceiver && !p.isJumping) maybeStartCatchDive(p);
                 if (p.catchDive) return;
                 // Only the intended receiver jumps, and only when the ball will be over his hands
-                if (p === targetedReceiver && p.catchReach && !p.isJumping && arrival.t < JUMP_RISE_TIME && arrival.y > STANDING_REACH && arrival.y < STANDING_REACH + 3) {
+                if (p === targetedReceiver && p.catchReach && shouldJumpForBall(p, arrival)) {
                     p.isJumping = true; p.yVelocity = 11;
                 }
                 // hand height ≈ group.y + 2 (arms raised to catch); use 4-unit vertical window.
@@ -6767,6 +6943,7 @@ function updateBallPhysics(dt) {
                 if (catchable && ballSlipsAway(p)) return;
                 if (catchable) {
                     activeReceiver = p; targetedReceiver = null; GAME_STATE = 'POST_CATCH'; p.cutBurstTimer = 1.5; statCatch(p);
+                    startCatchFlourish(p);
                     attachBallToCarrier(p);
                     // Always run straight downfield after the catch until the player steers.
                     p.autoRunDir.set(0, 0, -1);
@@ -6784,7 +6961,7 @@ function updateBallPhysics(dt) {
             const arrival = ballArrival(p);
             const horizDist = Math.hypot(ball.position.x - p.group.position.x, ball.position.z - p.group.position.z);
             p.catchReach = !!arrival && arrival.t < 0.6 && horizDist < 5;
-            if (p.catchReach && !p.isJumping && arrival.t < JUMP_RISE_TIME && arrival.y > STANDING_REACH && arrival.y < STANDING_REACH + 3) { p.isJumping = true; p.yVelocity = 11; }
+            if (p.catchReach && shouldJumpForBall(p, arrival)) { p.isJumping = true; p.yVelocity = 11; }
             // Tight coverage (small trailDist) → larger interception window; loose coverage → smaller
             const interceptRange = (2.5 + Math.max(0, (1.5 - (p.trailDist || 1.0))) * 0.9) * diff().intRange;
             if (GAME_STATE !== 'PLAY' || intRet) return; // someone already picked it off
@@ -7059,7 +7236,7 @@ function startIntReturn(p) {
     callPick(p);
     activeReceiver = null; trajectoryLine.visible = false; landingMarker.visible = false;
     document.getElementById('hang-time-ui').classList.add('hidden');
-    players.offense.concat(players.defense).forEach(o => { o.intHold = 0; o.intShed = false; o.catchReach = false; });
+    players.offense.concat(players.defense).forEach(o => { o.intHold = 0; o.intShed = false; o.catchReach = false; o.catchStyle = null; o.catchFlourish = null; });
     flashBanner('INTERCEPTED!', 1400);
 }
 
@@ -10107,6 +10284,39 @@ function startCarrierMove(p, kind) {
         });
         startCarrierMove.saidJuke = false;
     }
+}
+// ─── SPECIAL CATCHES ─────────────────────────────────────────────────────────
+// How he goes up for it, decided as the ball gets to him: over the shoulder when it's coming down
+// from behind him (he's running away from the throw), now and then a one-handed grab, otherwise
+// two hands. On the catch: a toe-tap if he's at the sideline, and the ball is pulled in to secure it.
+function pickCatchStyle(p) {
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion);
+    const v = ball.velocity, hs = Math.hypot(v.x, v.z) || 1;
+    if ((v.x * fwd.x + v.z * fwd.z) / hs > 0.55 && (p.currentMoveSpeed || 0) > 3) return 'shoulder';
+    return Math.random() < 0.18 ? 'onehand' : 'two';
+}
+function startCatchFlourish(p) {
+    const toeTap = Math.abs(p.group.position.x) > SIDELINE_X - 5;
+    const kind = toeTap ? 'toetap' : p.catchStyle || 'two';
+    p.catchFlourish = { kind, t: toeTap ? 0.5 : 0.3, dur: toeTap ? 0.5 : 0.3 };
+    if (toeTap) flashBanner('TOE TAP!', 1000);
+    else if (kind === 'onehand') { flashBanner('ONE-HANDED GRAB!', 1100); commentate(pick([`ONE HAND! ${nameOf(p)} WITH THE SNAG!`, `ARE YOU KIDDING ME?! ONE HAND!`])); }
+    else if (kind === 'shoulder') flashBanner('OVER THE SHOULDER!', 1000);
+}
+
+// G inside the opponent's 20 (or in the end zone): showboat on the way in — high-step, point at
+// the crowd, or wave bye-bye to the defense; each press is the next one. He slows a touch doing it.
+const SHOWBOATS = ['highstep', 'point', 'wave'], SHOWBOAT_TIME = 1.6;
+function inShowboatZone(p) { const z = p.group.position.z; return z < GOAL_LINE_Z + 40 && z > GOAL_LINE_Z - 20; }
+function startShowboat(p) {
+    if (!p || GAME_STATE !== 'POST_CATCH' || p !== activeReceiver || p.move || !inShowboatZone(p)) return;
+    startShowboat.n = ((startShowboat.n || 0) + 1) % SHOWBOATS.length;
+    const style = SHOWBOATS[(startShowboat.n + SHOWBOATS.length - 1) % SHOWBOATS.length];
+    p.showboat = { style, t: SHOWBOAT_TIME, dur: SHOWBOAT_TIME };
+    triggerCheer();
+    commentate(pick(style === 'highstep' ? [`${nameOf(p)} IS HIGH-STEPPING IN!`, `LOOK AT THOSE KNEES!`]
+        : style === 'point' ? [`${nameOf(p)} POINTS TO THE CROWD!`, `HE'S SOAKING IT IN!`]
+        : [`${nameOf(p)} WAVES GOODBYE!`, `BYE-BYE, DEFENSE!`]));
 }
 // Chance a spin or stiff-arm beats a tackle: power for the stiff-arm, speed for the spin
 function moveBreakChance(p, kind) {
