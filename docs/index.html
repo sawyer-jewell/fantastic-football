@@ -120,6 +120,8 @@
         #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
         #kick-choice.hidden { display: none; }
         #online-wait { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 120; background: rgba(0, 34, 68, 0.95); border: 4px solid #ffcc00; color: #ffcc00; padding: 24px 30px; font-size: 0.9rem; text-align: center; line-height: 1.6; box-shadow: 6px 6px 0 #000; }
+        /* Online match, on defense: none of the offense's controls on your screen */
+        body.net-def #playbook, body.net-def #vertical-power-meter, body.net-def #hang-time-ui, body.net-def #instructions, body.net-def #right-hud { display: none !important; }
         #p2-hint { position: fixed; left: 16px; bottom: 16px; z-index: 60; background: rgba(122, 28, 42, 0.9); border: 2px solid #ff3344; color: #fff; padding: 8px 10px; font-size: 0.5rem; pointer-events: none; }
         #achv-toast { position: fixed; top: 20px; right: 20px; z-index: 300; background: #002244; border: 3px solid #ffcc00; color: #fff; padding: 12px 16px; font-size: 0.7rem; box-shadow: 4px 4px 0 #000; pointer-events: none; }
         #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
@@ -1576,7 +1578,7 @@ function swapStarter(slot, quiet) {
 // ─── Injuries ───
 // A carrier you tackle, a man who makes a tackle: now and then he's hurt for 1–6 weeks
 function maybeInjure(slot, chance) {
-    if (!slot || !roster || challengeMode || Math.random() >= chance) return;
+    if (!slot || !roster || challengeMode || matchOn() || Math.random() >= chance) return;
     const p = roster[slot];
     if (p.injury > 0) return;
     const weeks = 1 + Math.floor(Math.pow(Math.random(), 1.8) * 6);
@@ -1747,6 +1749,11 @@ function toggleTwoPlayer() {
     const b = document.getElementById('btn-2p'); if (b) b.innerText = `PLAYERS: ${p2.on ? 2 : 1}`;
 }
 function p2Dir(view) {
+    if (matchOn()) {   // online match: the defending side's WASD (or arrows), seen from the defense camera
+        const k = matchDefending('host') ? localKeys : net.remoteKeys;
+        const mx = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0), my = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0);
+        return mx || my ? new THREE.Vector3(-mx, 0, my).normalize() : null;
+    }
     const R = net && net.role === 'host' && net.conn ? (p2.remote || {}) : null;   // online: Player 2's keys come over the network
     const x = R ? (R.r ? 1 : 0) - (R.l ? 1 : 0) : (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0);
     const y = R ? (R.u ? 1 : 0) - (R.d ? 1 : 0) : (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0);
@@ -1754,9 +1761,15 @@ function p2Dir(view) {
     // Your drives: the camera looks down the field (−Z); their drives: it looks back up it (+Z)
     return (view === 'dp' ? new THREE.Vector3(-x, 0, y) : new THREE.Vector3(x, 0, -y)).normalize();
 }
-const p2Sprint = () => net && net.role === 'host' && net.conn ? !!(p2.remote && p2.remote.s) : !!keys['ShiftRight'];
+const p2Sprint = () => matchOn() ? (k => !!(k.ShiftLeft || k.ShiftRight))(matchDefending('host') ? localKeys : net.remoteKeys)
+    : net && net.role === 'host' && net.conn ? !!(p2.remote && p2.remote.s) : !!keys['ShiftRight'];
 // Your drives: Player 2's defender
 function p2Control(p, dt) {
+    if (p.uDive && updateUserDive(p, dt)) {   // E: diving at him
+        const qb = players.offense[0];
+        if (isUserDiving(p) && GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending && !trickPitch && qb && activeReceiver !== qb && p.group.position.distanceTo(qb.group.position) < DIVE_REACH) triggerTackle(qb, p, 'SACKED!');
+        return;
+    }
     const d = p2Dir('offense');
     if (p.stunTimer > 0) p.stunTimer -= dt;
     if (d) steerTo(p, p.group.position.clone().addScaledVector(d, 3), p.baseSpeed * (p2Sprint() ? 1.25 : 1) * (p.stunTimer > 0 ? 0.3 : 1), dt);
@@ -1780,6 +1793,7 @@ function p2Switch() {
 }
 // Every frame: who Player 2 has, and the red ring under him
 function updateP2(dt) {
+    if (net && net.role === 'guest') return;   // the friend's screen draws the ring from the host's updates
     if (!p2.ring) {
         p2.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.12, 6, 24), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
         p2.ring.rotation.x = Math.PI / 2; scene.add(p2.ring);
@@ -1793,7 +1807,13 @@ function updateP2(dt) {
     }
     p2.ring.visible = !!who;
     if (who) p2.ring.position.set(who.group.position.x, 0.07, who.group.position.z);
-    const hint = document.getElementById('p2-hint'); if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+    const hint = document.getElementById('p2-hint');
+    if (hint && matchOn()) {   // online match: the defense prompt only on your screen when you're the defense
+        const show = matchDefending('host') && ['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH', 'TACKLED'].includes(GAME_STATE);
+        hint.classList.toggle('hidden', !show);
+        if (show && hint.innerText !== matchDefensePrompt()) hint.innerText = matchDefensePrompt();
+        document.body.classList.toggle('net-def', matchDefending('host'));
+    } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
 }
 
 // ─── ONLINE ──────────────────────────────────────────────────────────────────
@@ -1830,7 +1850,7 @@ async function hostOnline() {
     try { await loadPeerJS(); } catch (e) { netStatus('COULDN\'T LOAD ONLINE PLAY (YOUR NETWORK MAY BLOCK IT)'); return; }
     const ALPH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', code = Array.from({ length: 5 }, () => ALPH[Math.floor(Math.random() * ALPH.length)]).join('');
     const peer = new Peer(NET_PREFIX + code);
-    net = { role: 'host', peer, code, conn: null, ids: new Map(), nextId: 1, live: new Set(), t: 0, hudT: 0 };
+    net = { role: 'host', peer, code, conn: null, ids: new Map(), nextId: 1, live: new Set(), t: 0, hudT: 0, remoteKeys: {}, guestInfo: null, match: null };
     peer.on('open', () => netStatus(`YOUR CODE: ${code}\nTELL YOUR FRIEND TO PICK JOIN AND TYPE IT IN`));
     peer.on('error', e => { netStatus(e.type === 'unavailable-id' ? 'THAT CODE WAS TAKEN — TRY HOST AGAIN' : `CONNECTION PROBLEM (${e.type})`); if (!net.conn) { peer.destroy(); net = null; } });
     peer.on('connection', conn => {
@@ -1843,16 +1863,16 @@ async function hostOnline() {
         });
         conn.on('data', m => {
             if (!m) return;
-            if (m.t === 'in') p2.remote = m;
-            else if (m.t === 'sw') p2Switch();
+            if (m.t === 'ghello') { net.guestInfo = m; netStatus(`${m.team} IS CONNECTED — GO PICK YOUR GAME (THEY'LL BE YOUR OPPONENT)`); flashBanner(`${m.team} JOINED!`, 1800); }
+            else matchFromGuest(m);
         });
         conn.on('close', () => { if (net) { net.conn = null; } p2.remote = null; flashBanner('YOUR FRIEND DISCONNECTED', 2000); });
     });
 }
-function netSendHello() {
+function netSendHello(withWx = true) {
     if (!net || net.role !== 'host' || !net.conn) return;
     net.live = new Set();
-    net.conn.send({ t: 'hello', home: MY_TEAM.id, opp: currentOpponent ? currentOpponent.id : null, uh: isUserHome, wx: weather || null });
+    net.conn.send({ t: 'hello', home: MY_TEAM.id, opp: currentOpponent ? currentOpponent.id : null, uh: isUserHome, wx: withWx ? weather || null : null });
 }
 // Everybody on the field right now (whatever the game is doing)
 function onlineActors() {
@@ -1874,23 +1894,27 @@ function netHostTick(dt) {
         const spawn = actors.filter(p => !net.live.has(net.ids.get(p))).map(p => [net.ids.get(p), p.team, p.role, String(p.number)]);
         const gone = [...net.live].filter(id => !ids.includes(id));
         if (spawn.length || gone.length) { net.conn.send({ t: 'cast', add: spawn, rm: gone }); spawn.forEach(s => net.live.add(s[0])); gone.forEach(id => net.live.delete(id)); }
-        // [inGame, camera pos + quat (1–7), ball pos + quat (8–14), Player 2's ring x/z (15–16), count (17)] then each actor from 18
-        const a = new Float32Array(18 + actors.length * NET_STRIDE);
-        const bw = ballWorld(), ring = p2.ring && p2.ring.visible ? p2.ring.position : null;
-        a.set([inGame ? 1 : 0, camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w, ...bw,
-               ring ? ring.x : 1e6, ring ? ring.z : 1e6, actors.length]);
+        // [inGame, the game's own (offense) camera pos + quat (1–7), ball pos + quat (8–14), the defender's
+        // ring x/z (15–16), line of scrimmage (17), friend has the ball (18), count (19)] then each actor from 20
+        const a = new Float32Array(20 + actors.length * NET_STRIDE);
+        const bw = ballWorld(), ring = p2.ring && p2.ring.visible ? p2.ring.position : null, ec = net.ecam || [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w];
+        a.set([inGame ? 1 : 0, ...ec, ...bw, ring ? ring.x : 1e6, ring ? ring.z : 1e6, lineOfScrimmageZ, matchOn() && net.match.offense === 'guest' ? 1 : 0, actors.length]);
         actors.forEach((p, i) => {
-            const o = 18 + i * NET_STRIDE, g = p.group;
+            const o = 20 + i * NET_STRIDE, g = p.group;
             a.set([ids[i], g.position.x, g.position.y, g.position.z, g.quaternion.x, g.quaternion.y, g.quaternion.z, g.quaternion.w], o);
             NET_LIMBS.forEach((k, j) => { const r = p[k] ? p[k].rotation : null; a[o + 8 + j * 2] = r ? r.x : 0; a[o + 9 + j * 2] = r ? r.z : 0; });
         });
-        net.conn.send({ t: 'snap', d: a.buffer });
+        // The throw preview (for whoever's on offense): the arc and where it lands
+        const traj = trajectoryLine.visible && trajectoryLine.geometry.attributes.position ? trajectoryLine.geometry.attributes.position.array.slice().buffer : null;
+        net.conn.send({ t: 'snap', d: a.buffer, traj, land: landingMarker.visible ? [landingMarker.position.x, landingMarker.position.z] : null });
     }
     if (net.hudT >= 0.25) {
         net.hudT = 0;
         const txt = id => { const el = document.getElementById(id); return el ? el.innerText : ''; };
         const shown = id => { const el = document.getElementById(id); return !!el && !el.classList.contains('hidden'); };
-        net.conn.send({ t: 'hud', inGame, s: [scoreOff, scoreDef, currentQuarter, gameTime, currentDown, yardsToGo], ids: ['score-off', 'score-def', 'game-clock', 'down-distance', 'scoreboard-off-name', 'scoreboard-opp-name', 'timeout-display', 'instructions', 'quarter-break-text', 'commentary'].map(id => [id, txt(id), shown(id)]) });
+        const routes = routeLinesGroup.children.map(l => Array.from(l.geometry.attributes.position.array).map(v => Math.round(v * 10) / 10));
+        net.conn.send({ t: 'hud', inGame, st: GAME_STATE, off: matchOn() ? net.match.offense : 'host', pp: passPower, meter: shown('vertical-power-meter'), call: matchOn() ? net.match.defCall : 'base', routes,
+            s: [scoreOff, scoreDef, currentQuarter, gameTime, currentDown, yardsToGo], ids: ['score-off', 'score-def', 'game-clock', 'down-distance', 'scoreboard-off-name', 'scoreboard-opp-name', 'timeout-display', 'instructions', 'quarter-break-text', 'commentary'].map(id => [id, txt(id), shown(id)]) });
     }
 }
 async function joinOnline() {
@@ -1904,7 +1928,7 @@ async function joinOnline() {
     peer.on('open', () => {
         const conn = peer.connect(NET_PREFIX + code, { reliable: true });
         net.conn = conn;
-        conn.on('open', enterGuestMode);
+        conn.on('open', () => { conn.send({ t: 'ghello', team: MY_TEAM.id, roster: roster || null, bench: bench || null }); enterGuestMode(); });   // your team and players come with you
         conn.on('data', onGuestData);
         conn.on('close', () => { flashBanner('THE HOST LEFT', 2500); setTimeout(() => location.reload(), 2500); });
     });
@@ -1915,6 +1939,7 @@ function enterGuestMode() {
     players.offense.concat(players.defense).forEach(p => scene.remove(p.group)); players = { offense: [], defense: [] };
     GAME_STATE = 'ONLINE_GUEST';
     document.getElementById('online-wait').classList.remove('hidden');
+    const cp = document.getElementById('custom-plays'); if (cp) cp.innerHTML = '';   // (your saved plays live on your computer; the host runs the playbook)
     detachBallToScene(); ball.velocity = null;
     if (!net.ring) { net.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.12, 6, 24), new THREE.MeshBasicMaterial({ color: 0xff3344 })); net.ring.rotation.x = Math.PI / 2; scene.add(net.ring); }
 }
@@ -1937,11 +1962,22 @@ function onGuestData(m) {
         });
     } else if (m.t === 'snap') {
         const d = new Float32Array(m.d), idx = new Map();
-        for (let i = 0, n = d[17]; i < n; i++) idx.set(d[18 + i * NET_STRIDE], 18 + i * NET_STRIDE);
+        for (let i = 0, n = d[19]; i < n; i++) idx.set(d[20 + i * NET_STRIDE], 20 + i * NET_STRIDE);
         net.prev = net.cur; net.cur = { at: performance.now(), d, idx };
+        // The throw preview, only for the friend when they're the offense
+        const show = !!(net.gOff && m.traj);
+        trajectoryLine.visible = show;
+        if (show) { trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(m.traj), 3)); trajectoryLine.computeLineDistances(); }
+        landingMarker.visible = !!(net.gOff && m.land);
+        if (landingMarker.visible) landingMarker.position.set(m.land[0], 0.2, m.land[1]);
+    } else if (m.t === 'final') {
+        document.body.classList.remove('net-def');
+        ['online-wait', 'p2-hint', 'playbook', 'vertical-power-meter'].forEach(id => document.getElementById(id).classList.add('hidden'));
+        showOffseason('FINAL', m.html, [['BACK TO MENU', 'location.reload()']]);
     } else if (m.t === 'hud') {
         net.inGame = m.inGame;
         if (m.s) [scoreOff, scoreDef, currentQuarter, gameTime, currentDown, yardsToGo] = m.s;   // (for the jumbotrons)
+        guestMatchHud(m);
         document.getElementById('online-wait').classList.toggle('hidden', m.inGame);
         document.getElementById('scoreboard').classList.toggle('hidden', !m.inGame);
         m.ids.forEach(([id, text, shown]) => {
@@ -1962,8 +1998,10 @@ function netGuestTick() {
         q0.set(pa[pi + 3], pa[pi + 4], pa[pi + 5], pa[pi + 6]); q1.set(ca[ci + 3], ca[ci + 4], ca[ci + 5], ca[ci + 6]);
         obj.quaternion.slerpQuaternions(q0, q1, u);
     };
-    pose(camera, P.d, 1, C.d, 1);
     pose(ball, P.d, 8, C.d, 8);
+    // Your side's camera: the offense camera when you have the ball, the defense view when you don't
+    if (C.d[18] === 1 || !net.inGame) pose(camera, P.d, 1, C.d, 1);
+    else defenseView(ball.position, C.d[17], 0.12);
     net.ring.visible = C.d[15] < 1e5;
     if (net.ring.visible) net.ring.position.set(C.d[15], 0.07, C.d[16]);
     C.idx.forEach((ci, id) => {
@@ -1973,15 +2011,172 @@ function netGuestTick() {
         NET_LIMBS.forEach((k, j) => { if (!p[k]) return; p[k].rotation.x = L(pd[pi + 8 + j * 2], C.d[ci + 8 + j * 2]); p[k].rotation.z = L(pd[pi + 9 + j * 2], C.d[ci + 9 + j * 2]); });
     });
 }
-// The friend's keys: arrows or WASD to move, SHIFT to sprint, Q or / to switch, ESC to leave
+// The friend's keys: every one goes to the host — on offense they drive the offense, on defense
+// your defender (WASD, SHIFT, Q, E, 1–5). ESC leaves.
 function guestKeys(e) {
     if (e.code === 'Escape' && e.type === 'keydown') { if (confirm('Leave the online game?')) location.reload(); return; }
     if (!net.conn || !net.conn.open) return;
-    if (e.type === 'keydown' && !e.repeat && (e.code === 'KeyQ' || e.code === 'Slash')) { net.conn.send({ t: 'sw' }); return; }
-    const k = c => !!keys[c];
-    const st = { t: 'in', u: k('ArrowUp') || k('KeyW'), d: k('ArrowDown') || k('KeyS'), l: k('ArrowLeft') || k('KeyA'), r: k('ArrowRight') || k('KeyD'), s: k('ShiftLeft') || k('ShiftRight') };
-    const key = JSON.stringify(st);
-    if (key !== net.sent) { net.sent = key; net.conn.send(st); }
+    net.conn.send({ t: 'key', code: e.code, down: e.type === 'keydown', rep: !!e.repeat });
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code) && e.preventDefault) e.preventDefault();
+}
+// The friend's mouse on offense: aim on their own screen (they see the same camera as the
+// offense) and send the spot; click to throw
+function guestMouse(e, click) {
+    if (!net.conn || !net.conn.open || !net.gOff) return;
+    if (click) { net.conn.send({ t: 'click' }); return; }
+    if (performance.now() - (net.aimAt || 0) < 33) return;
+    net.aimAt = performance.now();
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hit = raycaster.intersectObjects([field, endzoneHome, endzoneDef])[0];
+    if (hit) { net.conn.send({ t: 'aim', x: hit.point.x, z: hit.point.z }); landingMarker.position.set(hit.point.x, 0.2, hit.point.z); }
+}
+
+// ─── ONLINE MATCH: HEAD TO HEAD ──────────────────────────────────────────────
+// A real game between two people. Whoever has the ball plays offense exactly like a normal game
+// (playbook, QB, throwing, running — same keys and mouse), from their own computer; whoever doesn't
+// plays defense (WASD a defender, SHIFT sprint, Q switch, E dive, 1–5 the call). Each screen shows
+// its own side: the offense camera and playbook, or the defense camera and calls.
+// The host's game runs both offenses on the one offense engine: when the ball changes hands it
+// swaps whose team is "yours" (colors, roster, score, timeouts). Kicks are automatic (extra points,
+// field goals by distance, kickoffs are touchbacks to the 25, punts go about 40). It's an
+// exhibition: nothing is saved to either franchise (the page reloads when it's over).
+const MATCH_CALLS = [['base', 'BASE'], ['cover2', 'COVER 2'], ['cover3', 'COVER 3'], ['man', 'MAN'], ['prevent', 'PREVENT']];
+const MATCH_DEPTHS = { base: [20, 16, 2], cover2: [24, 24, 2], cover3: [33, 16, 8], man: [12, 12, 1], prevent: [43, 37, 15] };   // [FS, SS, corner cushion]
+const localKeys = {};
+function matchOn() { return !!(net && net.match); }
+function matchDefending(side) { return matchOn() && net.match.offense !== side; }   // is this side ('host'/'guest') on defense?
+function startMatch() {
+    const g = net.guestInfo;
+    net.match = { teams: { host: { ...MY_TEAM }, guest: { ...currentOpponent } }, rosters: { host: roster, guest: g.roster || roster },
+                  benches: { host: bench, guest: g.bench || bench }, offense: 'host', defCall: 'base' };
+    p2.on = true;
+}
+function matchSwapTo(who) {
+    const M = net.match; if (M.offense === who) return;
+    const other = who === 'host' ? 'guest' : 'host';
+    Object.assign(MY_TEAM, M.teams[who]); currentOpponent = M.teams[other];
+    roster = M.rosters[who]; bench = M.benches[who];
+    [scoreOff, scoreDef] = [scoreDef, scoreOff]; qtrScores = { off: qtrScores.def, def: qtrScores.off };
+    [timeoutsOff, timeoutsOpp] = [timeoutsOpp, timeoutsOff]; isUserHome = !isUserHome;
+    M.offense = who; M.defCall = 'base';
+    Object.keys(keys).forEach(k => { keys[k] = false; });   // nobody's keys carry over
+    document.getElementById('scoreboard-off-name').innerText = MY_TEAM.id; document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
+    const root = document.documentElement.style;
+    root.setProperty('--team', MY_TEAM.color); root.setProperty('--team2', MY_TEAM.helmet === MY_TEAM.color ? '#ffffff' : MY_TEAM.helmet);
+    root.setProperty('--opp', currentOpponent.color); root.setProperty('--opp2', currentOpponent.helmet === currentOpponent.color ? '#ffffff' : currentOpponent.helmet);
+    updateTimeoutDisplay(); netSendHello(false);   // the friend's screen re-dresses everybody
+}
+// A change of possession (or a kickoff): `who` gets the ball at los (offense always goes toward −Z)
+function matchPossession(who, los) {
+    if (GAME_STATE === 'GAME_OVER') return;   // (a kick timer that fires after the final whistle)
+    matchSwapTo(who);
+    tackleFalls = []; riseAnims = []; ball.velocity = null;
+    lineOfScrimmageZ = THREE.MathUtils.clamp(los, -90, 90); currentDown = 1; yardsToGo = 10; isTwoPointAttempt = false;
+    flashBanner(`${MY_TEAM.id} BALL`, 1300);
+    setupFormation();
+}
+const matchOther = () => net.match.offense === 'host' ? 'guest' : 'host';
+function matchKick(type) {
+    if (type === 'kickoff') matchPossession(matchOther(), 50);              // touchback: their 25
+    else if (type === 'opp_kickoff') matchPossession(net.match.offense, 50);
+    else if (type === 'punt') {
+        const land = lineOfScrimmageZ - 72 - Math.random() * 18;
+        flashBanner(`PUNT — ${Math.round((lineOfScrimmageZ - Math.max(land, -100)) / 2)} YARDS`, 1300);
+        setTimeout(() => matchPossession(matchOther(), land <= -100 ? 60 : -land), 1300);
+    } else matchPossession(matchOther(), 50);
+}
+function matchAutoXP() {
+    const good = Math.random() < 0.94;
+    if (good) addScore('off', 1);
+    flashBanner(good ? 'EXTRA POINT IS GOOD' : 'EXTRA POINT — NO GOOD', 1200);
+    setTimeout(finalizeTouchdown, 1300);
+}
+function matchAutoFG() {
+    const yards = Math.round((lineOfScrimmageZ - GOAL_LINE_Z) / 2) + 17, w = kickGreenWidth(yards);
+    const good = w > 0 && Math.random() < Math.min(0.96, w / Math.max(0.01, kickGreenWidth(20)) * 0.95);
+    if (good) addScore('off', 3);
+    flashBanner(`${yards}-YARD FIELD GOAL... ${good ? 'GOOD!' : 'NO GOOD'}`, 1500);
+    kickSpotZ = lineOfScrimmageZ + 14;
+    setTimeout(() => finishFieldGoal(good), 1600);
+}
+function matchFinal() {
+    if (net.match.offense === 'guest') matchSwapTo('host');
+    const me = MY_TEAM.id, them = currentOpponent.id, a = scoreOff, b = scoreDef;
+    GAME_STATE = 'GAME_OVER';
+    const html = `<div style="font-size:1.4rem; color:#ffcc00; margin:20px 0;">${me} ${a} — ${them} ${b}</div><div class="stats-head">${a === b ? 'A TIE!' : (a > b ? me : them) + ' WINS'}</div>`;
+    if (net.conn && net.conn.open) net.conn.send({ t: 'final', html });
+    showOffseason('FINAL', html, [['BACK TO MENU', 'location.reload()']]);
+}
+// Every key press: online, it goes to whoever's side it belongs to
+function onKey(e, down) {
+    localKeys[e.code] = down;
+    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestKeys(e); return; }   // the friend's keys go to the host
+    if (matchDefending('host') && GAME_STATE !== 'GAME_OVER') { defenderKey(e); return; }            // you're on defense: they don't drive the offense
+    keys[e.code] = down; checkInputs(e);
+}
+// The defense side's keys (the host's own when the friend has the ball, the friend's otherwise)
+function defenderKey(e) {
+    if (e.type !== 'keydown' || e.repeat) return;
+    if (e.code === 'KeyQ' || e.code === 'Slash') p2Switch();
+    else if (e.code === 'KeyE' && p2.ctrl && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) startUserDive(p2.ctrl, (activeReceiver || players.offense[0]).group.position);
+    else if (/^Digit[1-5]$/.test(e.code) && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) setMatchDefCall(Number(e.code.slice(5)) - 1);
+}
+function setMatchDefCall(i) {
+    const [k, name] = MATCH_CALLS[i], [fs, ss, cb] = MATCH_DEPTHS[k], L = lineOfScrimmageZ;
+    net.match.defCall = k; defScheme = k;
+    players.defense.forEach(d => {
+        if (d.role === 'FS') d.group.position.z = L - fs;
+        else if (d.role === 'SS') d.group.position.z = L - ss;
+        else if (d.role === 'CB') d.group.position.z = L - cb;
+    });
+    flashBanner(`DEFENSE: ${name}`, 800);
+}
+function matchDefensePrompt(call) {
+    const cur = call || (net && net.match && net.match.defCall) || 'base';
+    return 'YOU\'RE ON DEFENSE (RED RING) — WASD MOVE · SHIFT SPRINT · Q SWITCH · E DIVE\nCALL: ' + MATCH_CALLS.map(([k, n], i) => `${i + 1} ${k === cur ? '[' + n + ']' : n}`).join(' · ');
+}
+// Host: a message from the friend during a match
+function matchFromGuest(m) {
+    const M = net.match, guestOff = M && M.offense === 'guest';
+    if (m.t === 'key') {
+        net.remoteKeys[m.code] = m.down;
+        const ev = { code: m.code, type: m.down ? 'keydown' : 'keyup', repeat: !!m.rep };
+        if (!M) return;
+        if (guestOff) { keys[m.code] = m.down; checkInputs(ev); } else defenderKey(ev);
+    } else if (m.t === 'aim' && guestOff && (GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP')) {
+        passTarget.set(m.x, 0, m.z); landingMarker.position.set(m.x, 0.2, m.z);
+    } else if (m.t === 'click' && guestOff) {
+        net.remoteClick = true; try { onMouseDown({}); } finally { net.remoteClick = false; }
+    } else if (m.t === 'play' && guestOff && GAME_STATE === 'PLAYBOOK') selectPlay(m.id);
+}
+// The defense camera: behind your defenders, looking back at the offense (same as playing defense)
+function defenseView(b, L, k) {
+    const want = new THREE.Vector3(b.x * 0.6, 16, Math.min(b.z, L) - 21), look = new THREE.Vector3(b.x * 0.8, 0, b.z + 6);
+    if (!defenseView.pos) { defenseView.pos = want.clone(); defenseView.look = look.clone(); }
+    defenseView.pos.lerp(want, k); defenseView.look.lerp(look, k);
+    camera.position.copy(defenseView.pos); camera.lookAt(defenseView.look);
+}
+// Guest: what to show on this screen for the side they're on
+function guestMatchHud(m) {
+    const off = m.off === 'guest';
+    net.gOff = off;
+    document.body.classList.toggle('net-def', !off);
+    document.getElementById('playbook').classList.toggle('hidden', !(off && m.st === 'PLAYBOOK'));
+    const meter = document.getElementById('vertical-power-meter');
+    meter.classList.toggle('hidden', !(off && m.meter));
+    if (m.pp != null) { const f = document.getElementById('vertical-power-fill'); f.style.height = (m.pp * 100) + '%'; f.style.background = `rgb(${Math.round(m.pp * 255)},${Math.round((1 - m.pp) * 255)},0)`; }
+    const hint = document.getElementById('p2-hint');
+    hint.classList.toggle('hidden', off || !m.inGame || !['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH', 'TACKLED'].includes(m.st));
+    if (!off) hint.innerText = matchDefensePrompt(m.call);
+    // The offense's route lines (drawn before the snap) and trajectory preview are only for the offense
+    if (m.routes && JSON.stringify(m.routes) !== net.routesKey) {
+        net.routesKey = JSON.stringify(m.routes);
+        while (routeLinesGroup.children.length) routeLinesGroup.remove(routeLinesGroup.children[0]);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        m.routes.forEach(pts => { const v = []; for (let i = 0; i < pts.length; i += 3) v.push(new THREE.Vector3(pts[i], pts[i + 1], pts[i + 2])); routeLinesGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(v), mat)); });
+    }
+    routeLinesGroup.visible = off;
 }
 
 // ─── ACHIEVEMENTS ────────────────────────────────────────────────────────────
@@ -2017,7 +2212,7 @@ function achieved() {
     return achieved.set;
 }
 function achieve(id) {
-    const got = achieved(); if (got.has(id) || challengeMode) return;
+    const got = achieved(); if (got.has(id) || challengeMode || matchOn()) return;
     const a = ACHIEVEMENTS.find(x => x[0] === id); if (!a) return;
     got.add(id);
     try { localStorage.setItem('ff-achievements', JSON.stringify([...got])); } catch (e) {}
@@ -2591,7 +2786,7 @@ function applySaveData(d) {
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
-function saveSeason() { if (!activeSlot) return; try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(getSaveData())); } catch (e) {} }
+function saveSeason() { if (!activeSlot || matchOn()) return; try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(getSaveData())); } catch (e) {} }
 // ─── SAVE SLOTS & TEAM SELECT ────────────────────────────────────────────────
 // Three saves, each its own franchise: team, record, league, roster and stats. The game opens on
 // SELECT YOUR SAVE; an empty slot asks you to pick your team (any of the 32) and starts fresh, a used
@@ -2981,7 +3176,10 @@ function openMatchupScreen() {
     // Season over: the rookie draft first, then the new season
     if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openOffseason(); return; }   // awards, re-signing, the draft, free agency
 
-    if (seasonPhase === 'playoffs') {
+    if (net && net.role === 'host' && net.conn && net.guestInfo) {
+        // Online: your friend's team, at your place
+        currentOpponent = { ...(teamById(net.guestInfo.team) || NFL_TEAMS[0]) }; isUserHome = true;
+    } else if (seasonPhase === 'playoffs') {
         // Higher seed hosts
         currentOpponent = teamById(playoffs.opp);
         isUserHome = playoffs.userSeed < playoffs.seeds.indexOf(playoffs.opp) + 1;
@@ -3319,8 +3517,8 @@ function init() {
     scene.add(routeLinesGroup);
 
     window.addEventListener('resize', onWindowResize);
-    document.addEventListener('keydown', (e) => { keys[e.code] = true; checkInputs(e); });
-    document.addEventListener('keyup', (e) => { keys[e.code] = false; checkInputs(e); });
+    document.addEventListener('keydown', (e) => onKey(e, true));
+    document.addEventListener('keyup', (e) => onKey(e, false));
     document.addEventListener('mousedown', onMouseDown);
     // Scroll wheel zooms the defense camera in and out
     document.addEventListener('wheel', e => {
@@ -5655,7 +5853,7 @@ class Player {
             const ladderGrace = hookLadder && ((hookLadder.catcher === this && hookLadder.phase === 'trail' && hookLadder.t < 0.45) || (hookLadder.trailer === this && hookLadder.phase === 'pitch'));   // nobody tackles the trailer while the pitch is in the air
             if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN' && !ladderGrace) { // no tackles during TD celebration or in end zone
                 players.defense.forEach(d => {
-                    if (!d.pancake && !(d.brokeUntil > performance.now()) && d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
+                    if (!d.pancake && !(d.brokeUntil > performance.now()) && d.group.position.distanceTo(this.group.position) < (isUserDiving(d) ? DIVE_REACH : d.uDive ? 0 : d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
                         if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
                             if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
                         } else if (GAME_STATE === 'POST_CATCH' && !d.engagedNow && cpuHitStickFromFront(this, d)) {
@@ -5731,6 +5929,7 @@ class Player {
  * GAME LOGIC
  */
 function startGame() {
+    if (net && net.role === 'host' && net.conn && net.guestInfo) startMatch();   // online head to head
     gameInjuries = []; challengesLeft = 2; challengeable = null; lastSnap = null;
     if(musicInterval) clearInterval(musicInterval);
     if(menuPlayerModel) scene.remove(menuPlayerModel.group);
@@ -7166,7 +7365,7 @@ function setupFormation() {
     // Pick a random defensive scheme for this formation
     // No-huddle: the defense is stuck in what it had on the field
     if (hurryUp && defScheme) defRead = 'NO-HUDDLE';
-    else defScheme = pickDefScheme();
+    else defScheme = (matchOn() && net.match.defCall) || pickDefScheme();   // online: the defending player's call
     clockRunning = nextClockRuns; nextClockRuns = false; huddleClockLeft = HUDDLE_SECONDS;
     playClockLeft = PLAY_CLOCK_SECONDS;   // 20 seconds to get the next snap off
     // Scheme depths: FS and SS starting z-offset from LOS, and CB cushion
@@ -7396,6 +7595,10 @@ function clearRoutePreview() {
 }
 
 function selectPlay(playType) {
+    if (net && net.role === 'guest') {   // the friend's playbook: the host runs the call
+        if (!/^custom:/.test(playType) && net.conn && net.conn.open) net.conn.send({ t: 'play', id: playType });
+        document.getElementById('playbook').classList.add('hidden'); return;
+    }
     document.getElementById('playbook').classList.add('hidden'); document.getElementById('btn-sim').classList.add('hidden');
     currentPlay = playType;
 
@@ -7803,6 +8006,8 @@ function checkInputs(e) {
 }
 function onMouseMove(e) {
     cursorX = e.clientX; cursorY = e.clientY;
+    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, false); return; }
+    if (matchDefending('host')) return;   // the friend's aiming, not yours
     if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP') {
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObjects([field, endzoneHome, endzoneDef]);
@@ -7813,7 +8018,8 @@ function onMouseMove(e) {
     }
 }
 function onMouseDown(e) {
-    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') return;
+    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, true); return; }
+    if (matchDefending('host') && !net.remoteClick) return;   // only the friend's clicks throw for their offense
     if (walkout) { endWalkout(); return; }
     if (GAME_STATE === 'REPLAY') { endReplay(); return; }
     if (performance.now() < trickThrowLockUntil || trickPitch) return; // still carrying out the fake
@@ -8174,11 +8380,13 @@ function _showKickScreen(title, subtitle, actionLabel, showGoForTwo, state, gree
 }
 
 function triggerExtraPoint() {
+    if (matchOn()) { matchAutoXP(); return; }
     _showKickScreen('TOUCHDOWN!', '+6 POINTS', 'EXTRA POINT ATTEMPT', true, 'EXTRA_POINT', kickGreenWidth(33));
 }
 
 // Field goal from the current line: snap 7 yds back + 10-yd end zone ⇒ distance = yards to goal + 17
 function triggerFieldGoal() {
+    if (matchOn()) { matchAutoFG(); return; }
     const yards = Math.round((lineOfScrimmageZ - GOAL_LINE_Z) / 2) + 17;
     const greenW = kickGreenWidth(yards);
     _showKickScreen('FIELD GOAL', greenW > 0 ? `${yards}-YARD ATTEMPT` : `${yards} YARDS — OUT OF RANGE`,
@@ -8327,6 +8535,7 @@ function finalizeTouchdown() {
 // After you score: kick it deep, or try the onside — a squib about 12 yards that's anybody's
 // ball. You get it back about a quarter of the time, more if the man you control is right there.
 function openKickChoice() {
+    if (matchOn()) { startKickReturnAnim('kickoff'); return; }
     GAME_STATE = 'KICK_CHOICE';
     const el = document.getElementById('kick-choice');
     document.getElementById('kick-choice-sub').innerText = `${MY_TEAM.id} ${scoreOff} — ${currentOpponent.id} ${scoreDef}`;
@@ -10202,6 +10411,7 @@ function tryPickTiming() {
 
 // Every kick runs on the full 11-on-11 kick engine (startFullKickoff)
 function startKickReturnAnim(type) {
+    if (matchOn()) { matchKick(type); return; }   // online: kicks are automatic
     if (type === 'kickoff') startFullKickoff({ kicker: 'user' });
     else if (type === 'opp_kickoff') startFullKickoff({ kicker: 'opp' });
     else if (type === 'punt') startFullKickoff({ kicker: 'user', punt: true, losZ: lineOfScrimmageZ });
@@ -10420,6 +10630,7 @@ function finishOppKick() {
 }
 
 function startDroneDriveSim() {
+    if (matchOn()) { matchPossession(matchOther(), droneSimLine); return; }   // online: the other player gets the ball
     GAME_STATE = 'DRONE_SIM';
     droneAngle = 0;
     ball.velocity = null;
@@ -10741,7 +10952,7 @@ function processSimPlay() {
             simLog(`> <span style="color:#00aaff;">--- END OF Q${currentQuarter - 1} | START Q${currentQuarter} ---</span>`);
             if (currentQuarter === 3) simChangePossession('def', 50); // second-half kickoff to the opponent
             if (GAME_STATE !== 'SIMULATING') return;
-        } else if ((currentQuarter === 4 || seasonPhase === 'playoffs') && scoreOff === scoreDef) { // playoff games can't end tied
+        } else if (!matchOn() && (currentQuarter === 4 || seasonPhase === 'playoffs') && scoreOff === scoreDef) { // playoff games can't end tied
             const otLabel = currentQuarter === 4 ? 'END OF REGULATION' : 'STILL TIED';
             currentQuarter = OT_QUARTER; gameTime = 120;
             const toss = Math.random() < 0.5 ? 'off' : 'def';
@@ -10932,6 +11143,7 @@ function finalizeGameStats() {
 }
 
 function endGame() {
+    if (matchOn()) { matchFinal(); return; }   // online exhibition: no franchise results
     checkGameAchievements();
     GAME_STATE = 'GAME_OVER';
     document.getElementById('scoreboard').classList.add('hidden');
@@ -11097,7 +11309,7 @@ function _triggerQuarterTransition() {
         triggerHalftime();
     } else if (currentQuarter < 4) {
         triggerQuarterBreak();
-    } else if ((currentQuarter === 4 || seasonPhase === 'playoffs') && scoreOff === scoreDef) { // playoff games can't end tied
+    } else if (!matchOn() && (currentQuarter === 4 || seasonPhase === 'playoffs') && scoreOff === scoreDef) { // playoff games can't end tied
         startOvertime();
     } else {
         endGame();
@@ -11182,6 +11394,7 @@ function resumeFromHalftime() {
     camera.position.set(0, 15, lineOfScrimmageZ + 25);
     camera.lookAt(0, 0, lineOfScrimmageZ);
     // Second half: whoever received the opening kick kicks off now
+    if (matchOn()) { matchPossession(firstHalfReceiver === 'user' ? 'guest' : 'host', 50); return; }   // online: 'user' is the host
     flashBanner(firstHalfReceiver === 'user' ? `${MY_TEAM.id} KICKS OFF TO START THE HALF` : `${MY_TEAM.id} RECEIVES TO START THE HALF`, 1600);
     startKickReturnAnim(firstHalfReceiver === 'user' ? 'kickoff' : 'opp_kickoff');
 }
@@ -11365,6 +11578,9 @@ function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeig
 function animate() {
     requestAnimationFrame(animate);
     let dt = Math.min(clock.getDelta(), 0.1) * timeScale;
+    // Online, on defense, the screen shows the defense camera — but the game keeps its own (offense)
+    // camera underneath, for the friend: put it back before this frame's updates move it
+    if (net && net.camSwapped && net.ecam) { camera.position.set(net.ecam[0], net.ecam[1], net.ecam[2]); camera.quaternion.set(net.ecam[3], net.ecam[4], net.ecam[5], net.ecam[6]); net.camSwapped = false; }
     if (jumpCooldown > 0) jumpCooldown -= dt;
     watchFrameRate();
     if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'REPLAY') { updateTackleFalls(dt); updateCatchDives(dt); updateFlags(dt); updateTrickPitch(dt); updateHookLadder(dt); updateFlyingHelmets(dt); }
@@ -11623,11 +11839,18 @@ function animate() {
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     if (easterEgg) updateEasterEgg(dt);
     if (walkout) updateWalkout(dt);
+    if (matchOn()) { net.ecam = [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w]; net.camSwapped = true; }   // the offense's camera, for whoever has the ball (restored next frame under any override)
     applyCameraMode(dt);
     updateP2(dt);
     netHostTick(dt); netGuestTick();
+    // Online match, you're on defense: the defense camera, and none of their offense's aiming lines
+    const hostDef = matchDefending('host') && CAM_STATES.has(GAME_STATE) && !replay;
+    if (hostDef) { defenseView(ball.getWorldPosition(new THREE.Vector3()), lineOfScrimmageZ, 1 - Math.exp(-6 * Math.min(dt, 0.1))); net.camSwapped = true; }
+    const hideAim = hostDef ? [trajectoryLine.visible, landingMarker.visible, routeLinesGroup.visible] : null;
+    if (hideAim) { trajectoryLine.visible = landingMarker.visible = routeLinesGroup.visible = false; }
     if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
     else renderer.render(scene, camera);
+    if (hideAim) [trajectoryLine.visible, landingMarker.visible, routeLinesGroup.visible] = hideAim;
 }
 
 // ─── BALL CARRIER MOVES ───
