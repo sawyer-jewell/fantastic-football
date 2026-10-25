@@ -40,7 +40,7 @@ The single `<script>` block at the bottom of the HTML is organized into two halv
 
 A single string global, `GAME_STATE`, gates everything. Values seen in the code:
 
-`'MENU'`, `'MATCHUP'`, `'PLAYBOOK'`, `'PRE_SNAP'`, `'PLAY'`, `'POST_CATCH'`, `'TACKLED'`, `'GETTING_UP'`, `'PAUSED'`, `'SIMULATING'`, `'GAME_OVER'`.
+`'MENU'`, `'MATCHUP'`, `'PLAYBOOK'`, `'PRE_SNAP'`, `'PLAY'`, `'POST_CATCH'`, `'TACKLED'`, `'GETTING_UP'`, `'PAUSED'`, `'SIMULATING'`, `'GAME_OVER'`, plus the special-teams and defense states (`'XP_ANIM'`, `'KICKOFF_RETURN'`, `'FG_BLOCK'`, `'DEFENSE'`, `'DRONE_SIM'`, `'INT_RETURN'`, `'TIMEOUT'`, `'CELEBRATE'` for a defense's turnover celebration, ...).
 
 The `animate()` loop at the bottom of the file is the master tick: it short-circuits player/ball updates whenever `GAME_STATE` is in `{PAUSED, MENU, SIMULATING, MATCHUP, GAME_OVER}`. When adding a new screen or modal, you almost always need to add its state to that exclusion set, otherwise the field/players keep updating behind it.
 
