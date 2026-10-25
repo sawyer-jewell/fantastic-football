@@ -117,6 +117,8 @@
         /* Halftime overlay */
         #coin-toss { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.6); color: #fff; pointer-events: auto; }
         #coin-toss.hidden { display: none; }
+        #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
+        #kick-choice.hidden { display: none; }
         #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
         body.egg-on #scoreboard, body.egg-on #hud, body.egg-on #right-hud, body.egg-on #instructions, body.egg-on #quarter-break { visibility: hidden; }
         .coin { width: 120px; height: 120px; position: relative; transform-style: preserve-3d; perspective: 600px; }
@@ -742,6 +744,7 @@
                 <div class="play-card" onclick="selectPlay('fieldgoal')" style="border-color:#00ccff;">FIELD GOAL</div>
                 <div class="play-card" onclick="selectPlay('fakefg')" onmouseenter="previewPlay('fakefg')" onmouseleave="clearRoutePreview()" style="border-color:#00ccff;">FAKE FG</div>
                 <div class="play-card" onclick="selectPlay('punt')" style="border-color:#00ccff;">PUNT</div>
+                <div class="play-card" onclick="selectPlay('fakepunt')" style="border-color:#00ccff;">FAKE PUNT</div>
                 <div id="victory-card" class="play-card hidden" onclick="selectPlay('victory')" style="border-color:#ffcc00; color:#ffcc00;">🏆 VICTORY FORMATION</div>
             </div>
         </div>
@@ -804,6 +807,15 @@
     </div>
 
     <div id="egg-fade"></div>
+    <div id="kick-choice" class="hidden">
+        <h1 style="font-size:1.8rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">KICKOFF</h1>
+        <div id="kick-choice-sub" style="font-size:0.7rem; margin-bottom:22px;"></div>
+        <div style="display:flex; gap:16px;">
+            <button class="btn-retro" onclick="chooseKick(false)">DEEP KICK</button>
+            <button class="btn-retro" style="background:#7a1c2a;" onclick="chooseKick(true)">ONSIDE KICK</button>
+        </div>
+        <div style="font-size:0.5rem; color:#aaa; margin-top:16px;">K: DEEP · O: ONSIDE</div>
+    </div>
     <div id="coin-toss" class="hidden">
         <h1 style="font-size:2rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:10px;">COIN TOSS</h1>
         <div id="coin" class="coin"><div class="coin-face coin-heads">H</div><div class="coin-face coin-tails">T</div></div>
@@ -5310,7 +5322,7 @@ function startGame() {
     eggUsed = false;
     fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // and their kick unit starts fresh too
     playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; recentPlays = []; defRead = ''; defKeyedPlay = null; // new film each game
-    twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false;
+    twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false; startTrickPlay.used = {};
     gameStats = newStatLine();
     qtrScores = { off: [0,0,0,0,0], def: [0,0,0,0,0] };
     timeoutsOff = 3; timeoutsOpp = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
@@ -6532,12 +6544,12 @@ const PLAY_CATEGORY = {
     slant: 'short', curls: 'short', hitches: 'short', outs: 'short', comeback: 'short', screen: 'short',
     digs: 'middle', crossing: 'middle',
     dive: 'run', sweepl: 'run', sweepr: 'run', draw: 'run', sneak: 'run',
-    playaction: 'deep', flea: 'deep', fakefg: 'short', hookladder: 'short', philly: 'short',
+    playaction: 'deep', flea: 'deep', fakefg: 'short', fakepunt: 'short', hookladder: 'short', philly: 'short',
 };
 const PLAY_NAMES = { verts: 'FOUR VERTS', posts: 'POSTS', corners: 'CORNERS', slant: 'SLANTS', curls: 'CURLS', hitches: 'HITCHES',
     outs: 'OUT ROUTES', comeback: 'COMEBACK', screen: 'WR SCREEN', digs: 'DIGS', crossing: 'CROSSING', dive: 'HB DIVE',
     sweepl: 'SWEEP LEFT', sweepr: 'SWEEP RIGHT', draw: 'DRAW', sneak: 'QB SNEAK', playaction: 'PLAY ACTION', flea: 'FLEA FLICKER', fakefg: 'FAKE FG',
-    hookladder: 'HOOK & LADDER', philly: 'PHILLY SPECIAL' };
+    hookladder: 'HOOK & LADDER', philly: 'PHILLY SPECIAL', fakepunt: 'FAKE PUNT' };
 let playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; // decaying counts of your recent calls
 let recentPlays = [];   // last few play ids
 let defRead = '';       // what the defense says it's reading, shown on the scoreboard
@@ -6764,7 +6776,7 @@ function setupFormation() {
 // Build route waypoints for a play, ordered [wr1, wr2, slot, te] to match
 // players.offense[1..4]. Coordinates are absolute world positions.
 // Trick plays reuse a base play's receiver routes
-const TRICK_ROUTES = { playaction: 'posts', flea: 'flea', fakefg: 'curls', hookladder: 'hookladder', philly: 'philly' };
+const TRICK_ROUTES = { playaction: 'posts', flea: 'flea', fakefg: 'curls', fakepunt: 'outs', hookladder: 'hookladder', philly: 'philly' };
 
 // ─── FORMATIONS ──────────────────────────────────────────────────────────────
 // Every play lines up in its own look. [x, depth behind the line] for the QB, the back, and the
@@ -6982,13 +6994,30 @@ function selectPlay(playType) {
     if (playType === 'philly') players.offense[5].route = [new THREE.Vector3(1.2, 0, los + 4.5), new THREE.Vector3(9, 0, los + 3.5)];   // toss right...
     if (playType === 'hookladder') players.offense[5].route = [new THREE.Vector3(-4, 0, los + 3), new THREE.Vector3(-6, 0, los + 1)];   // stays in to block the backside
     const myRb = customRbRoute(playType, los); if (myRb) players.offense[5].route = myRb;
-    const formName = playType === 'fakefg' ? null : applyFormation(playType, los);
+    const formName = playType === 'fakefg' || playType === 'fakepunt' ? null : applyFormation(playType, los);
     if (playType === 'fakefg') {
         // Field goal look: QB lines up as the kicker, the back kneels as the holder, receivers tight as wings
         players.offense[0].group.position.set(-2, 0, los + 10.5);
         const holder = players.offense[5]; holder.group.position.set(0.8, 0, los + 7); holder.kneel = true; holder.route = []; holder.animateLimbs(0); // pose him now (limbs don't animate before the snap)
         [[-7, 1.5], [7, 1.5], [-8.5, 2.8], [8.5, 2.8]].forEach(([x, d], i) => players.offense[1 + i].group.position.set(x, 0, los + d));
         camera.position.set(-1.5, 6, los + 22); camera.lookAt(0, 3, los - 30);
+    }
+    if (playType === 'fakepunt') {
+        // Punt look: the QB 14 yards back as the punter, the back as the up-man, gunners split wide,
+        // wings tight — then the punter throws it. Their returner is way back and the corners jam the gunners.
+        const off = players.offense, V = (x, z) => new THREE.Vector3(x, 0, z);
+        off[0].group.position.set(0, 0, los + 14); off[0].dropBack = null;
+        off[5].group.position.set(0, 0, los + 5); off[5].route = [V(0, los + 4)];
+        [[-30, 0.8], [30, 0.8], [-4, 1.6], [4, 1.6]].forEach(([x, d], i) => off[1 + i].group.position.set(x, 0, los + d));
+        routes[0] = [V(-30, los - 8), V(-30, los - 60)];                       // left gunner: straight down the sideline
+        routes[1] = [V(30, los - 5), V(18, los - 16), V(6, los - 26)];         // right gunner: slants inside
+        routes[2] = [V(-6, los - 3), V(-16, los - 6)];                         // wing: flat
+        routes[3] = [V(4, los - 6), V(6, los - 24)];                           // wing: seam
+        off.slice(1, 5).forEach((p, i) => { p.route = routes[i]; });
+        const D = players.defense;
+        D.filter(d => d.role === 'CB').forEach(d => d.group.position.set(Math.sign(d.group.position.x || 1) * 29, 0, los - 2));
+        const ret = D.find(d => d.role === 'FS'); if (ret) ret.group.position.set(0, 0, los - 75);
+        camera.position.set(0, 7, los + 30); camera.lookAt(0, 2, los - 20);
     }
     drawRouteLines(routes, 0x00ff00);
 
@@ -7114,6 +7143,7 @@ const TRICKS = {
     playaction: { bite: 0.8, lock: 0.55, label: 'PLAY ACTION...' },
     flea:       { bite: 1.9, cbBite: 1.3, label: 'FLEA FLICKER...', pitch: true },   // they're fooled until the pitch comes back (~1.4 s)
     fakefg:     { label: 'FIELD GOAL...', surprise: true },
+    fakepunt:   { label: 'PUNT...', surprise: true },   // the punter throws it
     hookladder: { label: 'HOOK AND LADDER...' },   // no fake: it's all in the pitch after the catch
     philly:     { bite: 1.7, cbBite: 0.7, label: 'TOSS RIGHT...', pitch: true, philly: true },   // the back throws it to the QB
 };
@@ -7130,11 +7160,11 @@ function startTrickPlay(play, qb) {
     players.defense.forEach(d => {
         if (d.role === 'LB' || d.role === 'FS' || d.role === 'SS') d.biteTimer = (t.bite || 0) * biteMul;
         if (d.role === 'CB' && t.cbBite) d.biteTimer = t.cbBite * biteMul;
-        if (t.surprise && !fakeFgUsed && (d.role === 'CB' || d.role === 'FS' || d.role === 'SS')) {
+        if (t.surprise && !(startTrickPlay.used || {})[play] && (d.role === 'CB' || d.role === 'FS' || d.role === 'SS')) {
             d.covBreakDelay = (d.covBreakDelay || 0) + 1.1; d.trailDist = (d.trailDist || 1) * 2.5; // lined up to block a kick
         }
     });
-    if (t.surprise) fakeFgUsed = true;
+    if (t.surprise) { fakeFgUsed = true; (startTrickPlay.used || (startTrickPlay.used = {}))[play] = true; }   // each fake only fools them once a game
     document.getElementById('instructions').innerText = t.label;
     // Handoff to the back, who charges the line... then pitches it right back for the deep shot
     if (t.pitch) trickPitch = { rb: players.offense[5], qb, elapsed: 0, phase: 'mesh', philly: !!t.philly };
@@ -7279,6 +7309,7 @@ function updateHookLadder(dt) {
 
 function checkInputs(e) {
     if (walkout && e.type === 'keydown' && (e.code === 'Space' || e.code === 'Enter')) { endWalkout(); return; }   // skip the walkout
+    if (GAME_STATE === 'KICK_CHOICE' && e.type === 'keydown' && (e.code === 'KeyK' || e.code === 'KeyO')) { chooseKick(e.code === 'KeyO'); return; }
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
@@ -7843,7 +7874,43 @@ function finalizeTouchdown() {
     if (pendingQuarterEnd) {
         _triggerQuarterTransition();
     } else {
-        setTimeout(() => startKickReturnAnim('kickoff'), 800);
+        setTimeout(openKickChoice, 800);
+    }
+}
+
+// ─── ONSIDE KICK ─────────────────────────────────────────────────────────────
+// After you score: kick it deep, or try the onside — a squib about 12 yards that's anybody's
+// ball. You get it back about a quarter of the time, more if the man you control is right there.
+function openKickChoice() {
+    GAME_STATE = 'KICK_CHOICE';
+    const el = document.getElementById('kick-choice');
+    document.getElementById('kick-choice-sub').innerText = `${MY_TEAM.id} ${scoreOff} — ${currentOpponent.id} ${scoreDef}`;
+    el.classList.remove('hidden');
+}
+function chooseKick(onside) {
+    if (GAME_STATE !== 'KICK_CHOICE') return;
+    document.getElementById('kick-choice').classList.add('hidden');
+    if (onside) startFullKickoff({ kicker: 'user', onside: true }); else startKickReturnAnim('kickoff');
+}
+function resolveOnside(k) {
+    const V = (x, z) => new THREE.Vector3(x, 0, z);
+    const userNear = k.user && k.user.group.position.distanceTo(k.landing) < 5;
+    const ours = Math.random() < 0.25 + (userNear ? 0.15 : 0);
+    const team = ours ? k.cover : k.ret;
+    const grabber = team.filter(p => !isFalling(p)).reduce((a, p) => p.group.position.distanceTo(k.landing) < a.group.position.distanceTo(k.landing) ? p : a);
+    grabber.group.position.copy(V(k.landing.x, k.landing.z)); grabber.currentMoveSpeed = 0;
+    ball.velocity = null; attachBallToCarrier(grabber);
+    // Everybody piles in on the scramble
+    (ours ? k.ret : k.cover).filter(p => p.group.position.distanceTo(k.landing) < 7).slice(0, 2).forEach(p => startTackleFall(p, grabber, null));
+    k.phase = 'over';
+    if (ours) {
+        flashBanner('ONSIDE KICK — RECOVERED!', 2000); triggerCheer();
+        commentate(pick([`THEY GOT IT BACK! ${MY_TEAM.id} RECOVERS THE ONSIDE KICK!`, `ONSIDE KICK... AND ${MY_TEAM.id} HAS IT!`]));
+        setTimeout(() => endFullKickoff(() => { lineOfScrimmageZ = THREE.MathUtils.clamp(k.landing.z, -90, 90); currentDown = 1; yardsToGo = 10; setupFormation(); }), 2000);
+    } else {
+        flashBanner(`${currentOpponent.id} RECOVERS`, 1500); triggerBoo();
+        commentate(`THE ONSIDE KICK IS RECOVERED BY ${currentOpponent.id}. GREAT FIELD POSITION FOR THEM.`);
+        setTimeout(() => koFinish(k.landing.z), 1800);
     }
 }
 
@@ -8462,13 +8529,14 @@ function startFullKickoff(opts = {}) {
         returner = mk(landing.x, landing.z - s * 4, recvTeam, 'RB', '21', yawUp);
         wallZ = i => landing.z - s * (i < 6 ? 22 : i < 8 ? 16 : 10);
     }
+    if (opts.onside) landing = new THREE.Vector3((Math.random() - 0.5) * 18, 0, kickZ + s * (23 + Math.random() * 4));   // ~12 yards, squibbed
     const wallX = [-16, -8, 0, 8, 16, -11, 0, 11, -5, 5];
     ret.forEach((b, i) => { b.koWall = new THREE.Vector3(landing.x * 0.5 + wallX[i], 0, wallZ(i)); });
     cover.forEach(c => { c.koLaneX = c.group.position.x; c.koHold = 0; c.koShed = false; });
 
     // Who's better at what depends on difficulty: CPU returns and blocks favor the CPU on hard
     const cpuEdge = 0.95 + 0.05 * diff().cpuSkill;
-    ko = { phase: 'approach', elapsed: 0, kicker, cover, ret, returner, landing, blocks: new Map(), s, punt, userKicks, kickZ,
+    ko = { phase: 'approach', elapsed: 0, kicker, cover, ret, returner, landing, blocks: new Map(), s, punt, userKicks, kickZ, onside: !!opts.onside,
            retSpeed: userKicks ? 10.5 * cpuEdge : 10.5,
            coverSpeed: userKicks ? 10.3 * diff().defSpeed : 10.3 * cpuEdge,
            holdScale: userKicks ? 1 / diff().shed : diff().shed, // longer holds help whoever is blocking
@@ -8540,7 +8608,8 @@ function updateKickoffReturn(dt) {
         if (left < 0.1) {
             k.phase = 'flight'; k.elapsed = 0; sfxKick();
             // NFL hang times: kickoffs about 3.6–4.2 s, punts about 4.0–4.6 s, under real gravity
-            const T = k.punt ? 4.0 + Math.random() * 0.6 : 3.6 + Math.random() * 0.6, vy = KICK_G * T / 2;
+            const T = k.onside ? 1.3 : k.punt ? 4.0 + Math.random() * 0.6 : 3.6 + Math.random() * 0.6, vy = KICK_G * T / 2;
+            if (k.onside) { flashBanner('ONSIDE KICK!', 1100); k.cover.forEach(c => { c.koLaneX = c.group.position.x * 0.5; }); }   // the hands team crashes the ball
             ball.velocity = new THREE.Vector3((k.landing.x - ball.position.x) / T, vy, (k.landing.z - ball.position.z) / T);
             document.getElementById('instructions').innerText = k.userKicks ? 'COVER IT!  WASD MOVE · SHIFT SPRINT · Q SWITCH · E DIVE' : 'WASD TO RETURN IT · SHIFT SPRINT';
         }
@@ -8561,6 +8630,7 @@ function updateKickoffReturn(dt) {
         camera.position.lerp(new THREE.Vector3(26, 24, ball.position.z - s * 32), 0.05);
         camera.lookAt(ball.position);
         if (ball.position.y <= 1.6 && ball.velocity.y < 0) {
+            if (k.onside) { resolveOnside(k); return; }
             ball.velocity = null;
             if (k.landing.z * s > 100) {
                 // Into the end zone: touchback (kickoffs to the 30, punts to the 20)
@@ -11001,7 +11071,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'KICK_CHOICE' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
