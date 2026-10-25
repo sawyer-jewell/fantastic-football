@@ -727,7 +727,9 @@ function applyRosterToFormation() {
     });
 }
 
-const maxPassPower = () => roster ? 0.6 + (roster.QB.arm - 50) / 49 * 0.4 : 1;
+// The meter always goes all the way up; a stronger arm just makes every throw zip in a little faster
+const maxPassPower = () => 1;
+const armFactor = () => roster ? 0.9 + (roster.QB.arm - 50) / 49 * 0.15 : 1;   // arm 50 → 0.9×, 99 → 1.05×
 
 // After a game: hand out XP from stats, level up ratings
 function developPlayers() {
@@ -2672,6 +2674,7 @@ class Player {
                         activeReceiver = this; GAME_STATE = 'POST_CATCH'; targetedReceiver = null;
                         attachBallToCarrier(this);
                         if (playStat && !playStat.thrown) playStat.kind = 'run'; // scramble counts as a rush
+                        brainNoteScramble();
                         document.getElementById('instructions').innerText = "QB SCRAMBLE! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
                         document.getElementById('stamina-bar').classList.remove('hidden');
                         while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
@@ -2832,6 +2835,9 @@ class Player {
                 // Bit on the fake: stepping up toward the line instead of covering
                 this.biteTimer -= dt;
                 targetPos = new THREE.Vector3(this.group.position.x, 0, lineOfScrimmageZ - 1.5);
+            }
+            else if (this.spy && GAME_STATE === 'PLAY') {   // spying a running QB: mirror him from 4 yards off the ball
+                const q = players.offense[0]; targetPos = new THREE.Vector3(q.group.position.x, 0, lineOfScrimmageZ - 8);
             }
             else if (this.targetPlayer) targetPos = this.targetPlayer.group.position.clone();
 
@@ -3028,6 +3034,7 @@ function startGame() {
     document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
 
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
+    defBrain = newDefBrain(); // a fresh scouting report every game
     playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; recentPlays = []; defRead = ''; defKeyedPlay = null; // new film each game
     twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false;
     gameStats = newStatLine();
@@ -3166,6 +3173,11 @@ function pickEmote(i) {
     const p = w.scorer, f = new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion);
     p.emoteWait = false;
     p.emote = { name: EMOTES[i][0], t: 0, yaw: Math.atan2(f.x, f.z), start: p.group.position.clone() };
+    // He lets go of the ball to dance: it drops beside him and bounces on the turf
+    if (ball.parent === p.group) {
+        detachBallToScene();
+        p.emote.ballVel = new THREE.Vector3(Math.sin(p.emote.yaw + 1.5) * 1.5, 1.5, Math.cos(p.emote.yaw + 1.5) * 1.5);
+    }
     flashBanner(EMOTES[i][1] + '!', 1500);
 }
 
@@ -3182,6 +3194,12 @@ function updateEmotes(dt) {
     const e = p.emote;
     e.t += dt;
     poseEmote(p, e);
+    if (e.ballVel) {   // the dropped ball bounces a couple of times and rolls to a stop
+        e.ballVel.y -= 30 * dt;
+        ball.position.addScaledVector(e.ballVel, dt);
+        ball.rotateX(e.ballVel.length() * dt * 2);
+        if (ball.position.y < 0.3) { ball.position.y = 0.3; e.ballVel.y = Math.abs(e.ballVel.y) * 0.4; e.ballVel.x *= 0.6; e.ballVel.z *= 0.6; }
+    }
     if (e.t >= EMOTE_TIME) {
         // Back on his feet, arms down, then the replay and the extra point
         p.emote = null;
@@ -3191,47 +3209,71 @@ function updateEmotes(dt) {
     }
 }
 
+// Point an arm so the elbow goes to `elbow` and the hand to `hand` (both in the player's own space).
+// Arms hang down -Y; with Euler XYZ, rx pitches the limb forward/up and rz swings it sideways.
+function aimArm(p, upper, lower, elbow, hand) {
+    const aim = (o, target) => {
+        const d = target.clone().sub(o.position).normalize();
+        o.rotation.set(Math.atan2(-d.z, -d.y), 0, Math.asin(THREE.MathUtils.clamp(d.x, -1, 1)));
+    };
+    aim(upper, elbow);
+    p.group.updateMatrixWorld(true);
+    aim(lower, upper.worldToLocal(p.group.localToWorld(hand.clone())));   // the forearm, in the upper arm's space
+}
+
 // The dances, built from the same joints the game animates. Arms hang down: rotation.x negative
 // raises an arm forward/up, rotation.z spreads it out (+ for the right arm). Legs: negative x kicks forward.
 function poseEmote(p, e) {
     const t = e.t, R = p.rightUpper.rotation, Rl = p.rightLower.rotation, L = p.leftUpper.rotation, Ll = p.leftLower.rotation;
-    const lift = (y, pitch = 0, yawOff = 0) => { p.group.position.y = y; p.group.quaternion.copy(yawPitchQuat(e.yaw + yawOff, pitch)); };
+    const lift = (y, pitch = 0, yawOff = 0, roll = 0) => { p.group.position.y = y; p.group.quaternion.copy(yawPitchQuat(e.yaw + yawOff, pitch, roll)); };
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
     if (e.name === 'griddy') {
-        // Heel taps side to side, arms swinging up to the eyes in turn
-        const s = Math.sin(t * 9);
-        lift(0.12 * Math.abs(s));
-        p.leftLeg.rotation.set(-0.55 * Math.max(0, s), 0, 0); p.rightLeg.rotation.set(-0.55 * Math.max(0, -s), 0, 0);
-        R.set(-1.35 - 0.55 * s, 0, 0.25); Rl.set(-1.25, 0, 0);
-        L.set(-1.35 + 0.55 * s, 0, -0.25); Ll.set(-1.25, 0, 0);
+        // The Griddy: hopping heel taps (one heel out in front, then the other), arms pumping like
+        // he's running, and every couple of seconds both hands come up to his eyes as "goggles"
+        const s = Math.sin(t * 10), goggles = (t % 2.0) > 1.4;
+        lift(0.1 * Math.abs(s));
+        p.leftLeg.rotation.set(-0.6 * Math.max(0, s), 0, 0.05); p.rightLeg.rotation.set(-0.6 * Math.max(0, -s), 0, -0.05);
+        if (goggles) {
+            aimArm(p, p.rightUpper, p.rightLower, V(0.42, 2.0, 0.35), V(0.1, 2.58, 0.36));
+            aimArm(p, p.leftUpper, p.leftLower, V(-0.42, 2.0, 0.35), V(-0.1, 2.58, 0.36));
+        } else {
+            R.set(-0.9 * s - 0.2, 0, 0.18); Rl.set(-1.3, 0, 0);       // arms swing opposite the legs
+            L.set(0.9 * s - 0.2, 0, -0.18); Ll.set(-1.3, 0, 0);
+        }
     } else if (e.name === 'scuba') {
-        // Leaning forward, swimming strokes with both arms, little flutter kicks
-        const s = Math.sin(t * 5);
-        lift(0.05 * Math.abs(s), 0.35);
-        R.set(-Math.PI / 2 + 1.2 * s, 0, 0.45); Rl.set(-0.3, 0, 0);
-        L.set(-Math.PI / 2 - 1.2 * s, 0, -0.45); Ll.set(-0.3, 0, 0);
-        p.leftLeg.rotation.set(0.25 * Math.sin(t * 8), 0, 0); p.rightLeg.rotation.set(-0.25 * Math.sin(t * 8), 0, 0);
+        // The Scuba (h5wk's "Scuba Juke"): one hand pinching his nose like he's going under, the other
+        // waving back and forth in front of him, knees knocking in and out on the beat
+        const s = Math.sin(t * 8), wave = Math.sin(t * 6);
+        lift(-0.05 * Math.abs(s));
+        aimArm(p, p.rightUpper, p.rightLower, V(0.36, 2.02, 0.42), V(0.04, 2.5, 0.34));
+        aimArm(p, p.leftUpper, p.leftLower, V(-0.42, 1.72, 0.42), V(-0.05 + 0.38 * wave, 1.86 + 0.05 * Math.cos(t * 12), 0.66));
+        p.leftLeg.rotation.set(-0.12, 0, -0.14 * s); p.rightLeg.rotation.set(-0.12, 0, 0.14 * s);   // knees in, knees out
     } else if (e.name === 'scenario') {
-        // Raise the roof, hips swaying, bouncing on the beat
-        const s = Math.sin(t * 7);
-        lift(0.1 * Math.abs(s), 0, 0.35 * Math.sin(t * 3.5));
-        R.set(-Math.PI * 0.85 + 0.25 * s, 0, 0.5); Rl.set(-0.6 - 0.4 * Math.abs(s), 0, 0);
-        L.set(-Math.PI * 0.85 + 0.25 * s, 0, -0.5); Ll.set(-0.6 - 0.4 * Math.abs(s), 0, 0);
-        p.leftLeg.rotation.set(-0.15, 0, 0.12 * s); p.rightLeg.rotation.set(-0.15, 0, 0.12 * s);
+        // Scenario (the Fortnite emote, from iKON's "LOVE SCENARIO" choreography): a bouncy step side to
+        // side, both arms swinging together like a pendulum the other way, head and shoulders easy
+        const beat = t * 4.2, s = Math.sin(beat), step = Math.sin(beat / 2);
+        lift(0.06 * Math.abs(s), 0, 0.12 * step, 0.08 * step);
+        p.group.position.x = e.start.x + Math.cos(e.yaw) * 0.25 * step; p.group.position.z = e.start.z - Math.sin(e.yaw) * 0.25 * step;
+        p.leftLeg.rotation.set(-0.25 * Math.max(0, step), 0, 0.12 * step); p.rightLeg.rotation.set(-0.25 * Math.max(0, -step), 0, 0.12 * step);
+        R.set(-0.35, 0, 0.2 - 0.75 * step); Rl.set(-0.35, 0, 0);
+        L.set(-0.35, 0, -0.2 - 0.75 * step); Ll.set(-0.35, 0, 0);
     } else if (e.name === 'whop') {
-        // Knees bouncing, elbows bent, fists pumping down in turn with a shoulder twist
-        const s = Math.sin(t * 8);
-        lift(-0.08 + 0.08 * Math.cos(t * 16), 0, 0.25 * s);
-        p.leftLeg.rotation.set(-0.3, 0, 0); p.rightLeg.rotation.set(-0.3, 0, 0);
-        R.set(-0.6 + 0.5 * s, 0, 0.2); Rl.set(-1.4, 0, 0);
-        L.set(-0.6 - 0.5 * s, 0, -0.2); Ll.set(-1.4, 0, 0);
+        // The Wop: on each beat he drops into his knees and dips a shoulder, the other arm swinging
+        // across his body — then the same thing to the other side
+        const beat = t * Math.PI * 2 * 1.1, dip = Math.abs(Math.sin(beat / 2)), side = Math.sign(Math.sin(beat / 2)) || 1;
+        lift(-0.18 * dip, 0, 0.18 * side * dip, 0.22 * side * dip);
+        p.leftLeg.rotation.set(-0.35 * dip, 0, 0.08); p.rightLeg.rotation.set(-0.35 * dip, 0, -0.08);
+        if (side > 0) { L.set(-0.9 * dip, 0, 0.9 * dip); Ll.set(-0.6, 0, 0); R.set(0.3 * dip, 0, 0.25); Rl.set(-0.3, 0, 0); }   // left arm across
+        else          { R.set(-0.9 * dip, 0, -0.9 * dip); Rl.set(-0.6, 0, 0); L.set(0.3 * dip, 0, -0.25); Ll.set(-0.3, 0, 0); } // right arm across
     } else if (e.name === 'worm') {
-        // Down on the turf, rolling a wave from chest to feet, inching forward; up again at the end
+        // The Worm: down on his chest, a ripple runs from chest to hips to feet — as the chest touches
+        // the hips rise and the heels snap up — inching forward; back up at the end
         const down = Math.min(1, t / 0.35) * Math.min(1, (EMOTE_TIME - t) / 0.35);
         const w = Math.sin(t * 7);
-        lift(0.45 * down + 0.16 * Math.max(0, w) * down, (Math.PI / 2 + 0.25 * w) * down);
-        p.leftLeg.rotation.set(0.7 * Math.max(0, -w) * down, 0, 0); p.rightLeg.rotation.set(0.7 * Math.max(0, -w) * down, 0, 0);
-        R.set(-Math.PI * 0.85 * down, 0, 0.3); Rl.set(-0.2, 0, 0);
-        L.set(-Math.PI * 0.85 * down, 0, -0.3); Ll.set(-0.2, 0, 0);
+        lift(0.42 * down + 0.18 * Math.max(0, w) * down, (Math.PI / 2 + 0.3 * w) * down);
+        p.leftLeg.rotation.set(0.9 * Math.max(0, w) * down, 0, 0); p.rightLeg.rotation.set(0.9 * Math.max(0, w) * down, 0, 0);
+        R.set(-Math.PI * 0.6 * down - 0.4 * Math.max(0, -w), 0, 0.35); Rl.set(-0.9 * down, 0, 0);      // hands push off the turf
+        L.set(-Math.PI * 0.6 * down - 0.4 * Math.max(0, -w), 0, -0.35); Ll.set(-0.9 * down, 0, 0);
         const fwd = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw));
         p.group.position.x = e.start.x + fwd.x * 0.5 * t * down; p.group.position.z = e.start.z + fwd.z * 0.5 * t * down;
     }
@@ -3689,6 +3731,103 @@ let recentPlays = [];   // last few play ids
 let defRead = '';       // what the defense says it's reading, shown on the scoreboard
 let defKeyedPlay = null; // play the defense is jumping this snap (you've repeated it)
 
+// ─── DEFENSE BRAIN ───────────────────────────────────────────────────────────
+// The CPU defense remembers how you play this game (recent plays count most) and adjusts:
+//   where you throw (left / middle / right, short / deep) → safeties shade there, cushion or press
+//   who you throw to                                       → doubles your favorite receiver
+//   which way you run, and how often                       → walks a safety into the box, reacts faster
+//   how long you hold the ball                             → brings pressure sooner
+//   how often the QB takes off                             → puts a linebacker on him (spy)
+//   which tricks you've shown                              → stops biting on them
+// How much it learns depends on offense difficulty (barely on easy, a lot on hard).
+const newDefBrain = () => ({ throwSide: { left: 0, middle: 0, right: 0 }, throwDepth: { short: 0, deep: 0 }, targets: {},
+    runDir: { left: 0, middle: 0, right: 0 }, runs: 0, passes: 0, holds: [], scrambles: 0, tricks: {}, snapAt: 0 });
+let defBrain = newDefBrain();
+const brainSmarts = () => ({ easy: 0.35, medium: 1, hard: 1.6 }[difficulty]);
+const decayAll = o => Object.keys(o).forEach(k => { o[k] *= 0.85; });
+const topOf = o => Object.keys(o).reduce((a, b) => (o[a] >= o[b] ? a : b));
+const shareOf = (o, k) => { const tot = Object.values(o).reduce((a, b) => a + b, 0); return tot > 0 ? o[k] / tot : 0; };
+
+// Write down what you just did
+function brainNoteThrow(qb, target, receiver) {
+    const B = defBrain;
+    decayAll(B.throwSide); decayAll(B.throwDepth); decayAll(B.targets);
+    const dx = target.x - qb.group.position.x;
+    B.throwSide[dx < -6 ? 'left' : dx > 6 ? 'right' : 'middle'] += 1;
+    B.throwDepth[(lineOfScrimmageZ - target.z) / 2 > 15 ? 'deep' : 'short'] += 1;
+    if (receiver && receiver.rosterSlot) B.targets[receiver.rosterSlot] = (B.targets[receiver.rosterSlot] || 0) + 1;
+    B.holds.push((performance.now() - B.snapAt) / 1000); if (B.holds.length > 6) B.holds.shift();
+    B.passes++;
+}
+function brainNoteRun(play) {
+    const B = defBrain;
+    decayAll(B.runDir);
+    B.runDir[play === 'sweepl' ? 'left' : play === 'sweepr' ? 'right' : 'middle'] += 1;
+    B.runs++;
+}
+function brainNoteScramble() { defBrain.scrambles++; }
+
+// Before the snap: line up for what you've been doing. Returns what it's showing (for the scoreboard).
+function brainAlign(defense) {
+    const B = defBrain, smarts = brainSmarts(), notes = [];
+    if (B.passes + B.runs < 3) return notes;
+    const [mlb, lolb, rolb, cb1, cb2, fs, ss] = defense;
+    // Shade the safeties toward the side you keep throwing to
+    const side = topOf(B.throwSide);
+    if (side !== 'middle' && shareOf(B.throwSide, side) > 0.45 && B.passes >= 3) {
+        const s = side === 'left' ? -1 : 1;
+        fs.group.position.x += s * 6 * Math.min(1, smarts); ss.group.position.x += s * 4 * Math.min(1, smarts);
+        notes.push(`SHADING ${side.toUpperCase()}`);
+    }
+    // Lots of deep balls → safeties back off; lots of runs → a safety walks down into the box
+    if (shareOf(B.throwDepth, 'deep') > 0.55 && B.passes >= 3) { fs.group.position.z -= 6 * smarts; ss.group.position.z -= 4 * smarts; notes.push('PLAYING DEEP'); }
+    const runShare = B.runs / Math.max(1, B.runs + B.passes);
+    if (runShare > 0.55 && B.runs >= 3) {
+        ss.group.position.set(ss.group.position.x * 0.4, 0, lineOfScrimmageZ - 7);
+        const dir = topOf(B.runDir);
+        if (dir !== 'middle') [mlb, lolb, rolb].forEach(l => { l.group.position.x += (dir === 'left' ? -1.5 : 1.5) * smarts; });
+        notes.push(dir === 'middle' ? 'STACKING THE BOX' : `STACKING THE BOX ${dir.toUpperCase()}`);
+    }
+    // Your go-to receiver: name him (the doubling happens at the snap)
+    const fav = Object.keys(B.targets).length ? topOf(B.targets) : null;
+    if (fav && shareOf(B.targets, fav) > 0.4 && B.targets[fav] > 1.5 && roster && roster[fav]) notes.push(`DOUBLING #${roster[fav].num}`);
+    if (B.scrambles >= 2 && B.scrambles / Math.max(1, B.passes) > 0.2) notes.push('SPYING THE QB');
+    const avgHold = B.holds.length ? B.holds.reduce((a, b) => a + b, 0) / B.holds.length : 0;
+    if (avgHold > 2.6 && B.holds.length >= 3) notes.push('BRINGING PRESSURE');
+    return notes;
+}
+
+// At the snap: play it. Called after the normal coverage and rush assignments are made.
+function brainAtSnap(play) {
+    const B = defBrain, smarts = brainSmarts(), def = players.defense, off = players.offense;
+    B.snapAt = performance.now();
+    if (B.passes + B.runs >= 3) {
+        // Double the favorite receiver: his man plays tight, and the free safety rolls over the top of him
+        const fav = Object.keys(B.targets).length ? topOf(B.targets) : null;
+        const favP = fav && shareOf(B.targets, fav) > 0.4 && B.targets[fav] > 1.5 ? off.find(p => p.rosterSlot === fav) : null;
+        if (favP) {
+            def.filter(d => d.targetPlayer === favP).forEach(d => { d.trailDist *= 1 - 0.3 * Math.min(1, smarts); d.covBreakDelay *= 0.4; });
+            const fs = def.find(d => d.role === 'FS'); if (fs) { fs.targetPlayer = favP; fs.trailDist = 2.5; }
+        }
+        // Holds the ball too long → the rush comes sooner and beats blocks faster
+        const avgHold = B.holds.length ? B.holds.reduce((a, b) => a + b, 0) / B.holds.length : 0;
+        if (avgHold > 2.6 && B.holds.length >= 3) def.filter(d => d.role === 'DL').forEach(d => { d.rushDelay = 0; d.shedTimer *= 1 - 0.3 * Math.min(1, smarts); });
+        // A running team: the front reads run faster, quickest of all to your favorite side
+        const runShare = B.runs / Math.max(1, B.runs + B.passes);
+        if (runShare > 0.45) def.forEach(d => { if (d.runReactTimer) d.runReactTimer *= 1 - 0.35 * Math.min(1, smarts * runShare); });
+        // A running QB: the middle linebacker spies him
+        if (B.scrambles >= 2 && B.scrambles / Math.max(1, B.passes) > 0.2) { const mlb = def.find(d => d.role === 'LB'); if (mlb) mlb.spy = true; }
+    }
+    if (isRunPlay) brainNoteRun(play);
+}
+
+// How much they bite on a trick: less every time you've already run it this game
+function brainTrickBite(play) {
+    const uses = defBrain.tricks[play] || 0;
+    defBrain.tricks[play] = uses + 1;
+    return 1 / (1 + uses * 0.7 * brainSmarts());
+}
+
 function notePlayCall(play) {
     const cat = PLAY_CATEGORY[play];
     if (!cat) return;
@@ -3788,13 +3927,15 @@ function setupFormation() {
     if (weather.kind === 'snow') players.offense.concat(players.defense).forEach(p => { p.baseSpeed *= 0.92; p.speed = p.baseSpeed; }); // slick footing
 
     cb1.targetPlayer = wr1; cb2.targetPlayer = wr2; fs.targetPlayer = slot; ss.targetPlayer = te;
+    const brainNotes = brainAlign([mlb, lolb, rolb, cb1, cb2, fs, ss]);   // the defense lines up for how you've been playing
     handoffPending = false; runArrow.visible = false;
     detachBallToScene();
     ball.position.set(0, 0.2, lineOfScrimmageZ); ball.velocity = null; ball.rotation.set(0,0,0);
     camera.position.set(0, 15, lineOfScrimmageZ + 25); camera.lookAt(0, 0, lineOfScrimmageZ);
 
     const schemeNames = { base: 'BASE 4-3', cover2: 'COVER 2', cover3: 'COVER 3', man: 'MAN COVERAGE', prevent: 'PREVENT' };
-    document.getElementById('def-scheme-label').innerText = 'DEF: ' + (schemeNames[defScheme] || defScheme.toUpperCase()) + (defRead ? ' · ' + defRead : '');
+    const readText = [defRead, ...brainNotes].filter(Boolean).slice(0, 2).join(' · ');   // what it's keying on, and how it's adjusting to you
+    document.getElementById('def-scheme-label').innerText = 'DEF: ' + (schemeNames[defScheme] || defScheme.toUpperCase()) + (readText ? ' · ' + readText : '');
     document.getElementById('playbook').classList.remove('hidden'); document.getElementById('right-hud').classList.remove('hidden');
     document.getElementById('btn-sim').classList.remove('hidden'); document.getElementById('vertical-power-meter').classList.add('hidden');
     document.getElementById('instructions').classList.add('hidden');
@@ -4067,6 +4208,8 @@ function snapBall() {
         }
     });
 
+    brainAtSnap(currentPlay);   // the defense adjusts to how you've been playing (doubles, pressure, spy)
+
     if (isRunPlay) {
         runArrow.visible = false;
         handoffPending = true;
@@ -4117,7 +4260,7 @@ function snapBall() {
 // they've seen you call over and over. The fake field goal only fools them once a game.
 const TRICKS = {
     playaction: { bite: 0.8, lock: 0.55, label: 'PLAY ACTION...' },
-    flea:       { bite: 1.3, cbBite: 0.6, label: 'FLEA FLICKER...', pitch: true },
+    flea:       { bite: 1.9, cbBite: 1.3, label: 'FLEA FLICKER...', pitch: true },   // they're fooled until the pitch comes back (~1.4 s)
     fakefg:     { label: 'FIELD GOAL...', surprise: true },
 };
 let trickThrowLockUntil = 0;  // performance.now() time before which the QB can't throw (ball is in the fake)
@@ -4128,7 +4271,8 @@ function startTrickPlay(play, qb) {
     trickThrowLockUntil = performance.now() + (t.lock || 0) * 1000;
     const total = Object.values(playTendency).reduce((a, b) => a + b, 0) || 1;
     const fooled = defKeyedPlay !== play;
-    const biteMul = fooled ? 0.6 + (playTendency.run / total) * 1.2 : 0;
+    // The flea flicker always sells (the handoff looks real); every trick bites less each time you've shown it
+    const biteMul = fooled ? Math.max(t.pitch ? 0.95 : 0, 0.6 + (playTendency.run / total) * 1.2) * brainTrickBite(play) : 0;
     players.defense.forEach(d => {
         if (d.role === 'LB' || d.role === 'FS' || d.role === 'SS') d.biteTimer = (t.bite || 0) * biteMul;
         if (d.role === 'CB' && t.cbBite) d.biteTimer = t.cbBite * biteMul;
@@ -4240,12 +4384,13 @@ function onMouseDown(e) {
         // The QB's accuracy rating decides how close the ball lands to where you aimed
         const err = roster ? (100 - roster.QB.accuracy) / 25 : 0;
         const aim = passTarget.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2 * err, 0, (Math.random() - 0.5) * 2 * err));
-        let dist = Math.max(1, qb.group.position.distanceTo(aim)); let throwSpeed = 15 + (passPower * 30); let timeInAir = dist / throwSpeed;
+        let dist = Math.max(1, qb.group.position.distanceTo(aim)); let throwSpeed = 15 + (passPower * 30) * armFactor(); let timeInAir = dist / throwSpeed;
         ball.velocity = new THREE.Vector3((aim.x - ball.position.x) / timeInAir, (aim.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (aim.z - ball.position.z) / timeInAir);
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
         qb.throwTimer = 0.55; // trigger throw animation
         if (playStat) { playStat.thrown = true; gameStats.att++; }
+        brainNoteThrow(qb, passTarget, targetedReceiver); // the defense remembers where and to whom
     }
 }
 
@@ -4406,7 +4551,8 @@ function dropChance(p) {
 
 function updateBallPhysics(dt) {
     if (!ball.velocity) {
-        if (GAME_STATE === 'TACKLED' && !ball.userData.inHands) { ball.position.y = 0.5; }
+        // A loose ball rests on the turf; one he's holding stays in his arms (its y is relative to him, so 0.5 put it at his feet)
+        if (GAME_STATE === 'TACKLED' && !ball.userData.inHands && ball.parent === scene) { ball.position.y = 0.5; }
         return;
     }
 
@@ -6896,7 +7042,7 @@ function animate() {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
-            let throwSpeed = 15 + (passPower * 30); passTimeEstimate = dist / throwSpeed;
+            let throwSpeed = 15 + (passPower * 30) * armFactor(); passTimeEstimate = dist / throwSpeed;
             let vY = (passTarget.y - startPos.y + 0.5 * 30 * passTimeEstimate * passTimeEstimate) / passTimeEstimate; let vX = (passTarget.x - startPos.x) / passTimeEstimate; let vZ = (passTarget.z - startPos.z) / passTimeEstimate;
             let pts = []; for(let t=0; t<=passTimeEstimate; t+=0.1) pts.push(startPos.x + vX * t, startPos.y + vY * t - 0.5 * 30 * t * t, startPos.z + vZ * t);
             pts.push(passTarget.x, passTarget.y, passTarget.z); trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); trajectoryLine.computeLineDistances();
