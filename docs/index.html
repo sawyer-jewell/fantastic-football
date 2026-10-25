@@ -77,6 +77,11 @@
 
         /* Timeout display */
         #timeout-display { font-size: 0.55rem; color: #00ffcc; margin-top: 6px; letter-spacing: 2px; cursor: pointer; pointer-events: auto; }
+        #play-clock { font-size: 0.55rem; color: #ffcc00; margin-top: 5px; letter-spacing: 2px; }
+        #play-clock.urgent { color: #e31837; }
+        #timeout-panel { position: absolute; top: 34%; left: 50%; transform: translateX(-50%); background: rgba(0, 34, 68, 0.92); border: 4px solid #ffcc00; padding: 16px 24px; text-align: center; color: #fff; z-index: 120; pointer-events: auto; }
+        #timeout-panel h2 { margin: 0 0 8px; font-size: 1rem; color: #ffcc00; }
+        #timeout-left { font-size: 1.6rem; margin: 6px 0 12px; }
 
         /* Extra point screen */
         #extra-point-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; z-index: 175; background: rgba(0,0,0,0.78); color: white; }
@@ -305,6 +310,14 @@
             <button class="btn-retro" onclick="advanceWeek()">CONTINUE</button>
         </div>
 
+        <!-- Timeout: 30 seconds in the huddle, or end it early -->
+        <div id="timeout-panel" class="hidden">
+            <h2>TIMEOUT</h2>
+            <div id="timeout-left">0:30</div>
+            <button class="btn-retro" style="font-size:0.65rem; padding:10px 18px;" onclick="endTimeout()">END TIMEOUT</button>
+            <div style="font-size:0.45rem; color:#aabbcc; margin-top:8px;">OR PRESS T / ENTER</div>
+        </div>
+
         <!-- Touchdown emote wheel (GTA-style): point and click, or 1–5 -->
         <div id="emote-wheel" class="hidden">
             <div id="emote-center">PICK YOUR<br>CELEBRATION<div id="emote-timer"></div></div>
@@ -324,6 +337,7 @@
             </div>
             <div id="down-distance">1ST & 10</div>
             <div id="timeout-display" onclick="callTimeout()">TO: ●●●</div>
+            <div id="play-clock" class="hidden">PLAY CLOCK <span id="play-clock-num">20</span></div>
             <div id="def-scheme-label" style="font-size:0.45rem;color:#aabbcc;letter-spacing:2px;margin-top:4px;"></div>
             <div id="weather-label" style="font-size:0.45rem;color:#88ccff;letter-spacing:2px;margin-top:3px;"></div>
         </div>
@@ -353,6 +367,8 @@
                 <div class="play-divider" style="color:#b46cff;">— TRICK PLAYS —</div>
                 <div class="play-card" onclick="selectPlay('playaction')" onmouseenter="previewPlay('playaction')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">PLAY ACTION</div>
                 <div class="play-card" onclick="selectPlay('flea')" onmouseenter="previewPlay('flea')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">FLEA FLICKER</div>
+                <div class="play-card" onclick="selectPlay('hookladder')" onmouseenter="previewPlay('hookladder')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">HOOK &amp; LADDER</div>
+                <div class="play-card" onclick="selectPlay('philly')" onmouseenter="previewPlay('philly')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">PHILLY SPECIAL</div>
                 <div class="play-divider" style="color:#00ccff;">— SPECIAL TEAMS —</div>
                 <div class="play-card" onclick="selectPlay('fieldgoal')" style="border-color:#00ccff;">FIELD GOAL</div>
                 <div class="play-card" onclick="selectPlay('fakefg')" onmouseenter="previewPlay('fakefg')" onmouseleave="clearRoutePreview()" style="border-color:#00ccff;">FAKE FG</div>
@@ -497,6 +513,14 @@ try { graphicsSetting = localStorage.getItem('ff-graphics') || 'auto'; } catch (
 let graphicsLevel = graphicsSetting === 'low' ? 'low' : 'high';
 let fpsWatch = { frames: 0, since: 0, slowFor: 0 }; // AUTO's frame-rate monitor
 let ko = null;          // full kickoff in progress, see startFullKickoff
+const KICK_G = 21.4, KICK_CARRY = 39;   // kick gravity and carry speed, see kickVelocity
+let oppKick = null;     // their field goal / extra point you're trying to block, see startOppKick
+let kickUnits = null;   // both units on the field during your own kick, see buildKickUnits
+let hookLadder = null;  // hook and ladder pitch after the catch, see startHookLadder
+let teamCeleb = null;   // a defense celebrating a turnover, see startTeamCelebration
+const TIMEOUT_SECONDS = 30, PLAY_CLOCK_SECONDS = 20;
+let timeoutState = null;   // { left, wasLive } during a timeout (see callTimeout)
+let playClockLeft = PLAY_CLOCK_SECONDS;   // the 20-second play clock between plays
 let PLAYER_MODEL = null; // the Blender-built player, split into parts once it's loaded (see loadPlayerModel)
 const SIDELINE_X = 52.5;  // out of bounds: the white sideline at the edge of the field (benches and coaches beyond it)
 let trickPitch = null;  // flea flicker / fake field goal in progress, see updateTrickPitch
@@ -560,11 +584,11 @@ const diff = () => DIFFICULTY[difficulty];
 // where the throw is going; hard makes blocks hold longer, their offense quicker, and the QB faster
 // through his reads. block: how long a lineman holds you; aiBlock: how long he holds your teammates
 // (long on easy, so the QB gets his 3 seconds after you're shown his target); offSkill: their speed
-// and accuracy; qbRead: seconds before his first read.
+// and accuracy; qbRead: seconds before his first read; hitStick: the chance your hit stick jars the ball loose.
 const DEF_DIFFICULTY = {
-    easy:   { block: 0.7, aiBlock: 1.8, offSkill: 0.93, qbRead: 1.6, hints: true, pickWindow: 0.2 },
-    medium: { block: 1.0, aiBlock: 1.0, offSkill: 1.0,  qbRead: 1.4, hints: false, pickWindow: 0.13 },
-    hard:   { block: 1.5, aiBlock: 1.2, offSkill: 1.06, qbRead: 1.15, hints: false, pickWindow: 0.08 },
+    easy:   { block: 0.7, aiBlock: 1.8, offSkill: 0.93, qbRead: 1.6, hints: true, pickWindow: 0.2, hitStick: 1 / 3 },
+    medium: { block: 1.0, aiBlock: 1.0, offSkill: 1.0,  qbRead: 1.4, hints: false, pickWindow: 0.13, hitStick: 1 / 5 },
+    hard:   { block: 1.5, aiBlock: 1.2, offSkill: 1.06, qbRead: 1.15, hints: false, pickWindow: 0.08, hitStick: 1 / 10 },
 };
 let defDifficulty = 'medium';
 try { defDifficulty = localStorage.getItem('ff-def-difficulty') || 'medium'; } catch (e) {}
@@ -1455,6 +1479,7 @@ function buildField() {
     yellowLine.rotation.x = -Math.PI/2; yellowLine.position.y = 0.1; scene.add(yellowLine);
 
     buildGoalpost(120); buildGoalpost(-120);
+    buildEndZoneDressing();   // pylons and the camera crews
 
     // Ground fill: cover the gap between end zones (z ±120) and end stands (z ±145),
     // plus side margins between the 106-wide field and the stand walls.
@@ -1527,6 +1552,51 @@ function buildTeamSidelines() {
         [bodies, legs, heads, helmets].forEach(m => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; sidelineGroup.add(m); });
     });
 }
+// End zone dressing: the orange pylons on all four corners of both end zones, and a TV/photo crew
+// behind each end line (people behind tripod cameras pointed up the field). All instanced: a few
+// draw calls for the lot.
+function buildEndZoneDressing() {
+    const dummy = new THREE.Object3D();
+    // Pylons: 4" × 4" × 18" — about 0.2 × 1 field units — just inside each corner
+    const pylonGeo = new THREE.BoxGeometry(0.26, 1.0, 0.26); pylonGeo.translate(0, 0.5, 0);
+    const corners = [];
+    [-1, 1].forEach(sx => [-100, -120, 100, 120].forEach(z => corners.push([sx * 52.4, z + (Math.abs(z) === 120 ? -Math.sign(z) * 0.15 : Math.sign(z) * 0.15)])));
+    const pylons = new THREE.InstancedMesh(pylonGeo, new THREE.MeshLambertMaterial({ color: 0xff6a00, emissive: 0x7a2a00 }), corners.length);   // bright even at night
+    corners.forEach(([x, z], i) => { dummy.position.set(x, 0, z); dummy.updateMatrix(); pylons.setMatrixAt(i, dummy.matrix); });
+    pylons.instanceMatrix.needsUpdate = true; scene.add(pylons);
+
+    // Camera crews: three behind each end line, off to either side of the goalpost
+    const crew = [];
+    [-1, 1].forEach(s => [-21, -10.5, 13].forEach(x => crew.push({ x: x * s + (Math.random() - 0.5) * 2, z: s * (125 + Math.random() * 2.5), s })));
+    const n = crew.length;
+    const legs = new THREE.BoxGeometry(0.5, 0.95, 0.34); legs.translate(0, 0.48, 0);
+    const body = new THREE.BoxGeometry(0.62, 0.9, 0.4); body.translate(0, 1.4, 0);
+    const head = new THREE.BoxGeometry(0.34, 0.36, 0.34); head.translate(0, 2.05, 0);
+    const cap = mergeBoxGeometries([new THREE.BoxGeometry(0.38, 0.12, 0.38).translate(0, 2.27, 0), new THREE.BoxGeometry(0.3, 0.05, 0.22).translate(0, 2.22, -0.26)]);
+    // The camera (body, lens out front, viewfinder) on a tripod, set up just in front of him
+    const cam = mergeBoxGeometries([
+        new THREE.BoxGeometry(0.42, 0.44, 0.95).translate(0, 2.0, -0.7),
+        new THREE.CylinderGeometry(0.16, 0.2, 0.55, 8).rotateX(Math.PI / 2).translate(0, 2.0, -1.4),
+        new THREE.BoxGeometry(0.16, 0.14, 0.2).translate(-0.24, 2.15, -0.3),
+    ]);
+    const tri = mergeBoxGeometries([0, 1, 2].map(k => {
+        const a = k * Math.PI * 2 / 3;
+        return new THREE.CylinderGeometry(0.04, 0.04, 1.95, 4).translate(0, -0.97, 0).rotateX(0.32).rotateY(a).translate(0, 1.78, -0.7);
+    }));
+    const shirt = [0x111111, 0x2a2a2a, 0xc8b28a, 0xb3141b, 0x1d2a44].map(c => new THREE.Color(c));
+    const skins = [0xf1c27d, 0xc68642, 0x8d5524, 0x5c3a1e, 0xe0ac69].map(c => new THREE.Color(c));   // (MODEL_SKIN_TONES isn't set up yet when the field is built)
+    const parts = [[legs, 0x2f2f2f], [body, 0xffffff], [head, 0xffffff], [cap, 0x151515], [cam, 0x1b1b1b], [tri, 0x444444]]
+        .map(([g, c]) => new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ color: c }), n));
+    crew.forEach((m, i) => {
+        // Facing up the field (the camera end toward the goal line), a little turned
+        dummy.position.set(m.x, 0, m.z); dummy.rotation.set(0, (m.s > 0 ? 0 : Math.PI) + (Math.random() - 0.5) * 0.5, 0); dummy.updateMatrix();
+        parts.forEach(p => p.setMatrixAt(i, dummy.matrix));
+        parts[1].setColorAt(i, shirt[Math.floor(Math.random() * shirt.length)]);
+        parts[2].setColorAt(i, skins[Math.floor(Math.random() * skins.length)]);
+    });
+    parts.forEach(p => { p.instanceMatrix.needsUpdate = true; if (p.instanceColor) p.instanceColor.needsUpdate = true; scene.add(p); });
+}
+
 function buildGoalpost(zPos) {
     const mat = new THREE.MeshLambertMaterial({ color: 0xffff00 });
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 6), mat); base.position.set(0, 3, zPos); scene.add(base);
@@ -2495,7 +2565,7 @@ class Player {
 
     animateLimbs(dt) {
         if (this.emote) return; // dancing: poseEmote sets the limbs
-        if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TIMEOUT') return;
+        if (GAME_STATE === 'TACKLED') return;
 
         // Holder on one knee: hips dropped, front foot planted, back knee on the turf, hands out for the snap
         if (this.kneel) {
@@ -2603,17 +2673,11 @@ class Player {
         if (GAME_STATE === 'TACKLED') return;
         if (this.catchDive) return; // layout dive is driven by updateCatchDives
         if (GAME_STATE === 'WALKOFF') {
-            // Both teams walk to opposite sidelines after a fumble.
-            const sidelineX = (this.team === 'offense') ? 50 : -50;
-            const dir = new THREE.Vector3(sidelineX - this.group.position.x, 0, 0);
-            if (dir.length() > 0.5) {
-                dir.normalize();
-                this.group.position.addScaledVector(dir, 6 * dt);
-                this.group.lookAt(this.group.position.clone().add(dir));
-                this.currentMoveSpeed = 6;
-            } else {
-                this.currentMoveSpeed = 0;
-            }
+            // Both teams walk to opposite sidelines after a fumble — each man at his own pace, starting
+            // when he starts, drifting a little up or down the field, not in one line
+            const w = this.offWalk || (this.offWalk = { speed: 3 + Math.random() * 3.5, delay: Math.random() * 0.9, x: (50 + Math.random() * 3) * (this.team === 'offense' ? 1 : -1), dz: (Math.random() - 0.5) * 8 });
+            if ((w.delay -= dt) > 0 || isFalling(this) || riseAnims.some(r => r.p === this)) { this.currentMoveSpeed = 0; }
+            else if (steerTo(this, new THREE.Vector3(w.x, 0, this.group.position.z + w.dz * dt), w.speed, dt) < 0.5) this.currentMoveSpeed = 0;
             this.animateLimbs(dt);
             return;
         }
@@ -2622,9 +2686,11 @@ class Player {
         let actualPlayerSpeed = this.speed;
 
         if (GAME_STATE === 'GETTING_UP') {
-            let targetZ = this.team === 'offense' ? lineOfScrimmageZ + 5 : lineOfScrimmageZ - 5;
-            let dir = new THREE.Vector3(0, 0, targetZ - this.group.position.z);
-            if (Math.abs(dir.z) > 1) { dir.normalize(); this.group.position.addScaledVector(dir, 3 * dt); this.currentMoveSpeed = 3; }
+            // Back toward the huddle: everybody at his own speed, starting at his own time, to his own spot
+            const w = this.backWalk || (this.backWalk = { speed: 1.8 + Math.random() * 2.4, delay: Math.random() * 1.0, dz: 3 + Math.random() * 5, dx: (Math.random() - 0.5) * 4 });
+            if ((w.delay -= dt) > 0 || isFalling(this) || riseAnims.some(r => r.p === this)) { this.currentMoveSpeed = 0; this.animateLimbs(dt); return; }
+            const targetZ = this.team === 'offense' ? lineOfScrimmageZ + w.dz : lineOfScrimmageZ - w.dz;
+            if (steerTo(this, new THREE.Vector3(this.group.position.x * 0.97 + w.dx * dt, 0, targetZ), w.speed, dt) < 0.6) this.currentMoveSpeed = 0;
             this.animateLimbs(dt); return;
         }
 
@@ -2740,13 +2806,17 @@ class Player {
                 }
             } else {
                 // Non-targeted WR that overshot — also turn back toward the ball.
-                if (ball.velocity && this.group.position.z < passTarget.z - 2) {
+                if (hookLadder && hookLadder.trailer === this) {
+                    // Hook and ladder trailer: updateHookLadder runs him
+                } else if (ball.velocity && this.group.position.z < passTarget.z - 2) {
                     let ballDir = new THREE.Vector3().subVectors(ball.position, this.group.position); ballDir.y = 0; ballDir.normalize();
                     this.group.position.addScaledVector(ballDir, actualPlayerSpeed * dt);
                     this.group.lookAt(this.group.position.clone().add(ballDir));
                     this.currentMoveSpeed = actualPlayerSpeed;
                 } else if (this.routeIndex < this.route.length) {
-                    let target = this.route[this.routeIndex]; let dir = new THREE.Vector3().subVectors(target, this.group.position); dir.y = 0;
+                    // Never aim past the back of the end zone or out of bounds (he'd run in place against it)
+                    let target = this.route[this.routeIndex].clone(); target.z = Math.max(target.z, -116); target.x = THREE.MathUtils.clamp(target.x, -SIDELINE_X + 3, SIDELINE_X - 3);
+                    let dir = new THREE.Vector3().subVectors(target, this.group.position); dir.y = 0;
                     if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } }
                     else {
                         dir.normalize();
@@ -2755,11 +2825,30 @@ class Player {
                 } else if (this.kneel || (trickPitch && trickPitch.rb === this)) {
                     this.currentMoveSpeed = 0; // still in the trick's fake (holding, or pitching it back)
                 } else {
-                    // Route done — always run straight downfield so WRs never drift sideways into a DB.
-                    const driftDir = new THREE.Vector3(0, 0, -1);
-                    this.group.position.addScaledVector(driftDir, actualPlayerSpeed * 0.85 * dt);
-                    this.group.lookAt(this.group.position.clone().add(driftDir));
-                    this.currentMoveSpeed = actualPlayerSpeed * 0.85;
+                    // Route done — work to get open: keep going downfield while there's room, slide away
+                    // from the nearest defender, and near the back of the end zone come back toward the QB
+                    // instead of running into the end line.
+                    // A hook or curl (last leg comes back toward the ball) sits down in the open and faces the QB
+                    const R = this.route, sitting = R.length >= 2 && R[R.length - 1].z > R[R.length - 2].z;
+                    const pos = this.group.position, driftDir = new THREE.Vector3(0, 0, sitting ? 0 : pos.z > -108 ? -1 : 0);
+                    const near = players.defense.reduce((a, d) => (!a || d.group.position.distanceTo(pos) < a.group.position.distanceTo(pos)) ? d : a, null);
+                    if (near) {
+                        const away = pos.clone().sub(near.group.position).setY(0), dd = away.length();
+                        if (dd < 6) driftDir.addScaledVector(away.normalize(), 1.6 * (1 - dd / 6) + 0.3);
+                    }
+                    if (pos.z < -112) driftDir.z += 0.8;                        // off the end line, back toward the ball
+                    if (Math.abs(pos.x) > SIDELINE_X - 5) driftDir.x -= Math.sign(pos.x);   // and off the sideline
+                    if (sitting && driftDir.lengthSq() < 0.01) {
+                        const q = players.offense[0].group.position;
+                        turnToward(this, q.clone().sub(pos), dt); this.currentMoveSpeed = 0;
+                    } else {
+                        if (driftDir.lengthSq() < 0.01) driftDir.set(Math.sign(pos.x || 1) * -0.5, 0, 0.3);
+                        driftDir.y = 0; driftDir.normalize();
+                        const settle = sitting ? 0.3 : pos.z < -108 ? 0.6 : 0.85;   // settling, not sprinting
+                        this.group.position.addScaledVector(driftDir, actualPlayerSpeed * settle * dt);
+                        turnToward(this, driftDir, dt);
+                        this.currentMoveSpeed = actualPlayerSpeed * settle;
+                    }
                 }
             }
         } else if (this.team === 'defense' && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH' || (GAME_STATE === 'TACKLED' && diveAnim))) {
@@ -2807,7 +2896,8 @@ class Player {
                 }
             }
             else if (this.role === 'DL') {
-                const qb = players.offense[0];
+                // On a trick handoff they chase whoever has the ball, and nobody gets sacked without it
+                const qb = trickPitch && trickPitch.phase === 'carry' ? trickPitch.rb : players.offense[0];
                 if (qb && !ball.velocity) {
                     if (this.rushDelay > 0) {
                         this.rushDelay -= dt;
@@ -2827,7 +2917,7 @@ class Player {
                         if (blocked && this.shedTimer > 0) { this.shedTimer -= dt; speedMul *= 0.15; }
                         // Brief burst when breaking free of the pocket (within 5 units)
                         else if (dist < 5) speedMul *= 1.18;
-                        if (dist < 1.6 && !(isRunPlay && handoffPending)) triggerTackle(qb, this, "SACKED!"); // no sacks mid-handoff
+                        if (dist < 1.6 && !(isRunPlay && handoffPending) && !trickPitch) triggerTackle(qb, this, "SACKED!"); // no sacks mid-handoff or mid-trick
                     }
                 }
             }
@@ -3343,8 +3433,9 @@ function triggerTackle(ballCarrier, tackler, message) {
         // Stay down a beat, then get up smoothly and walk back toward the line
         setTimeout(() => {
             GAME_STATE = 'GETTING_UP';
-            startRise(ballCarrier, lineOfScrimmageZ);
-            startRise(tackler, lineOfScrimmageZ);
+            // They don't pop up together: the tackler's usually up first, the runner takes his time
+            setTimeout(() => { if (isFalling(tackler) === false) startRise(tackler, lineOfScrimmageZ); }, 150 + Math.random() * 550);
+            setTimeout(() => { if (isFalling(ballCarrier) === false) startRise(ballCarrier, lineOfScrimmageZ); }, 450 + Math.random() * 850);
             setTimeout(() => { handlePlayResult(message, downZ); }, 2000);
         }, 900);
     });
@@ -3721,11 +3812,12 @@ const PLAY_CATEGORY = {
     slant: 'short', curls: 'short', hitches: 'short', outs: 'short', comeback: 'short', screen: 'short',
     digs: 'middle', crossing: 'middle',
     dive: 'run', sweepl: 'run', sweepr: 'run', draw: 'run', sneak: 'run',
-    playaction: 'deep', flea: 'deep', fakefg: 'short',
+    playaction: 'deep', flea: 'deep', fakefg: 'short', hookladder: 'short', philly: 'short',
 };
 const PLAY_NAMES = { verts: 'FOUR VERTS', posts: 'POSTS', corners: 'CORNERS', slant: 'SLANTS', curls: 'CURLS', hitches: 'HITCHES',
     outs: 'OUT ROUTES', comeback: 'COMEBACK', screen: 'WR SCREEN', digs: 'DIGS', crossing: 'CROSSING', dive: 'HB DIVE',
-    sweepl: 'SWEEP LEFT', sweepr: 'SWEEP RIGHT', draw: 'DRAW', sneak: 'QB SNEAK', playaction: 'PLAY ACTION', flea: 'FLEA FLICKER', fakefg: 'FAKE FG' };
+    sweepl: 'SWEEP LEFT', sweepr: 'SWEEP RIGHT', draw: 'DRAW', sneak: 'QB SNEAK', playaction: 'PLAY ACTION', flea: 'FLEA FLICKER', fakefg: 'FAKE FG',
+    hookladder: 'HOOK & LADDER', philly: 'PHILLY SPECIAL' };
 let playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; // decaying counts of your recent calls
 let recentPlays = [];   // last few play ids
 let defRead = '';       // what the defense says it's reading, shown on the scoreboard
@@ -3831,6 +3923,9 @@ function brainTrickBite(play) {
 function notePlayCall(play) {
     const cat = PLAY_CATEGORY[play];
     if (!cat) return;
+    // Every snap that isn't a given trick, they think about it a little less (a few plays without the
+    // flea flicker and they're half ready for it again)
+    Object.keys(defBrain.tricks).forEach(k => { if (k !== play) defBrain.tricks[k] *= 0.75; });
     Object.keys(playTendency).forEach(k => { playTendency[k] *= 0.8; });
     playTendency[cat] += 1;
     recentPlays.push(play); if (recentPlays.length > 4) recentPlays.shift();
@@ -3899,6 +3994,7 @@ function setupFormation() {
     if (hurryUp && defScheme) defRead = 'NO-HUDDLE';
     else defScheme = pickDefScheme();
     clockRunning = nextClockRuns; nextClockRuns = false; huddleClockLeft = HUDDLE_SECONDS;
+    playClockLeft = PLAY_CLOCK_SECONDS;   // 20 seconds to get the next snap off
     // Scheme depths: FS and SS starting z-offset from LOS, and CB cushion
     const schemeDepths = {
         base:    { fs: 18 + Math.random()*4,  ss: 14 + Math.random()*4,  cbOff: 2  },
@@ -3945,7 +4041,7 @@ function setupFormation() {
 // Build route waypoints for a play, ordered [wr1, wr2, slot, te] to match
 // players.offense[1..4]. Coordinates are absolute world positions.
 // Trick plays reuse a base play's receiver routes
-const TRICK_ROUTES = { playaction: 'posts', flea: 'verts', fakefg: 'curls' };
+const TRICK_ROUTES = { playaction: 'posts', flea: 'flea', fakefg: 'curls', hookladder: 'hookladder', philly: 'philly' };
 
 // ─── FORMATIONS ──────────────────────────────────────────────────────────────
 // Every play lines up in its own look. [x, depth behind the line] for the QB, the back, and the
@@ -4023,6 +4119,29 @@ function getRoutesForPlay(playType, los) {
         [new THREE.Vector3( 18, 0, los - 18), new THREE.Vector3( 18, 0, los - 13)],
         [new THREE.Vector3(-11, 0, los - 12), new THREE.Vector3(-11, 0, los -  8)],
         [new THREE.Vector3(  8, 0, los -  9), new THREE.Vector3(  8, 0, los -  5)],
+    ];
+    if (playType === 'hookladder') return [
+        // Hook and ladder: the X runs a hook and turns back to the QB; the slot trails underneath him
+        // for the pitch after the catch (see startHookLadder); the other two clear the deep middle
+        [new THREE.Vector3(-18, 0, los - 11), new THREE.Vector3(-17, 0, los - 9)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( 2, 0, los - 38)],
+        [new THREE.Vector3(-10, 0, los -  3), new THREE.Vector3(-15, 0, los - 6.5)],
+        [new THREE.Vector3(  8, 0, los - 10), new THREE.Vector3( -4, 0, los - 30)],
+    ];
+    if (playType === 'philly') return [
+        // Philly Special decoys: everyone runs off to the left and deep, leaving the right flat to the QB
+        [new THREE.Vector3(-18, 0, los - 40)],
+        [new THREE.Vector3( 18, 0, los - 14), new THREE.Vector3( 6, 0, los - 36)],
+        [new THREE.Vector3(-11, 0, los - 12), new THREE.Vector3(-24, 0, los - 30)],
+        [new THREE.Vector3(  8, 0, los -  4), new THREE.Vector3(-6, 0, los - 10)],
+    ];
+    if (playType === 'flea') return [
+        // Flea flicker: everyone sells the run, then double moves while the ball comes back to the QB —
+        // a post-corner, a corner-post, a deep cross and the TE sitting down in the hole
+        [new THREE.Vector3(-18, 0, los - 12), new THREE.Vector3(-10, 0, los - 20), new THREE.Vector3(-28, 0, los - 36)],
+        [new THREE.Vector3( 18, 0, los - 12), new THREE.Vector3( 28, 0, los - 22), new THREE.Vector3( 6, 0, los - 40)],
+        [new THREE.Vector3(-11, 0, los - 10), new THREE.Vector3( 14, 0, los - 26)],
+        [new THREE.Vector3(  8, 0, los -  6), new THREE.Vector3(  4, 0, los - 14), new THREE.Vector3(  2, 0, los - 12)],
     ];
     if (playType === 'posts') return [
         // Post: 12yds straight up, then cut hard toward the goalpost (center field)
@@ -4135,6 +4254,8 @@ function selectPlay(playType) {
     // Fakes: the back runs at the QB for the mesh first (and on the flea flicker, back out for the pitch)
     if (playType === 'playaction') players.offense[5].route = [new THREE.Vector3(1.2, 0, los + 4), new THREE.Vector3(10, 0, los - 2)];
     if (playType === 'flea') players.offense[5].route = [new THREE.Vector3(1, 0, los + 4.5), new THREE.Vector3(2, 0, los + 1)];
+    if (playType === 'philly') players.offense[5].route = [new THREE.Vector3(1.2, 0, los + 4.5), new THREE.Vector3(9, 0, los + 3.5)];   // toss right...
+    if (playType === 'hookladder') players.offense[5].route = [new THREE.Vector3(-4, 0, los + 3), new THREE.Vector3(-6, 0, los + 1)];   // stays in to block the backside
     const formName = playType === 'fakefg' ? null : applyFormation(playType, los);
     if (playType === 'fakefg') {
         // Field goal look: QB lines up as the kicker, the back kneels as the holder, receivers tight as wings
@@ -4153,7 +4274,7 @@ function selectPlay(playType) {
 function snapBall() {
     if (GAME_STATE !== 'PRE_SNAP') return;
     if (!isTwoPointAttempt && Math.random() < 0.015) { falseStart(); return; }
-    flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; replayFrames = [];
+    flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
     playStat = isTwoPointAttempt ? null : { kind: isRunPlay ? 'run' : 'pass', los: lineOfScrimmageZ, thrown: false, completed: false };
@@ -4262,6 +4383,8 @@ const TRICKS = {
     playaction: { bite: 0.8, lock: 0.55, label: 'PLAY ACTION...' },
     flea:       { bite: 1.9, cbBite: 1.3, label: 'FLEA FLICKER...', pitch: true },   // they're fooled until the pitch comes back (~1.4 s)
     fakefg:     { label: 'FIELD GOAL...', surprise: true },
+    hookladder: { label: 'HOOK AND LADDER...' },   // no fake: it's all in the pitch after the catch
+    philly:     { bite: 1.7, cbBite: 0.7, label: 'TOSS RIGHT...', pitch: true, philly: true },   // the back throws it to the QB
 };
 let trickThrowLockUntil = 0;  // performance.now() time before which the QB can't throw (ball is in the fake)
 let fakeFgUsed = false;
@@ -4283,7 +4406,8 @@ function startTrickPlay(play, qb) {
     if (t.surprise) fakeFgUsed = true;
     document.getElementById('instructions').innerText = t.label;
     // Handoff to the back, who charges the line... then pitches it right back for the deep shot
-    if (t.pitch) trickPitch = { rb: players.offense[5], qb, elapsed: 0, phase: 'mesh' };
+    if (t.pitch) trickPitch = { rb: players.offense[5], qb, elapsed: 0, phase: 'mesh', philly: !!t.philly };
+    if (t.philly) qb.dropBack = null;   // he hands it off and drifts out to the right flat himself
     // Fake field goal: long snap to the holder, kicker steps into it... and the holder flips it to him
     if (play === 'fakefg') {
         detachBallToScene(); ball.position.set(0, 0.6, lineOfScrimmageZ + 0.6);
@@ -4315,6 +4439,11 @@ function updateTrickPitch(dt) {
         }
     } else if (f.phase === 'mesh' && f.elapsed >= 0.35) {
         detachBallToScene(); attachBallToCarrier(f.rb); f.phase = 'carry';
+    } else if (f.phase === 'carry' && f.philly) {
+        // Philly Special: the back takes the toss right while the QB "loafs" out to the right flat (staying
+        // behind the line so he isn't a scrambler)... then the back pulls up and the QB is a receiver
+        if (f.elapsed > 0.55) { steerTo(f.qb, new THREE.Vector3(11, 0, lineOfScrimmageZ + 1.2), 5.5, dt); f.qb.animateLimbs(dt); }
+        if (f.elapsed >= 1.5) phillySwap(f);
     } else if (f.phase === 'carry' && (f.elapsed >= 0.95 || f.rb.routeIndex >= f.rb.route.length)) {
         // Stop at the line, turn, and toss it back
         detachBallToScene(); f.start = ball.position.clone(); f.phase = 'toss'; f.tossT = 0;
@@ -4337,6 +4466,72 @@ function updateTrickPitch(dt) {
     }
 }
 
+// Philly Special: the back pulls up and becomes the passer, and the QB becomes a receiver. They
+// swap places in the lineup (the passer is always players.offense[0]) and swap roles (only WRs can catch).
+function phillySwap(f) {
+    const rb = f.rb, qb = f.qb, off = players.offense, los = lineOfScrimmageZ;
+    trickPitch = null;
+    off[0] = rb; off[5] = qb;
+    rb.role = 'QB'; rb.route = []; rb.dropBack = null; rb.currentMoveSpeed = 0;
+    qb.role = 'WR'; qb.route = [new THREE.Vector3(13, 0, los - 6), new THREE.Vector3(16, 0, los - 20)]; qb.routeIndex = 0; qb.cutBurstTimer = 1.2;
+    rb.group.lookAt(rb.group.position.x, 0, rb.group.position.z - 10);
+    detachBallToScene(); attachBallToQB(rb);
+    document.getElementById('instructions').innerText = 'PHILLY SPECIAL! THE QB IS OPEN — CLICK TO THROW';
+}
+
+// Hook and ladder: when you throw the hook, the slot breaks across underneath so he's going full speed
+// just behind and outside the catcher as the ball arrives; the catcher pitches it to him (sooner if
+// he's about to get hit) and you take the trailer the rest of the way.
+function startHookLadder(catcher) {
+    const trailer = players.offense[3];
+    if (currentPlay !== 'hookladder' || catcher !== players.offense[1] || !trailer || isFalling(trailer)) return;
+    hookLadder = { catcher, trailer, t: 0, phase: 'run', side: Math.sign(catcher.group.position.x) || -1 };
+}
+function updateHookLadder(dt) {
+    const H = hookLadder;
+    if (!H) return;
+    H.t += dt;
+    const c = H.catcher.group.position, tr = H.trailer, side = H.side;
+    if (H.phase === 'run') {
+        // Ball in the air: run at the spot just behind and outside where the catch will be
+        if (GAME_STATE === 'POST_CATCH' && activeReceiver === H.catcher) { H.phase = 'trail'; H.t = 0; }
+        else if (GAME_STATE !== 'PLAY') { hookLadder = null; return; }
+        else { steerTo(tr, new THREE.Vector3(passTarget.x + side * 2.2, 0, passTarget.z + 1.6), 10.5, dt); tr.animateLimbs(dt); return; }
+    }
+    if (GAME_STATE !== 'POST_CATCH') { hookLadder = null; return; }
+    if (H.phase === 'trail') {
+        if (activeReceiver !== H.catcher) { hookLadder = null; return; }
+        const spot = new THREE.Vector3(c.x + side * 2.5, 0, c.z + 1.0);
+        steerTo(tr, spot, 10.5, dt); tr.animateLimbs(dt);
+        const gap = tr.group.position.distanceTo(spot);
+        // Pitch when he's there — or early, a little wider, when a tackler is about to hit the catcher
+        const danger = players.defense.some(d => !isFalling(d) && d.group.position.distanceTo(c) < 3.5);
+        if (gap < 3 || (danger && gap < 9)) {
+            H.phase = 'pitch'; H.p = 0;
+            detachBallToScene(); H.start = ball.position.clone();
+            activeReceiver = tr; tr.autoRun = true; tr.autoRunDir.set(side * 0.45, 0, -1).normalize(); tr.cutBurstTimer = 1.5;
+            H.catcher.currentMoveSpeed = 0;
+            // The man about to hit the catcher does: they go down together as the pitch goes out
+            const hitter = players.defense.filter(d => !isFalling(d) && d.group.position.distanceTo(c) < 3.5)
+                .sort((a, b) => a.group.position.distanceTo(c) - b.group.position.distanceTo(c))[0];
+            if (hitter) {
+                const catcher = H.catcher;
+                startTackleFall(catcher, hitter, () => { startRise(catcher, catcher.group.position.z - 4); startRise(hitter, hitter.group.position.z + 4); });
+            }
+        } else if (H.t > 1.5) hookLadder = null;   // he never got there: the catcher keeps it
+    } else if (H.phase === 'pitch') {
+        H.p += dt;
+        const u = Math.min(1, H.p / 0.28);
+        ball.position.lerpVectors(H.start, tr.handsWorldPos(), u);
+        ball.position.y += 0.8 * 4 * u * (1 - u);
+        H.catcher.reachArmsToward(tr.group.position.clone().setY(1.5));
+        if (u >= 1) {
+            attachBallToCarrier(tr); hookLadder = null;
+            document.getElementById('instructions').innerText = 'LATERAL! RUN! (SHIFT TO SPRINT)';
+        }
+    }
+}
+
 function checkInputs(e) {
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
@@ -4344,12 +4539,14 @@ function checkInputs(e) {
     if (e.code === 'Space' && GAME_STATE === 'REPLAY' && e.type === 'keydown') { endReplay(); return; }
     if (e.code === 'KeyE' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { switchDefender(); return; }
     if (e.code === 'KeyE' && GAME_STATE === 'KICKOFF_RETURN' && e.type === 'keydown' && !e.repeat) { koSwitch(); return; }
+    if (GAME_STATE === 'FG_BLOCK' && e.type === 'keydown' && !e.repeat) { if (e.code === 'KeyE') { fgSwitch(); return; } if (e.code === 'Space') { fgJump(); return; } }
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
     if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
     if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     
+    if ((e.code === 'KeyT' || e.code === 'Enter') && e.type === 'keydown' && GAME_STATE === 'TIMEOUT') { endTimeout(); return; }
     if (e.code === 'KeyT' && e.type === 'keydown') callTimeout();
     if (emoteWheel && e.type === 'keydown' && /^Digit[1-5]$/.test(e.code)) { pickEmote(Number(e.code.slice(5)) - 1); return; }   // touchdown emote wheel
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
@@ -4388,6 +4585,7 @@ function onMouseDown(e) {
         ball.velocity = new THREE.Vector3((aim.x - ball.position.x) / timeInAir, (aim.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (aim.z - ball.position.z) / timeInAir);
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
+        if (targetedReceiver) startHookLadder(targetedReceiver);   // the trailer breaks on the throw
         qb.throwTimer = 0.55; // trigger throw animation
         if (playStat) { playStat.thrown = true; gameStats.att++; }
         brainNoteThrow(qb, passTarget, targetedReceiver); // the defense remembers where and to whom
@@ -4534,19 +4732,42 @@ function updateCatchDives(dt) {
 
 // Drops: wet balls slip through more often (and receiver hands ratings matter — see dropChance)
 function ballSlipsAway(p) {
+    if (ball.userData.bobble) return false;   // he juggled it once already: this time he hauls it in
     if (Math.random() >= dropChance(p)) return false;
+    // Not every ball that gets away is on the turf: often he bobbles it up and pulls it back in
+    // (unless somebody's right on him to knock it away or pick it off the tip)
+    const near = players.defense.reduce((m, d) => Math.min(m, d.group.position.distanceTo(p.group.position)), Infinity);
+    if (Math.random() < (near > 2.5 ? 0.55 : 0.25)) {
+        ball.userData.bobble = true; ball.userData.bobbleUntil = performance.now() + 330;
+        ball.velocity = new THREE.Vector3(ball.velocity.x * 0.08, 5.5, ball.velocity.z * 0.08);
+        ball.position.copy(p.handsWorldPos()).add(new THREE.Vector3(0, 0.3, 0));
+        flashBanner('BOBBLED...', 700);
+        return true;
+    }
     ball.userData.dropped = true; targetedReceiver = null;
     ball.velocity = new THREE.Vector3((Math.random() - 0.5) * 4, 4, (Math.random() - 0.5) * 4); // pops off his hands
     document.getElementById('instructions').innerText = 'DROPPED!';
     document.getElementById('instructions').classList.remove('hidden');
     return true;
 }
+// How likely this catch gets away from him. NFL receivers drop a few percent of catchable balls,
+// almost never when nobody's around and far more with a defender on them. Wet and snowy balls slip
+// through more (more so as the field fills in), a bullet into his hands is harder than a touch pass,
+// and good hands (hands 80 → normal, 90 → half, 60 → double) make the difference.
 function dropChance(p) {
-    // Wet and snowy balls slip through more, and more so as the field fills in
     const cover = weatherCoverAmount();
-    const base = weather.kind === 'rain' ? 0.10 + 0.05 * cover : weather.kind === 'snow' ? 0.05 + 0.04 * cover : 0.02;
+    const base = weather.kind === 'rain' ? 0.06 + 0.03 * cover : weather.kind === 'snow' ? 0.04 + 0.02 * cover : 0.025;
     const hands = p.rating && p.rating.hands;
-    return base * (hands ? (100 - hands) / 20 : 1); // hands 80 → normal, 90 → half, 60 → double
+    const handsMul = hands ? THREE.MathUtils.clamp((100 - hands) / 20, 0.4, 2) : 1;
+    // Separation: wide open (4+ yards' worth) is a third as likely; a hand in his face more than double
+    const near = players.defense.reduce((m, d) => Math.min(m, d.group.position.distanceTo(p.group.position)), Infinity);
+    const sepMul = near >= 4 ? 0.35 : near <= 1.5 ? 2.2 : 2.2 - (near - 1.5) / 2.5 * 1.85;
+    // Ball speed when it gets there: a laser (40+ units/s) is harder to hold than a floater
+    const v = ball.velocity ? ball.velocity.length() : 30;
+    const speedMul = v > 40 ? 1 + (v - 40) / 40 : v < 28 ? 0.85 : 1;
+    // Catching it in the air or at full stride over his shoulder adds a little
+    const bodyMul = (p.isJumping ? 1.25 : 1) * (p.currentMoveSpeed > p.baseSpeed * 0.9 ? 1.1 : 1);
+    return Math.min(0.45, base * handsMul * sepMul * speedMul * bodyMul);
 }
 
 function updateBallPhysics(dt) {
@@ -4587,7 +4808,7 @@ function updateBallPhysics(dt) {
                 // Reach as the ball closes in; only jump when it will arrive over the hands, timed to peak on arrival
                 const arrival = ballArrival(p);
                 p.catchReach = !!arrival && arrival.t < 0.8 && horizDist < (p === targetedReceiver ? 12 : 6);
-                const canCatch = (!targetedReceiver || p === targetedReceiver) && !ball.userData.dropped;
+                const canCatch = (!targetedReceiver || p === targetedReceiver) && !ball.userData.dropped && !(performance.now() < (ball.userData.bobbleUntil || 0));
                 if (p.catchDive) {
                     // Laid out: it's a catch only if the ball gets to his outstretched hands
                     if (!p.catchDive.caught && p.handsWorldPos().distanceTo(ball.position) < 2.0) completeDivingCatch(p);
@@ -4612,6 +4833,7 @@ function updateBallPhysics(dt) {
                     p.autoRun = true;
                     document.getElementById('stamina-bar').classList.remove('hidden');
                     document.getElementById('instructions').innerText = "RUN! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden'); triggerCheer();
+                    if (hookLadder && hookLadder.catcher === p) updateHookLadder(0);   // the pitch may go right away
                 }
             }
         });
@@ -4625,6 +4847,18 @@ function updateBallPhysics(dt) {
             // Tight coverage (small trailDist) → larger interception window; loose coverage → smaller
             const interceptRange = (2.5 + Math.max(0, (1.5 - (p.trailDist || 1.0))) * 0.9) * diff().intRange;
             if (GAME_STATE !== 'PLAY' || intRet) return; // someone already picked it off
+            if (p.role === 'DL') {
+                // Linemen don't pick passes off at the line: once in a while one gets a hand up and bats it down
+                if (!ball.userData.batChecked && horizDist < 1.3 && ball.position.y < 3.1) {
+                    ball.userData.batChecked = true;
+                    if (Math.random() < 0.3) {
+                        ball.userData.dropped = true; targetedReceiver = null; sfxHit(0.5);
+                        ball.velocity.set(ball.velocity.x * -0.15, 3, ball.velocity.z * -0.15);
+                        flashBanner('BATTED DOWN!', 1100);
+                    }
+                }
+                return;
+            }
             if (dist < interceptRange && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 2.0) {
                 attachBallToCarrier(p); // defender carries the ball in tucked position
                 targetedReceiver = null; triggerBoo(); if (playStat) gameStats.int++;
@@ -4720,6 +4954,53 @@ function goForTwo() {
 }
 
 // Extra point or field goal kicked from the holder's spot at spotZ
+
+// Both units on the field for your kicks: your snapper, line and wings in front of the holder, and
+// their ten rushers across from them. They're scenery with a little push — the kick's already decided.
+
+function buildKickUnits(spotZ) {
+    clearKickUnits();
+    const L = spotZ - 7, line = [], rush = [], R = teamRoster(currentOpponent.id);
+    const mk = (x, z, team, role, num, list) => { const p = new Player(x, z, team, role, String(num), isUserHome, currentOpponent); list.push(p); return p; };
+    mk(0, L - 0.8, 'offense', 'OL', 46, line);
+    [-2.2, 2.2, -4.4, 4.4, -6.6, 6.6].forEach((x, i) => mk(x, L - 0.8, 'offense', 'OL', [62, 69, 65, 73, 56, 68][i], line));
+    [-8.6, 8.6].forEach((x, i) => mk(x, L - 2.0, 'offense', 'TE', [88, 86][i], line));
+    line.forEach(p => { p.group.rotation.y = Math.PI; });
+    const rushX = [-9.2, -7, -4.8, -2.6, -0.6, 0.6, 2.6, 4.8, 7, 9.2];
+    const rushWho = [['CB', 0], ['DL', 0], ['DL', 1], ['LB', 0], ['DL', 2], ['LB', 1], ['DL', 3], ['LB', 2], ['SS', 0], ['CB', 1]];
+    rushX.forEach((x, i) => { const [role, k] = rushWho[i]; mk(x, L + 1.4, 'defense', role, R.nums[role][k], rush); });
+    rush.forEach(r => { r.kickJump = Math.abs(r.group.position.x) < 5 && Math.random() < 0.6; r.dAir = false; });
+    kickUnits = { line, rush, L, t: 0, jumped: false };
+}
+
+function clearKickUnits() {
+    if (!kickUnits) return;
+    kickUnits.line.concat(kickUnits.rush).forEach(p => scene.remove(p.group));
+    kickUnits = null;
+}
+
+// Every frame of the kick: their rush comes, your line gives a little ground, the middle men jump
+function updateKickUnits(dt) {
+    const K = kickUnits;
+    if (!K) return;
+    K.t += dt;
+    const V = (x, z) => new THREE.Vector3(x, 0, z);
+    K.rush.forEach((r, i) => {
+        const b = K.line[Math.min(K.line.length - 1, Math.round(i * (K.line.length - 1) / (K.rush.length - 1)))];
+        if (K.t > 0.1 + r.mind.react * 0.3) steerTo(r, V(r.group.position.x * 0.97, Math.max(K.L - 1.2, b.group.position.z + 1.1)), 2.2 * r.mind.pace, dt);
+        if (r.dAir) { r.dJumpV -= 30 * dt; r.group.position.y += r.dJumpV * dt; if (r.group.position.y <= 0) { r.group.position.y = 0; r.dAir = false; } }
+        r.animateLimbs(dt);
+    });
+    K.line.forEach(p => {
+        steerTo(p, V(p.group.position.x, Math.min(p.group.position.z + 0.3, K.L + 1.2)), 0.5, dt);
+        p.group.rotation.y = Math.PI; p.animateLimbs(dt);
+    });
+    if (!K.jumped && xpAnimPhase === 'in_flight') {
+        K.jumped = true;
+        K.rush.forEach(r => { if (r.kickJump) { r.dAir = true; r.dJumpV = 9 + Math.random() * 2; } });
+    }
+}
+
 function startKickAnim(isGood, spotZ, isFieldGoal) {
     kickSpotZ = spotZ;
     kickIsFieldGoal = isFieldGoal;
@@ -4742,6 +5023,7 @@ function startKickAnim(isGood, spotZ, isFieldGoal) {
     // Kicker lines up a few steps back
     xpAnimKicker = new Player(-1, kickSpotZ + 7, 'offense', 'QB', '3', isUserHome, currentOpponent);
     xpAnimKicker.group.rotation.y = Math.PI;
+    buildKickUnits(kickSpotZ);   // both units on the field
 
     // Behind the kicker, looking straight down the middle at the uprights
     camera.position.set(-1.5, 5, kickSpotZ + 16);
@@ -4853,24 +5135,244 @@ function blockForReturner(R, team, chasers, dt, holdScale) {
     });
 }
 
-// Chasers: blocked ones fight to get free, the rest take a pursuit angle. Returns whoever got to him.
+// ─── PURSUIT WITH A MIND ─────────────────────────────────────────────────────
+// Chasers don't mirror the ball carrier. Each one sees him a beat late (his own reaction time), judges
+// his own angle, and runs with momentum — he can't stop and cut on a dime, so a hard cut leaves him
+// overrunning the play. R.trail remembers where the carrier was over the last moments.
+function recordTrail(R, pos, now) {
+    (R.trail = R.trail || []).push({ t: now, p: pos.clone() });
+    while (R.trail.length > 60) R.trail.shift();
+}
+// Where (and how fast) a chaser who's `lag` seconds behind the play thinks the carrier is
+function seenCarrier(R, lag, now) {
+    const tr = R.trail || [];
+    if (!tr.length) return null;
+    let i = tr.length - 1;
+    while (i > 0 && now - tr[i].t < lag) i--;
+    let j = i;
+    while (j > 0 && tr[i].t - tr[j].t < 0.15) j--;
+    const dtv = tr[i].t - tr[j].t;
+    const vel = dtv > 0.01 ? tr[i].p.clone().sub(tr[j].p).divideScalar(dtv) : new THREE.Vector3();
+    return { pos: tr[i].p, vel };
+}
+// Run toward target at up to `speed`, but speeding up / changing direction takes time
+function chaseMomentum(p, target, speed, dt) {
+    const v = p.chaseVel || (p.chaseVel = new THREE.Vector3());
+    const want = new THREE.Vector3(target.x - p.group.position.x, 0, target.z - p.group.position.z);
+    const dist = want.length();
+    if (dist > 0.01) want.multiplyScalar(speed / dist);
+    const accel = 14 + 100 * ((p.mind ? p.mind.pace : 1) - 0.95);   // 14–24: some guys change direction quicker
+    const dv = want.sub(v);
+    if (dv.length() > accel * dt) dv.setLength(accel * dt);
+    v.add(dv);
+    if (v.length() > speed) v.setLength(speed);
+    p.group.position.addScaledVector(v, dt);
+    if (v.lengthSq() > 0.01) turnToward(p, v, dt);
+    p.currentMoveSpeed = v.length();
+    return dist;
+}
+// Where one chaser aims: the spot he thinks the carrier is headed (seen late), his own lead, his spacing
+function chaseTarget(c, R, now, mates, carrierPos) {
+    const seen = seenCarrier(R, 0.1 + (c.mind ? c.mind.react : 0.15), now) || { pos: carrierPos, vel: new THREE.Vector3() };
+    const d = c.group.position.distanceTo(carrierPos);
+    const tgt = seen.pos.clone().addScaledVector(seen.vel, Math.min(1.2, d / 9.5) * (c.mind ? c.mind.lead : 0.8));
+    if (d > 4) tgt.add(spacingPush(c, mates, 3).multiplyScalar(4));     // spread out, don't pile in a line
+    if (d < 2.5) tgt.copy(carrierPos);                                  // right on him: go get him
+    return tgt;
+}
+
+// Chasers: blocked ones fight to get free, the rest pursue (see chaseTarget). Returns whoever got to him.
 function chaseReturner(R, chasers, dt) {
     const cp = R.carrier.group.position;
+    recordTrail(R, cp, R.t);
     let tackler = null;
     chasers.forEach(o => {
-        if (o.intHold > 0) { o.intHold -= dt; o.currentMoveSpeed = 0; if (o.intHold <= 0) o.intShed = true; return; }
-        const d = o.group.position.distanceTo(cp);
-        const lead = cp.clone().addScaledVector(R.vel || new THREE.Vector3(), Math.min(1.2, d / 9) * o.mind.lead);
-        if (d > 4) lead.add(spacingPush(o, chasers, 3).multiplyScalar(4)); // spread out, don't pile in a line
-        steerTo(o, lead, (o.role === 'OL' || o.role === 'DL' ? 6.8 : o.role === 'QB' ? 8.2 : 9.4) * o.mind.pace, dt);
+        if (o.intHold > 0) { o.intHold -= dt; o.currentMoveSpeed = 0; if (o.chaseVel) o.chaseVel.set(0, 0, 0); if (o.intHold <= 0) o.intShed = true; return; }
+        chaseMomentum(o, chaseTarget(o, R, R.t, chasers, cp), (o.role === 'OL' || o.role === 'DL' ? 6.8 : o.role === 'QB' ? 8.2 : 9.4) * o.mind.pace, dt);
         if (!tackler && R.t > 0.15 && o.group.position.distanceTo(cp) < 1.4) tackler = o;
     });
     return tackler;
 }
 
+// ─── TURNOVER CELEBRATIONS ───────────────────────────────────────────────────
+// After an interception or a fumble recovery, the defense that got it does what NFL defenses do: the
+// guys nearest the ball run over and put on a group celebration while the camera watches —
+//   photo:   two rows posing (front row on a knee) while the man with the ball "takes the picture"
+//   bowling: he rolls the ball at the rest set up like pins, and they go down
+//   row:     they sit in a line and row the boat, him at the front calling the stroke
+//   pile:    everybody jumping around him, arms up, as he holds the ball high
+// Then whatever comes next (the next play, the drive summary) carries on.
+const TEAM_CELEBRATIONS = [['photo', 'TEAM PHOTO!'], ['bowling', 'BOWLING!'], ['row', 'ROW THE BOAT!'], ['pile', 'MOSH PIT!']];
+const CELEB_GATHER = 1.8, CELEB_TIME = 3.4;
+
+function startTeamCelebration(team, star, onDone) {
+    const busy = p => isFalling(p) || riseAnims.some(r => r.p === p);
+    if (!star || !team.includes(star)) { onDone(); return; }
+    // Whoever's on the turf gets up first; the eight nearest him join in
+    team.forEach(p => { if (isFalling(p)) startRise(p, p.group.position.z + 1); });
+    const sp = star.group.position;
+    const crew = team.slice().sort((a, b) => a.group.position.distanceTo(sp) - b.group.position.distanceTo(sp)).slice(0, 8);
+    const [kind, label] = TEAM_CELEBRATIONS[Math.floor(Math.random() * TEAM_CELEBRATIONS.length)];
+    // Celebrate where he ended up, kept inside the field; the camera looks in from the middle of the field
+    const center = new THREE.Vector3(THREE.MathUtils.clamp(sp.x, -40, 40), 0, THREE.MathUtils.clamp(sp.z, -108, 108));
+    const f = new THREE.Vector3(-Math.sign(center.x) || 1, 0, 0);        // toward the camera
+    const lat = new THREE.Vector3(0, 0, 1);                               // along the group
+    const at = (a, b) => center.clone().addScaledVector(lat, a).addScaledVector(f, b);
+    const others = crew.filter(p => p !== star), spots = new Map();
+    const face = (p, dir) => { spots.get(p).face = dir.clone().normalize(); };
+    if (kind === 'photo') {
+        others.forEach((p, i) => spots.set(p, { pos: i < 4 ? at(-2.4 + i * 1.6, 0) : at(-1.6 + (i - 4) * 1.6, 1.3), kneel: i >= 4 }));
+        spots.set(star, { pos: at(0, 6.5) });
+        others.forEach(p => face(p, f)); face(star, f.clone().negate());
+    } else if (kind === 'bowling') {
+        const pins = [[0, 0], [1.2, -0.75], [1.2, 0.75], [2.4, -1.5], [2.4, 0], [2.4, 1.5], [3.6, -0.75], [3.6, 0.75]];
+        others.forEach((p, i) => spots.set(p, { pos: at(2 + pins[i][0], pins[i][1]) }));
+        spots.set(star, { pos: at(-7, 0) });
+        others.forEach(p => face(p, lat.clone().negate())); face(star, lat);
+    } else if (kind === 'row') {
+        others.forEach((p, i) => spots.set(p, { pos: at(-3.5 + i * 1.25, 0) }));
+        spots.set(star, { pos: at(-3.5 + others.length * 1.25 + 0.6, 0) });
+        others.forEach(p => face(p, lat)); face(star, lat.clone().negate());
+    } else {
+        others.forEach((p, i) => { const a = i / others.length * Math.PI * 2; spots.set(p, { pos: center.clone().add(new THREE.Vector3(Math.cos(a) * 1.7, 0, Math.sin(a) * 1.7)), phase: Math.random() * Math.PI * 2 }); });
+        spots.set(star, { pos: center.clone() });
+        others.forEach(p => face(p, center.clone().sub(spots.get(p).pos))); face(star, f);
+    }
+    crew.forEach(p => { p.celebSpeed = 6 + Math.random() * 2.5; p.chaseVel = null; });
+    teamCeleb = { team, crew, star, kind, label, spots, center, f, lat, t: 0, phase: 'gather', onDone, prev: GAME_STATE, busy };
+    GAME_STATE = 'CELEBRATE';
+}
+
+function updateTeamCelebration(dt) {
+    const C = teamCeleb;
+    if (!C) return;
+    C.t += dt;
+    // Camera: in front of the group, a little above, easing in
+    camera.position.lerp(C.center.clone().addScaledVector(C.f, 15).add(new THREE.Vector3(0, 5, 0)), 0.05);
+    camera.lookAt(C.center.x, 1.4, C.center.z);
+    // Everyone else gives them room: anybody standing between them and the camera walks off
+    players.offense.concat(players.defense, droneSimPlayers).forEach(p => {
+        if (C.crew.includes(p) || C.busy(p) || !p.group.visible) return;
+        const off = p.group.position.clone().sub(C.center).setY(0);
+        if (off.length() > 12) { p.currentMoveSpeed = 0; return; }
+        const away = off.lengthSq() > 0.01 ? off.normalize() : C.f.clone();
+        if (away.dot(C.f) > 0) away.add(C.lat.clone().multiplyScalar(Math.sign(away.dot(C.lat)) || 1));   // out of the shot, to the side
+        steerTo(p, p.group.position.clone().addScaledVector(away.normalize(), 3), 3.2, dt); p.animateLimbs(dt);
+    });
+    if (C.phase === 'gather') {
+        let ready = true;
+        C.crew.forEach(p => {
+            if (C.busy(p)) { ready = false; return; }
+            const s = C.spots.get(p);
+            if (steerTo(p, s.pos, p.celebSpeed, dt) > 0.15) ready = false;
+            else { p.currentMoveSpeed = 0; turnToward(p, s.face, dt, 8); }
+            p.animateLimbs(dt);
+        });
+        if (ready || C.t > CELEB_GATHER) {
+            C.phase = 'pose'; C.t = 0;
+            C.crew.forEach(p => {
+                const s = C.spots.get(p);
+                if (C.busy(p)) return;
+                p.group.position.copy(s.pos); p.yaw = Math.atan2(s.face.x, s.face.z); p.group.quaternion.copy(yawPitchQuat(p.yaw, 0));
+            });
+            flashBanner(C.label, 1600); triggerCheer();
+        }
+        return;
+    }
+    const t = C.t, star = C.star;
+    const arms = (p, rx, rz, lx, lz, re = -0.3, le = -0.3) => { p.rightUpper.rotation.set(rx, 0, rz); p.leftUpper.rotation.set(lx, 0, lz); p.rightLower.rotation.set(re, 0, 0); p.leftLower.rotation.set(le, 0, 0); };
+    const legs = (p, l, r) => { p.leftLeg.rotation.set(l, 0, 0); p.rightLeg.rotation.set(r, 0, 0); };
+    const posing = C.crew.filter(p => !C.busy(p) || p.pinDown);
+    if (C.kind === 'photo') {
+        posing.forEach((p, i) => {
+            if (p === star) return;
+            const s = C.spots.get(p);
+            if (s.kneel) { p.group.position.y = -0.55; legs(p, -1.15, 1.15); arms(p, -0.5, 0.15, -0.5, -0.15, -1.2, -1.2); }   // hands on the knee
+            else if (i % 2) { legs(p, 0, 0); arms(p, -2.6, 0.3, 0.1, -0.1); }      // finger up: number one
+            else { legs(p, 0, 0); arms(p, 0, 0.9, 0, -0.9, -1.6, -1.6); }           // arms crossed, mean mug
+        });
+        arms(star, -1.45, 0.25, -1.45, -0.25, -0.9, -0.9);   // both hands up at his eyes, holding the "camera"
+        if (!C.flashed && t > 1.7) { C.flashed = true; cameraFlash(); }
+    } else if (C.kind === 'bowling') {
+        const spots = C.spots;
+        if (t < 0.9) {   // the approach: a few steps and down into the release
+            const k = t / 0.9;
+            star.group.position.copy(spots.get(star).pos).addScaledVector(C.lat, 2.2 * k);
+            star.group.position.y = -0.35 * k;
+            legs(star, -0.9 * k, 0.7 * k); arms(star, 0.9 - 2.0 * k, 0.1, 0.2, -0.3);
+        } else {
+            if (!C.ball) {
+                detachBallToScene();
+                C.ball = { pos: ball.position.clone().setY(0.25) };
+            }
+            C.ball.pos.addScaledVector(C.lat, 13 * dt);
+            ball.position.copy(C.ball.pos); ball.rotateX(-12 * dt);
+            arms(star, -1.4, 0.1, 0.4, -0.3);   // follow-through
+            const reach = C.ball.pos.clone().sub(C.center).dot(C.lat);
+            C.crew.forEach(p => {
+                if (p === star || p.pinDown || C.busy(p)) return;
+                if (reach > spots.get(p).pos.clone().sub(C.center).dot(C.lat) - 1.6 - Math.random() * 0.5) {
+                    p.pinDown = true;
+                    startTackleFall(p, star, null);
+                }
+            });
+            if (!C.strike && C.crew.every(p => p === star || p.pinDown)) { C.strike = true; flashBanner('STRIKE!', 1200); }
+        }
+        posing.forEach(p => { if (p !== star && !p.pinDown) { legs(p, 0, 0); arms(p, 0, 0.12, 0, -0.12); } });
+    } else if (C.kind === 'row') {
+        const stroke = Math.sin(t * 3.6);
+        posing.forEach(p => {
+            if (p === star) return;
+            p.group.position.y = -0.95;
+            p.group.quaternion.copy(yawPitchQuat(p.yaw, -0.25 * stroke));   // lean back on the pull, forward on the catch
+            legs(p, -1.45, -1.45);
+            arms(p, -1.0 - 0.5 * stroke, 0.15, -1.0 - 0.5 * stroke, -0.15, -0.6 + 0.6 * stroke, -0.6 + 0.6 * stroke);
+        });
+        arms(star, -2.4 + 0.6 * stroke, 0.3, -0.2, -0.2);   // calling the stroke, ball up
+        legs(star, 0, 0);
+    } else {
+        posing.forEach(p => {
+            if (p === star) { arms(p, -2.9, 0.2, -2.6, -0.4); return; }   // ball held high
+            const s = C.spots.get(p), h = Math.max(0, Math.sin(t * 6 + s.phase));
+            p.group.position.y = 0.9 * h;
+            arms(p, -2.5 - 0.3 * h, 0.4, -2.5 - 0.3 * h, -0.4);
+            legs(p, -0.3 * h, -0.3 * h);
+        });
+    }
+    if (C.t >= CELEB_TIME) finishTeamCelebration();
+}
+
+function finishTeamCelebration() {
+    const C = teamCeleb;
+    if (!C) return;
+    teamCeleb = null;
+    C.crew.forEach(p => {
+        p.pinDown = false; p.kneel = false;
+        if (isFalling(p)) startRise(p, p.group.position.z + 1);
+        else { p.group.position.y = 0; p.group.quaternion.copy(yawPitchQuat(p.yaw || 0, 0)); }
+        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg].forEach(o => o.rotation.set(0, 0, 0));
+    });
+    if (C.ball) attachBallToCarrier(C.star);
+    GAME_STATE = C.prev;
+    C.onDone();
+}
+
+// The photo's flash: a quick white blink over the screen
+function cameraFlash() {
+    let el = document.getElementById('photo-flash');
+    if (!el) {
+        el = document.createElement('div'); el.id = 'photo-flash';
+        el.style.cssText = 'position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:50;';
+        document.body.appendChild(el);
+    }
+    el.style.transition = 'none'; el.style.opacity = '0.85';
+    requestAnimationFrame(() => { el.style.transition = 'opacity 0.35s ease-out'; el.style.opacity = '0'; });
+}
+
 function finishIntReturn(z) {
+    const star = intRet && intRet.carrier;
     intRet = null;
-    handlePlayResult('INTERCEPTED', z);
+    startTeamCelebration(players.defense, star, () => handlePlayResult('INTERCEPTED', z));   // they celebrate the pick first
 }
 
 function updateIntReturn(dt) {
@@ -4914,7 +5416,10 @@ function updateIntReturn(dt) {
                 if (!walkOff && Math.random() < 0.94) addScore('def', 1);
                 updateScoreboard(); triggerBoo();
                 document.getElementById('instructions').innerText = `PICK SIX! TOUCHDOWN ${currentOpponent.id}`; document.getElementById('instructions').classList.remove('hidden');
-                setTimeout(() => { intRet = null; if (walkOff) endGame(); else startKickReturnAnim('opp_kickoff'); }, 2800);
+                setTimeout(() => {
+                    intRet = null;
+                    startTeamCelebration(players.defense, c, () => { if (walkOff) endGame(); else startKickReturnAnim('opp_kickoff'); });
+                }, 1600);
             } else if (Math.abs(cp.x) >= SIDELINE_X) {
                 R.down = true; c.currentMoveSpeed = 0;
                 document.getElementById('instructions').innerText = 'OUT OF BOUNDS'; document.getElementById('instructions').classList.remove('hidden');
@@ -5071,14 +5576,15 @@ function updateKickoffReturn(dt) {
         else k.cover.forEach(c => steerTo(c, V(c.koLaneX, k.kickZ + s * 0.5), 3, dt));
         if (left < 0.1) {
             k.phase = 'flight'; k.elapsed = 0; sfxKick();
-            const vy = k.punt ? 30 : 32, T = 2 * vy / 30;
+            // NFL hang times: kickoffs about 3.6–4.2 s, punts about 4.0–4.6 s, under real gravity
+            const T = k.punt ? 4.0 + Math.random() * 0.6 : 3.6 + Math.random() * 0.6, vy = KICK_G * T / 2;
             ball.velocity = new THREE.Vector3((k.landing.x - ball.position.x) / T, vy, (k.landing.z - ball.position.z) / T);
             document.getElementById('instructions').innerText = k.userKicks ? 'COVER IT!  WASD MOVE · SHIFT SPRINT · E SWITCH' : 'WASD TO RETURN IT · SHIFT SPRINT';
         }
 
     } else if (k.phase === 'flight') {
         ball.position.addScaledVector(ball.velocity, dt);
-        ball.velocity.y -= 30 * dt;
+        ball.velocity.y -= KICK_G * dt;
         ball.lookAt(ball.position.clone().add(ball.velocity)); ball.rotateZ(-25 * dt);
         // Coverage sprints downfield in its lanes; blockers set the wall; returner settles under it
         const uDir = k.userKicks ? koUserDir(V(0, s)) : null;
@@ -5145,23 +5651,25 @@ function updateKickoffReturn(dt) {
         });
 
         // Coverage: blocked men are stuck until they shed; free men pursue and tackle
+        recordTrail(k, r.group.position, k.elapsed);   // where the returner has been (each tackler reads it a beat late)
         const uDir = k.userKicks ? koUserDir(V(0, s)) : null;
         coverage.forEach(c => {
             if (isFalling(c) || k.phase !== 'return') return;
             if (c.koHold > 0) {
                 c.koHold -= dt * (c === k.user && uDir ? 1.6 : 1); // fighting the block gets you off it sooner
-                c.currentMoveSpeed = 0;
+                c.currentMoveSpeed = 0; if (c.chaseVel) c.chaseVel.set(0, 0, 0);   // stood up by the block
                 if (c.koHold <= 0) c.koShed = true;
                 return;
             }
             if (c === k.user && uDir) steerTo(c, c.group.position.clone().addScaledVector(uDir, 4), userRunSpeed(9.5, koSprint(), dt), dt);
             else {
-                // Stay in your lane until you're close (no one big pile), take your own angle, keep your spacing
+                // His own read of the returner (a beat late, his own angle), staying in his lane until he's
+                // close, and the outside men keeping contain — then momentum, so cuts make him overrun
                 const d = c.group.position.distanceTo(r.group.position);
-                const tgt = r.group.position.clone().addScaledVector(r.koVel || new THREE.Vector3(), Math.min(1.2, d / k.coverSpeed) * c.mind.lead);
+                const tgt = chaseTarget(c, k, k.elapsed, coverage, r.group.position);
                 tgt.x += THREE.MathUtils.clamp(((c.koLaneX ?? r.group.position.x) - r.group.position.x) * 0.25, -7, 7) * Math.min(1, d / 16); // (the kicker has no lane)
-                if (d > 4) tgt.add(spacingPush(c, coverage, 3).multiplyScalar(4));
-                steerTo(c, tgt, k.coverSpeed * c.mind.pace, dt);
+                if (Math.abs(c.koLaneX || 0) >= 24 && d > 7) tgt.x = r.group.position.x + Math.sign(c.koLaneX) * 4.5;   // contain: stay outside him
+                chaseMomentum(c, tgt, k.coverSpeed * c.mind.pace, dt);
             }
             if (c.group.position.distanceTo(r.group.position) < 1.5) {
                 k.phase = 'down';
@@ -5484,8 +5992,8 @@ function switchDefender() {
     if (pick) setControlled(pick);
 }
 
-// F: hit stick. Lunge at the ball carrier for a big hit — costs half your stamina. One in ten
-// jars the ball loose (and the helmet off); the rest you whiff, stumble, and he keeps running.
+// F: hit stick. Lunge at the ball carrier for a big hit — costs half your stamina. Some (1 in 3 on
+// easy, 1 in 5 on medium, 1 in 10 on hard) jar the ball loose (and the helmet off); the rest you whiff, stumble, and he keeps running.
 function hitStick() {
     const P = dp;
     if (!P || P.ended || P.phase !== 'live' || P.hitStick) return;
@@ -5505,7 +6013,7 @@ function updateStaminaBar(pct) {
 // The lunge connected (or ran out): resolve the hit stick
 function resolveHitStick(P, contact) {
     const ctrl = P.ctrl, c = P.carrier;
-    if (contact && c && Math.random() < 0.1) {
+    if (contact && c && Math.random() < ddiff().hitStick) {
         // BOOM: ball out, helmet off, defense recovers
         const dir = c.group.position.clone().sub(ctrl.group.position).setY(0).normalize();
         sfxHit(1.6); triggerCheer();
@@ -5680,12 +6188,19 @@ function endDefPlay(result, delay = 1300) {
     P.ended = true;
     setTimeout(() => {
         if (dp !== P) return;
-        dp = null; if (ctrlRing) ctrlRing.visible = false;
+        if (ctrlRing) ctrlRing.visible = false;
         updateDefHints(null); hidePickRings();
         document.getElementById('instructions').classList.add('hidden');
         document.getElementById('right-hud').classList.add('hidden');
-        GAME_STATE = 'DRONE_SIM';
-        P.onDone({ clock: Math.round(P.t) + 5, ...result });
+        const done = () => {
+            if (dp !== P) return;
+            dp = null;
+            GAME_STATE = 'DRONE_SIM';
+            P.onDone({ clock: Math.round(P.t) + 5, ...result });
+        };
+        // Your defense took it away: they celebrate it before the offense comes out
+        if (result.turnover && P.ret) startTeamCelebration(P.def, P.ret.carrier, done);
+        else done();
     }, delay);
 }
 
@@ -5925,7 +6440,7 @@ function updateDefensePlay(dt) {
             const mine = tackler === ctrl, sack = c === qb && !P.thrown && P.kind === 'pass';
             if (mine) { if (sack) gameStats.defSacks++; else gameStats.tkl++; }
             if (sack) { document.getElementById('instructions').innerText = mine ? 'SACK BY YOU!' : 'SACKED!'; document.getElementById('instructions').classList.remove('hidden'); triggerCheer(); }
-            startTackleFall(c, tackler, () => startRise(tackler, tackler.group.position.z + 10)); // the tackler pops back up
+            startTackleFall(c, tackler, () => setTimeout(() => startRise(tackler, tackler.group.position.z + 10), Math.random() * 700)); // the tackler gets back up (in his own time)
             const downZ = () => c.group.position.z;
             setTimeout(() => {
                 const y = Math.round((L - downZ()) / 2);
@@ -6035,6 +6550,181 @@ function startKickReturnAnim(type) {
     else if (type === 'opp_punt') startFullKickoff({ kicker: 'opp', punt: true, losZ: -droneSimLine }); // their line, in your frame
 }
 
+// ─── LIVE FIELD GOAL / EXTRA POINT BLOCK ─────────────────────────────────────
+// When the other team kicks on a drive you're playing, both units line up: their snapper, line,
+// wings, holder and kicker (attacking −Z at their line L), and your ten rushers plus a man deep.
+// You play a rusher: slide along the line before the snap, fight through your blocker, and jump
+// (SPACE) into the kick. E switches rushers. Get a hand on it and it's blocked. Otherwise the kick
+// goes up and is good or not as the drive already rolled it (opts.good).
+// opts: { L, dist, xp, good, onDone(blocked, made) }
+const FG_SNAP_AT = 2.2, FG_KICK_AFTER = 1.25;
+// Kicks fly under real gravity (9.8 m/s² = 10.7 yd/s² = 21.4 field units/s²; passes keep the arcade 30)
+// and leave the foot like an NFL kick: about 25 yd/s (55 mph) at 35–45°, which works out to roughly
+// 20 yd/s of carry — an extra point hangs about 1.7 s, a 50-yarder about 3 s. (KICK_G and KICK_CARRY live up top.)
+// Launch velocity that carries a kick from `from` to `to` (crossing at to.y) under KICK_G
+function kickVelocity(from, to) {
+    const T = Math.max(0.9, Math.hypot(to.x - from.x, to.z - from.z) / KICK_CARRY);
+    return new THREE.Vector3((to.x - from.x) / T, (to.y - from.y + 0.5 * KICK_G * T * T) / T, (to.z - from.z) / T);
+}
+
+function startOppKick(opts) {
+    const L = opts.L, them = [], us = [];
+    droneSimPlayers.forEach(p => { p.group.visible = false; });
+    const mk = (x, z, team, role, num, faceMinusZ, list) => {
+        const p = new Player(x, z, team, role, String(num), isUserHome, currentOpponent);
+        p.group.rotation.y = faceMinusZ ? Math.PI : 0; list.push(p); return p;
+    };
+    const R = teamRoster(currentOpponent.id);
+    // Their unit: long snapper, three linemen each side, a wing on each end, holder and kicker
+    mk(0, L + 0.8, 'defense', 'OL', 48, true, them);
+    [-2.2, 2.2, -4.4, 4.4, -6.6, 6.6].forEach((x, i) => mk(x, L + 0.8, 'defense', 'OL', R.nums.OL[i % 5] + (i >= 5 ? 1 : 0), true, them));
+    [-8.6, 8.6].forEach((x, i) => mk(x, L + 2.0, 'defense', 'TE', i ? R.nums.TE[0] : 49, true, them));
+    const holder = mk(0.8, L + 7, 'defense', 'QB', R.nums.QB[0] + 1, true, them);
+    holder.kneel = true; holder.animateLimbs(0);
+    const kicker = mk(-1.8, L + 10, 'defense', 'QB', 3, true, them);
+    // Yours: ten rushers across the line and one back deep (the Eagles' numbers, so the names match)
+    const rushX = [-9.2, -7, -4.8, -2.6, -0.6, 0.6, 2.6, 4.8, 7, 9.2];
+    const rushRole = ['LB', 'DL', 'DL', 'DL', 'LB', 'LB', 'DL', 'DL', 'DL', 'CB'];
+    const rushNum = [58, 94, 98, 99, 55, 50, 91, 95, 97, 21];
+    rushX.forEach((x, i) => mk(x, L - 1.4, 'offense', rushRole[i], rushNum[i], false, us));
+    mk(0, L - 20, 'offense', 'FS', 28, false, us);
+    const rushers = us.slice(0, 10), blockers = them.slice(0, 9);
+    rushers.forEach(r => { r.fgHold = (0.7 + Math.random() * 1.7) * ddiff().aiBlock; r.fgBlocker = null; r.dAir = false; });
+    // Each blocker takes the rusher in front of him; the snapper takes the middle man
+    rushers.forEach(r => {
+        const b = blockers.filter(b => !rushers.some(o => o.fgBlocker === b))
+            .reduce((a, c) => (a && a.group.position.distanceTo(r.group.position) < c.group.position.distanceTo(r.group.position)) ? a : c, null);
+        r.fgBlocker = b;
+    });
+    detachBallToScene(); ball.velocity = null; ball.rotation.set(0, 0, 0);
+    ball.position.set(0, 0.6, L + 0.6);
+    oppKick = { opts, L, them, us, rushers, holder, kicker, user: rushers[4], t: 0, phase: 'presnap', blocked: false, userHold: (0.35 + Math.random() * 0.5) * ddiff().block };
+    ensureCtrlRing(); ctrlRing.visible = true;
+    GAME_STATE = 'FG_BLOCK';
+    document.getElementById('right-hud').classList.add('hidden');
+    document.getElementById('instructions').innerText = `${opts.xp ? 'EXTRA POINT' : `${opts.dist}-YD FIELD GOAL`} — BLOCK IT!  WASD · SHIFT SPRINT · SPACE JUMP · E SWITCH`;
+    document.getElementById('instructions').classList.remove('hidden');
+}
+
+// E: next rusher down the line
+function fgSwitch() {
+    const K = oppKick;
+    if (!K || K.phase === 'done') return;
+    const i = K.rushers.indexOf(K.user);
+    K.user = K.rushers[(i + 1) % K.rushers.length];
+}
+// SPACE: jump to block
+function fgJump() {
+    const K = oppKick, u = K && K.user;
+    if (!u || u.dAir || isFalling(u)) return;
+    u.dAir = true; u.dJumpV = 11;
+}
+
+function updateOppKick(dt) {
+    const K = oppKick;
+    if (!K) return;
+    K.t += dt;
+    const L = K.L, u = K.user, V = (x, z) => new THREE.Vector3(x, 0, z);
+    const sinceSnap = K.t - FG_SNAP_AT;
+
+    // You: WASD (W = toward their line, +z), onside until the snap; a blocker slows you until you beat him
+    const mv = new THREE.Vector3((keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0), 0, (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0));
+    if (K.phase === 'presnap' && u.group.position.z + mv.z * 0.3 > L - 1.2) mv.z = Math.min(mv.z, 0);
+    const engaged = sinceSnap > 0 && K.userHold > 0 && u.fgBlocker && u.fgBlocker.group.position.distanceTo(u.group.position) < 1.7;
+    if (engaged) K.userHold -= dt * (Math.abs(mv.x) > 0 ? 2 : 1);   // a swim move sideways gets you off him faster
+    if (mv.lengthSq() > 0 && K.phase !== 'done') steerTo(u, u.group.position.clone().add(mv.normalize().multiplyScalar(3)), ((keys['ShiftLeft'] || keys['ShiftRight']) ? 9 : 7) * (engaged ? 0.3 : 1), dt);
+    else u.currentMoveSpeed = 0;
+    K.rushers.concat(K.us).forEach(p => {   // jumps come back down
+        if (!p.dAir) return;
+        p.dJumpV -= 30 * dt; p.group.position.y += p.dJumpV * dt;
+        if (p.group.position.y <= 0) { p.group.position.y = 0; p.dAir = false; }
+    });
+    ctrlRing.position.set(u.group.position.x, 0.06, u.group.position.z);
+
+    if (K.phase === 'presnap' && K.t >= FG_SNAP_AT) { K.phase = 'snap'; sfxHut(); }
+    if (K.phase === 'snap' || K.phase === 'kick') {
+        // Rushers: held up by their man, then they shed him and go for the spot in front of the holder
+        const spot = V(0, L + 3.6);
+        K.rushers.forEach(r => {
+            if (r === u || isFalling(r)) return;
+            const b = r.fgBlocker;
+            if (r.fgHold > 0 && b) { r.fgHold -= dt; steerTo(r, b.group.position.clone().add(V(0, -1)), 0.8, dt); }
+            else steerTo(r, spot.clone().add(V(r.group.position.x * 0.3, 0)), 7.5 * r.mind.pace, dt);
+        });
+        // Their line: each man mirrors his rusher, giving a little ground
+        K.rushers.forEach(r => {
+            const b = r.fgBlocker; if (!b || isFalling(b)) return;
+            const gap = r.group.position.clone().add(V(0, 1.1));
+            steerTo(b, V(b.group.position.x * 0.6 + gap.x * 0.4, Math.max(L + 0.6, Math.min(L + 3, gap.z))), 3.5, dt);
+            turnToward(b, r.group.position.clone().sub(b.group.position), dt);
+        });
+    }
+    // The snap and the hold
+    if (K.phase === 'snap') {
+        const k = Math.min(1, sinceSnap / 0.35);
+        if (k < 1) ball.position.lerpVectors(V(0, L + 0.6).setY(0.6), K.holder.handsWorldPos(), k);
+        else ball.position.set(0.15, 0.35, L + 7);
+        steerTo(K.kicker, V(-0.7, L + 8.4), 3.2, dt);
+        if (sinceSnap >= FG_KICK_AFTER) {
+            // Kick it: toward the posts (z = −120), between the uprights if it was going to be good
+            K.phase = 'kick'; sfxKick();
+            const aimX = K.opts.good ? (Math.random() - 0.5) * 5 : (Math.random() < 0.5 ? -1 : 1) * (6.5 + Math.random() * 3);
+            const from = ball.position.clone(), to = new THREE.Vector3(aimX, 13, -120);
+            ball.velocity = kickVelocity(from, to);
+            K.kickT = K.t;
+            K.kicker.rightLeg.rotation.x = -1.3;
+        }
+    }
+    if (K.phase === 'kick' && ball.velocity) {
+        ball.position.addScaledVector(ball.velocity, dt); ball.velocity.y -= KICK_G * dt;
+        ball.rotateX(-15 * dt);
+        // Blocked? A hand up in the ball's path while it's still rising off the line
+        if (!K.blocked && K.t - K.kickT < 0.7) {
+            K.rushers.forEach(r => {
+                if (K.blocked || isFalling(r)) return;
+                const hand = r.group.position.clone().add(new THREE.Vector3(0, r === u ? 3.0 : 2.8, 0));
+                if (hand.distanceTo(ball.position) < (r === u ? 1.35 : 1.0)) {
+                    K.blocked = true; sfxHit(1.2); triggerCheer();
+                    ball.velocity.set((Math.random() - 0.5) * 6, 5, 7);   // knocked back toward their side
+                    flashBanner(r === u ? 'BLOCKED BY YOU!' : 'BLOCKED!', 1800);
+                }
+            });
+        }
+        if (!K.blocked && ball.position.z < -100) {
+            // Over the goal line: camera's already watching it go through (or not)
+        }
+        if (ball.position.y <= 0.3 || ball.position.z < -126) {
+            ball.velocity = null; if (ball.position.y < 0.3) ball.position.y = 0.3;
+            K.phase = 'done'; K.doneT = K.t;
+            const made = !K.blocked && K.opts.good;
+            if (!K.blocked) flashBanner(made ? (K.opts.xp ? 'EXTRA POINT GOOD' : 'IT\'S GOOD!') : 'NO GOOD!', 1500);
+            if (!made) triggerCheer(); else triggerBoo();
+        }
+    }
+    // Camera: behind your rushers until the kick, then behind the kicker watching it fly at the posts
+    if (K.phase === 'presnap' || K.phase === 'snap') {
+        camera.position.lerp(new THREE.Vector3(u.group.position.x * 0.5, 7, L - 13), 0.1);
+        camera.lookAt(u.group.position.x * 0.3, 1.5, L + 6);
+    } else {
+        camera.position.lerp(new THREE.Vector3(-3, 7, L + 16), 0.06);
+        camera.lookAt(K.blocked ? ball.position : new THREE.Vector3(0, 9, -120));
+    }
+    K.them.concat(K.us).forEach(p => { if (!isFalling(p) && !(p === K.kicker && K.phase === 'kick' && K.t - K.kickT < 0.3)) p.animateLimbs(dt); });
+    if (K.phase === 'done' && K.t - K.doneT > 1.4) finishOppKick();
+}
+
+function finishOppKick() {
+    const K = oppKick;
+    if (!K) return;
+    oppKick = null;
+    K.them.concat(K.us).forEach(p => scene.remove(p.group));
+    if (ctrlRing) ctrlRing.visible = false;
+    droneSimPlayers.forEach(p => { p.group.visible = true; });
+    document.getElementById('instructions').classList.add('hidden');
+    GAME_STATE = 'DRONE_SIM';
+    K.opts.onDone(K.blocked, !K.blocked && K.opts.good);
+}
+
 function startDroneDriveSim() {
     GAME_STATE = 'DRONE_SIM';
     droneAngle = 0;
@@ -6088,11 +6778,16 @@ function startDroneDriveSim() {
     function attemptFieldGoal(asTimeExpires) {
         const dist = yardsToGoal() + 17;
         const good = Math.random() < (dist < 30 ? 0.97 : dist < 40 ? 0.9 : dist < 50 ? 0.78 : 0.6);
-        logLine(`${stamp()} ${dist}-yd field goal... ${good ? `<span style="color:#ff4444;">GOOD! ${currentOpponent.id} +3</span>` : '<span style="color:#00ff88;">NO GOOD!</span>'}`);
-        if (good) { addScore('def', 3); updateScoreboard(); }
-        if (asTimeExpires) endDrive(endOfPeriod, 2600);
-        else if (good) endDrive(afterScore(), 2600);
-        else giveUserBall(Math.min(60, -(ballZ + 14)), 2600); // miss: user ball at spot of kick, no worse than their 20
+        const finish = (blocked, made) => {
+            logLine(`${stamp()} ${dist}-yd field goal... ${blocked ? '<span style="color:#00ff88;">BLOCKED!</span>' : made ? `<span style="color:#ff4444;">GOOD! ${currentOpponent.id} +3</span>` : '<span style="color:#00ff88;">NO GOOD!</span>'}`);
+            if (made) { addScore('def', 3); updateScoreboard(); }
+            if (asTimeExpires) endDrive(endOfPeriod, 2600);
+            else if (made) endDrive(afterScore(), 2600);
+            else giveUserBall(Math.min(60, -(ballZ + 14)), 2600); // miss or block: your ball at the spot of the kick, no worse than your 20
+        };
+        // Playing their drives: you're on the field to try to block it
+        if (defenseMode) startOppKick({ L: ballZ, dist, xp: false, good, onDone: finish });
+        else finish(false, good);
     }
 
     function runNextDronePlay() {
@@ -6173,6 +6868,18 @@ function startDroneDriveSim() {
             addScore('def', 6);
             const walkOff = currentQuarter === OT_QUARTER; // no extra point after a game-winning OT touchdown
             const xpGood = !walkOff && Math.random() < 0.94;
+            if (defenseMode && !walkOff) {
+                // Playing their drives: line up and try to block the extra point
+                updateScoreboard();
+                logLine(`${line} <span style="color:#ff4444;">TOUCHDOWN ${currentOpponent.id}!</span>`);
+                droneSimTimer = setTimeout(() => startOppKick({ L: GOAL_LINE_Z + 30, dist: 33, xp: true, good: xpGood, onDone: (blocked, made) => {
+                    if (made) addScore('def', 1);
+                    updateScoreboard();
+                    logLine(`Extra point ${blocked ? '<span style="color:#00ff88;">BLOCKED!</span>' : made ? 'good.' : '<span style="color:#00ff88;">NO GOOD!</span>'}`);
+                    endDrive(afterScore(), 1500);
+                } }), 1500);
+                return;
+            }
             if (xpGood) addScore('def', 1);
             updateScoreboard();
             logLine(`${line} <span style="color:#ff4444;">TOUCHDOWN ${currentOpponent.id}!</span>${walkOff ? ' WINS IN OVERTIME!' : ` Extra point ${xpGood ? 'good.' : 'NO GOOD!'}`}`);
@@ -6605,8 +7312,11 @@ function launchConfetti() {
 function goToMainMenu() {
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
     challengeMode = null; // quitting a challenge just ends it
-    droneDownText = null; intRet = null; trickPitch = null; fumbleBall = null; updateDefHints(null); hidePickRings();
+    droneDownText = null; intRet = null; trickPitch = null; hookLadder = null; teamCeleb = null; fumbleBall = null; updateDefHints(null); hidePickRings();
     if (emoteWheel) { emoteWheel = null; document.getElementById('emote-wheel').classList.add('hidden'); }
+    timeoutState = null; document.getElementById('timeout-panel').classList.add('hidden');
+    if (oppKick) { oppKick.them.concat(oppKick.us).forEach(p => scene.remove(p.group)); oppKick = null; }
+    clearKickUnits();
     // Quitting mid-drive: stop the drive and clear its players
     clearTimeout(droneSimTimer); dp = null; droneSimPlay = null; if (ctrlRing) ctrlRing.visible = false;
     droneSimPlayers.forEach(p => scene.remove(p.group)); droneSimPlayers = [];
@@ -6834,6 +7544,11 @@ function clearCheerleaders() {
 /**
  * TIMEOUTS
  */
+// ─── TIMEOUTS & THE PLAY CLOCK ───────────────────────────────────────────────
+// T calls a timeout: the clock stops and both teams walk to their huddles for 30 seconds (each man at
+// his own pace). END TIMEOUT, T or Enter cuts it short. Between plays a 20-second play clock runs
+// while you pick the play and get set; let it hit zero and it's delay of game.
+
 function callTimeout() {
     if (timeoutsOff <= 0) return;
     const validStates = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH']);
@@ -6845,36 +7560,78 @@ function callTimeout() {
 
     const wasLive = GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH';
     GAME_STATE = 'TIMEOUT';
-    document.getElementById('instructions').innerText = `TIMEOUT! (${timeoutsOff} left)`;
-    document.getElementById('instructions').classList.remove('hidden');
-
+    timeoutState = { left: TIMEOUT_SECONDS, wasLive };
+    ['instructions', 'playbook', 'btn-sim', 'vertical-power-meter', 'hang-time-ui'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    trajectoryLine.visible = false; landingMarker.visible = false; runArrow.visible = false;
+    document.getElementById('timeout-panel').classList.remove('hidden');
+    flashBanner(`TIMEOUT ${MY_TEAM.id} (${timeoutsOff} LEFT)`, 1500);
     formHuddle();
-
-    setTimeout(() => {
-        document.getElementById('instructions').classList.add('hidden');
-        if (wasLive) {
-            setupFormation();
-        } else {
-            document.getElementById('playbook').classList.remove('hidden');
-            document.getElementById('btn-sim').classList.remove('hidden');
-            document.getElementById('vertical-power-meter').classList.add('hidden');
-            GAME_STATE = 'PLAYBOOK';
-        }
-    }, 3000);
 }
 
+function endTimeout() {
+    if (!timeoutState) return;
+    timeoutState = null;
+    document.getElementById('timeout-panel').classList.add('hidden');
+    setupFormation();   // everyone back out of the huddles and lined up; pick your play
+}
+
+// During the timeout: count down, and everyone strolls to his huddle and turns in
+function updateTimeout(dt) {
+    if (!timeoutState || GAME_STATE !== 'TIMEOUT') return;
+    timeoutState.left -= dt;
+    const s = Math.max(0, Math.ceil(timeoutState.left));
+    document.getElementById('timeout-left').innerText = `0:${s < 10 ? '0' : ''}${s}`;
+    players.offense.concat(players.defense).forEach(p => {
+        if (!p.huddleSpot) return;
+        if ((p.walkDelay -= dt) > 0) { p.currentMoveSpeed = 0; p.animateLimbs(dt); return; }
+        if (steerTo(p, p.huddleSpot, p.walkSpeed, dt) < 0.1) {
+            p.currentMoveSpeed = 0;
+            turnToward(p, p.huddleFace.clone().sub(p.group.position), dt, 6);
+        }
+        p.animateLimbs(dt);
+    });
+    if (timeoutState.left <= 0) endTimeout();
+}
+
+// Huddle spots: offense in a ring a few yards behind the ball, defense in its own ring across the line
 function formHuddle() {
     if (!players.offense.length) return;
-    const qb = players.offense[0];
-    const cx = qb.group.position.x, cz = qb.group.position.z;
-    // QB stays put; other 10 players form a tight circle around them
-    players.offense.slice(1).forEach((p, i) => {
-        const angle = (i / 10) * Math.PI * 2;
-        p.group.position.set(cx + Math.cos(angle) * 2.2, 0, cz + Math.sin(angle) * 2.2);
-        p.group.lookAt(cx, 0, cz);
+    const ring = (team, center, r) => team.forEach((p, i) => {
+        const a = (i / team.length) * Math.PI * 2 + Math.random() * 0.2;
+        p.huddleSpot = new THREE.Vector3(center.x + Math.cos(a) * r, 0, center.z + Math.sin(a) * r);
+        p.huddleFace = center.clone();
+        p.walkSpeed = 2.4 + Math.random() * 1.8;   // nobody walks at the same pace
+        p.walkDelay = Math.random() * 1.2;          // or starts at the same moment
+        p.isJumping = false; p.group.position.y = 0;
     });
-    // Defense loosely mills around on their side
-    players.defense.forEach(p => { p.group.position.y = 0; });
+    ring(players.offense, new THREE.Vector3(0, 0, lineOfScrimmageZ + 9), 2.4);
+    ring(players.defense, new THREE.Vector3(0, 0, lineOfScrimmageZ - 9), 2.6);
+}
+
+// The play clock: runs while you're picking a play and getting set
+function updatePlayClock(dt) {
+    const el = document.getElementById('play-clock');
+    const active = (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP') && !challengeMode;
+    el.classList.toggle('hidden', !active);
+    if (!active) return;
+    playClockLeft -= dt;
+    const s = Math.max(0, Math.ceil(playClockLeft));
+    document.getElementById('play-clock-num').innerText = s;
+    el.classList.toggle('urgent', s <= 5);
+    if (playClockLeft <= 0) delayOfGame();
+}
+
+function delayOfGame() {
+    GAME_STATE = 'MENU';
+    clearRoutePreview();
+    ['playbook', 'btn-sim', 'vertical-power-meter', 'hang-time-ui'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    trajectoryLine.visible = false; landingMarker.visible = false; runArrow.visible = false;
+    throwFlag(0, lineOfScrimmageZ + 1);
+    lineOfScrimmageZ += backOff(5); yardsToGo += 5;
+    document.getElementById('instructions').innerText = '🚩 FLAG!\nDELAY OF GAME, OFFENSE — 5 YARDS, REPLAY THE DOWN';
+    document.getElementById('instructions').classList.remove('hidden');
+    updateScoreboard(); sfxWhistle();
+    setTimeout(setupFormation, 2200);
 }
 
 function updateTimeoutDisplay() {
@@ -6890,7 +7647,7 @@ function animate() {
     let dt = Math.min(clock.getDelta(), 0.1) * timeScale;
     if (jumpCooldown > 0) jumpCooldown -= dt;
     watchFrameRate();
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'REPLAY') { updateTackleFalls(dt); updateCatchDives(dt); updateFlags(dt); updateTrickPitch(dt); updateFlyingHelmets(dt); }
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'REPLAY') { updateTackleFalls(dt); updateCatchDives(dt); updateFlags(dt); updateTrickPitch(dt); updateHookLadder(dt); updateFlyingHelmets(dt); }
     if (GAME_STATE !== 'PAUSED') updateWeather(dt);
     updateCrowd(dt);
 
@@ -6935,11 +7692,14 @@ function animate() {
     }
 
     if (GAME_STATE === 'KICKOFF_RETURN') updateKickoffReturn(dt);
+    updateTimeout(dt); updatePlayClock(dt);   // timeout huddles and the 20-second play clock
     if (GAME_STATE === 'INT_RETURN') updateIntReturn(dt);
+    if (GAME_STATE === 'FG_BLOCK') updateOppKick(dt);
 
     // XP field goal animation
     if (GAME_STATE === 'XP_ANIM') {
         xpAnimElapsed += dt;
+        updateKickUnits(dt);
 
         if (xpAnimPhase === 'approach') {
             if (xpAnimKicker) {
@@ -6959,15 +7719,13 @@ function animate() {
                     // Long misses (50+ yd) fall short under the bar half the time.
                     const goalZ = -120;
                     const dGoal = goalZ - ball.position.z;
-                    const flightTime = 0.9 + Math.abs(dGoal) / 107; // 1.5s for an extra point, ~2s from 60 yards
                     const yards = Math.abs(dGoal) / 2;
                     const short = !xpAnimResult && yards >= 50 && Math.random() < 0.5;
                     // A real crosswind usually decides which way a miss goes
                     const missSide = Math.abs(weather.wind) > 5 && Math.random() < 0.75 ? Math.sign(weather.wind) : (Math.random() < 0.5 ? -1 : 1);
                     const crossX = xpAnimResult ? (Math.random() - 0.5) * 5 : short ? (Math.random() - 0.5) * 4 : missSide * (6.5 + Math.random() * 3);
-                    const crossY = short ? 2.5 : 13;
-                    const vy = (crossY + 15 * flightTime * flightTime) / flightTime; // y(t) = vy·t − ½·30·t²
-                    ball.velocity = new THREE.Vector3(crossX / flightTime, vy, dGoal / flightTime);
+                    const crossY = short ? 2.5 : 13 + Math.max(0, 45 - yards) * 0.3;   // short kicks are still climbing at the posts
+                    ball.velocity = kickVelocity(ball.position, new THREE.Vector3(crossX, crossY, goalZ));   // real NFL height and speed
                     document.getElementById('instructions').innerText = xpAnimResult ? (kickIsFieldGoal ? 'FIELD GOAL IS GOOD!' : 'IT\'S GOOD!') : (short ? 'SHORT! NO GOOD!' : 'NO GOOD!');
                 }
                 xpAnimKicker.animateLimbs(dt);
@@ -6976,7 +7734,7 @@ function animate() {
         } else if (xpAnimPhase === 'in_flight') {
             if (ball.velocity) {
                 ball.position.addScaledVector(ball.velocity, dt);
-                ball.velocity.y -= 30 * dt;
+                ball.velocity.y -= KICK_G * dt;
                 ball.lookAt(ball.position.clone().add(ball.velocity));
                 ball.rotateZ(-20 * dt);
             }
@@ -6987,7 +7745,7 @@ function animate() {
             camera.position.z = THREE.MathUtils.lerp(camera.position.z, Math.max(-100, ball.position.z + 18), 0.06);
             camera.lookAt(0, 11, -120);
 
-            if ((ball.velocity && ball.position.y <= 0.3) || xpAnimElapsed > 3.2) {
+            if ((ball.velocity && ball.position.y <= 0.3) || xpAnimElapsed > 5) {
                 if (ball.velocity) { ball.velocity = null; ball.position.y = 0.3; }
                 xpAnimPhase = 'result'; xpAnimElapsed = 0;
                 if (xpAnimResult) { addScore('off', kickIsFieldGoal ? 3 : 1); triggerCheer(); }
@@ -6999,6 +7757,7 @@ function animate() {
                 xpAnimPhase = 'idle';
                 if (xpAnimKicker) { scene.remove(xpAnimKicker.group); xpAnimKicker = null; }
                 if (xpAnimHolder) { scene.remove(xpAnimHolder.group); xpAnimHolder = null; }
+                clearKickUnits();
                 ball.velocity = null;
                 if (kickIsFieldGoal) finishFieldGoal(xpAnimResult);
                 else finalizeTouchdown(); // kickoff, or the quarter break if the clock ran out on the TD
@@ -7021,6 +7780,7 @@ function animate() {
         updateDronePlay(dt);
     }
     if (GAME_STATE === 'DEFENSE') updateDefensePlay(dt);
+    if (GAME_STATE === 'CELEBRATE') updateTeamCelebration(dt);
 
     // Drone exit — players jog to sidelines before user play starts
     if (GAME_STATE === 'DRONE_EXIT') {
@@ -7038,7 +7798,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
@@ -7108,7 +7868,7 @@ function animate() {
         }
 
 
-        // When ball crosses LOS, the DB/safety closest to the ball's destination gets a 13-speed burst
+        // When ball crosses LOS, the DB/safety closest to the ball's destination gets a 12-speed burst
         if (!ballPastLOSBoostDone && ball.position.z < lineOfScrimmageZ &&
                 (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) {
             ballPastLOSBoostDone = true;
@@ -7118,7 +7878,7 @@ function animate() {
                 const destZ = landingMarker.visible ? landingMarker.position.z : ball.position.z;
                 dbs.sort((a, b) =>
                     Math.abs(a.group.position.z - destZ) - Math.abs(b.group.position.z - destZ));
-                dbs[0].baseSpeed = 13;
+                dbs[0].baseSpeed = 12;   // a burst, but a sprinting receiver can still just about outrun him
             }
         }
 
