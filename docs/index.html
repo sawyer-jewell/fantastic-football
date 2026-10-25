@@ -586,6 +586,8 @@
                 <div><span>Escape</span> Pause</div>
                 <div><span>H</span> No-Huddle</div>
                 <div><span>M</span> Send the slot in motion (before the snap)</div>
+                <div><span>1-4</span> Hot route WR1 / WR2 / SLOT / TE (go, slant, out, curl)</div>
+                <div><span>V</span> Audible to another play at the line</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>C</span> Challenge the last play (red flag)</div>
                 <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle · G Celebrate (inside the 20)</div>
@@ -6956,7 +6958,7 @@ function selectPlay(playType) {
         trajectoryLine.visible = false; landingMarker.visible = false;
         document.getElementById('hang-time-ui').classList.add('hidden');
         document.getElementById('vertical-power-meter').classList.add('hidden');
-        document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "SPACE: SNAP"; document.getElementById('instructions').classList.remove('hidden');
+        document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "V: AUDIBLE | SPACE: SNAP"; document.getElementById('instructions').classList.remove('hidden');
         // Show directional arrow above the RB
         const rbPos = players.offense[5].group.position;
         const arrowDir = playType === 'sweepl' ? new THREE.Vector3(-0.85, 0, -0.53).normalize()
@@ -6991,7 +6993,7 @@ function selectPlay(playType) {
     drawRouteLines(routes, 0x00ff00);
 
     trajectoryLine.visible = true; landingMarker.visible = true; document.getElementById('hang-time-ui').classList.remove('hidden');
-    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "Q/E: POWER | M: MOTION | SPACE: SNAP";
+    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "Q/E: POWER | 1-4: HOT ROUTE | V: AUDIBLE | M: MOTION | SPACE: SNAP";
     GAME_STATE = 'PRE_SNAP';
 }
 
@@ -7000,7 +7002,7 @@ function snapBall() {
     if (!isTwoPointAttempt && Math.random() < 0.015) { falseStart(); return; }
     players.offense.concat(players.defense).forEach(p => { p.showboat = null; p.showboatHint = false; p.catchStyle = null; p.catchFlourish = null; });
     startPancake.left = Math.random() < 0.15 ? 1 : 0;   // a pancake now and then — not every run
-    motionAtSnap();
+    motionAtSnap(); toggleAudibleMenu.open = false;
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
@@ -7292,6 +7294,12 @@ function checkInputs(e) {
     if (e.code === 'KeyR' && hookLadder && e.type === 'keydown' && !e.repeat) { pitchHookLadder(); return; }   // hook and ladder pitch
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
     if (e.code === 'KeyM' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown' && !e.repeat) startMotion();
+    if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown' && !e.repeat) {
+        if (e.code === 'KeyV') { toggleAudibleMenu(); return; }
+        const n = /^Digit[1-6]$/.test(e.code) ? Number(e.code.slice(5)) - 1 : -1;
+        if (n >= 0 && toggleAudibleMenu.open) { callAudible(n); return; }
+        if (n >= 0 && n < 4) { hotRoute(n); return; }
+    }
     if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     if (GAME_STATE === 'POST_CATCH' && e.type === 'keydown' && !e.repeat && activeReceiver) {   // ball carrier moves
@@ -11150,6 +11158,44 @@ function updatePancake(p, dt) {
     poseFallLimbs(p, false, 'bighit', dt, fl < 1 ? 1 : 0);
     p.currentMoveSpeed = 0;
     if (k.t > 1.7) { p.pancake = null; startRise(p, p.group.position.z + 10); }
+}
+
+// ─── HOT ROUTES (1–4) & AUDIBLES (V) ─────────────────────────────────────────
+// At the line on a pass play, 1–4 changes one receiver's route (WR1, WR2, SLOT, TE): each press
+// is the next of GO, SLANT, OUT, CURL, and the new route is drawn in. V opens the audible menu:
+// throw the whole call out and run something else (the defense stays in what it showed you).
+const HOT_ROUTES = ['GO', 'SLANT', 'OUT', 'CURL'], HOT_NAMES = ['WR1', 'WR2', 'SLOT', 'TE'];
+const AUDIBLES = [['dive', 'HB DIVE'], ['sweepl', 'SWEEP LEFT'], ['sweepr', 'SWEEP RIGHT'], ['screen', 'WR SCREEN'], ['posts', 'POSTS'], ['digs', 'DIGS']];
+function hotRoute(i) {
+    if (GAME_STATE !== 'PRE_SNAP' || isRunPlay || currentPlay === 'fakefg') return;
+    const p = players.offense[1 + i]; if (!p) return;
+    p.hotIdx = ((p.hotIdx ?? -1) + 1) % HOT_ROUTES.length;
+    const kind = HOT_ROUTES[p.hotIdx], L = lineOfScrimmageZ, x = p.group.position.x, inw = x > 0 ? -1 : 1;
+    const V = (a, z) => new THREE.Vector3(THREE.MathUtils.clamp(a, -SIDELINE_X + 3, SIDELINE_X - 3), 0, z);
+    p.route = kind === 'GO' ? [V(x, L - 8), V(x, L - 70)]
+            : kind === 'SLANT' ? [V(x, L - 4), V(x + inw * 12, L - 14), V(x + inw * 26, L - 24)]
+            : kind === 'OUT' ? [V(x, L - 12), V(x - inw * 22, L - 13)]
+            : [V(x, L - 17), V(x + inw * 2, L - 13)];
+    p.routeIndex = 0;
+    drawRouteLines(players.offense.slice(1, 5).map(q => q.route), 0x00ff00);
+    showLadderPrompt(`HOT ROUTE: ${HOT_NAMES[i]} — ${kind}`);
+    if (sfxOn()) sfxTone(0.06, 900, 1200, 0.12);
+}
+function toggleAudibleMenu() {
+    if (GAME_STATE !== 'PRE_SNAP' || currentPlay === 'fakefg') return;
+    toggleAudibleMenu.open = !toggleAudibleMenu.open;
+    showLadderPrompt(toggleAudibleMenu.open ? 'AUDIBLE:  ' + AUDIBLES.map(([, n], i) => `${i + 1} ${n}`).join(' · ') + ' · V CANCEL' : 'SPACE: SNAP');
+}
+function callAudible(i) {
+    toggleAudibleMenu.open = false;
+    const [play, name] = AUDIBLES[i];
+    // Re-form for the new call without giving the defense (or the play clock) a reset
+    const keep = { hurryUp, playClockLeft, huddleClockLeft, clockRunning, defRead };
+    hurryUp = true; setupFormation();
+    hurryUp = keep.hurryUp; playClockLeft = keep.playClockLeft; huddleClockLeft = keep.huddleClockLeft; clockRunning = keep.clockRunning; defRead = keep.defRead;
+    selectPlay(play);
+    flashBanner(`AUDIBLE! ${name}`, 1000);
+    commentate(pick([`${nameOf(players.offense[0])} CHANGES THE PLAY AT THE LINE!`, `HE DIDN'T LIKE WHAT HE SAW — AUDIBLE!`, `OMAHA! OMAHA! THEY'RE CHANGING IT.`]));
 }
 
 // ─── PRE-SNAP MOTION (M) ─────────────────────────────────────────────────────
