@@ -325,6 +325,27 @@
         #sim-screen { background: radial-gradient(ellipse 80% 55% at 50% 0%, color-mix(in srgb, var(--team) 50%, transparent), transparent 70%),
                                   radial-gradient(ellipse at center, #00264d, #000a14); }
         .sim-log { border: 3px solid rgba(255, 255, 255, 0.7); border-top: 4px solid #ffcc00; box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); background: rgba(0, 0, 0, 0.85); }
+
+        /* Season goals, rivalries, the playoff bracket */
+        .goals { background: rgba(0, 20, 40, 0.85); border: 3px solid rgba(255, 255, 255, 0.5); box-shadow: 4px 4px 0 #000; padding: 10px 12px; }
+        .goals-head { color: #ffcc00; font-size: 0.5rem; letter-spacing: 2px; margin-bottom: 6px; }
+        .goal { display: flex; justify-content: space-between; gap: 10px; font-size: 0.5rem; line-height: 2; color: #cde; }
+        .goal.done { color: #00ff88; }
+        .mu-rivalry { font-size: 0.9rem; color: #ff7a1a; letter-spacing: 3px; text-shadow: 2px 2px 0 #000, 0 0 16px rgba(255, 90, 0, 0.8); margin-top: 6px; text-align: center; animation: title-glow 1.6s ease-in-out infinite; }
+        .div-tag { font-size: 0.45rem; background: #2a6f97; padding: 2px 4px; margin-left: 4px; }
+        .bracket { display: flex; gap: 18px; align-items: stretch; justify-content: center; flex-wrap: wrap; margin: 10px 0; }
+        .bcol { display: flex; flex-direction: column; justify-content: space-around; gap: 12px; min-width: 190px; }
+        .bcol-title { color: #ffcc00; font-size: 0.6rem; letter-spacing: 2px; text-align: center; }
+        .bgame { border: 3px solid rgba(255, 255, 255, 0.6); background: rgba(0, 20, 40, 0.9); box-shadow: 4px 4px 0 #000; }
+        .bt { display: flex; gap: 8px; align-items: center; padding: 7px 8px; font-size: 0.55rem; }
+        .bt + .bt { border-top: 2px dashed #345; }
+        .bt.me { color: #ffcc00; }
+        .bt.win { background: rgba(0, 255, 136, 0.12); }
+        .bt.out { opacity: 0.45; text-decoration: line-through; }
+        .bt.tbd { color: #556; }
+        .bseed { background: #ffcc00; color: #000; padding: 1px 4px; }
+        .brec { margin-left: auto; color: #8ab; font-size: 0.45rem; }
+        .bchamp { text-align: center; font-size: 1rem; color: #ffcc00; text-shadow: 3px 3px 0 #000, 0 0 20px rgba(255, 204, 0, 0.6); margin: 8px 0; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
             integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
@@ -368,6 +389,7 @@
                     <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
+                <div id="menu-goals"></div>
                 <button class="link-btn" onclick="openSaveSelect()">⇄ SWITCH SAVE</button>
             </div>
         </div>
@@ -475,7 +497,17 @@
         <div id="standings-screen" class="menu hidden">
             <h1 style="font-size:2rem;">STANDINGS</h1>
             <div class="schedule-list" id="standings-list"></div>
-            <button class="btn-retro" onclick="closeInfoScreen('standings-screen')">BACK TO MENU</button>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+                <button id="btn-bracket" class="btn-retro hidden" style="background:#7a3cff;" onclick="openBracket()">🏆 PLAYOFF BRACKET</button>
+                <button class="btn-retro" onclick="closeInfoScreen('standings-screen')">BACK TO MENU</button>
+            </div>
+        </div>
+
+        <!-- The playoff bracket -->
+        <div id="bracket-screen" class="menu hidden">
+            <h1 style="font-size:2rem;">PLAYOFF BRACKET</h1>
+            <div id="bracket-body"></div>
+            <button class="btn-retro" onclick="closeInfoScreen('bracket-screen')">BACK TO MENU</button>
         </div>
 
         <div id="challenges-screen" class="menu hidden">
@@ -512,6 +544,7 @@
                 </div>
             </div>
             <div id="mu-weather" class="mu-weather"></div>
+            <div id="mu-rivalry" class="mu-rivalry hidden"></div>
             <button class="btn-retro" onclick="startGame()">START GAME</button>
             <button class="btn-retro" style="background:#444; padding: 10px 20px; font-size: 0.7rem;" onclick="closeMatchupScreen()">BACK</button>
         </div>
@@ -690,6 +723,10 @@ const NFL_TEAMS = [
 ];
 // All 32 teams. MY_TEAM is whichever one this save plays as, and NFL_TEAMS the other 31 (both are
 // changed in place by setMyTeam, so everything that reads them follows along).
+// The real divisions: you play your three division rivals twice a season
+const DIVISIONS = [["DAL", "NYG", "PHI", "WAS"], ["CHI", "DET", "GB", "MIN"], ["ATL", "CAR", "NO", "TB"], ["ARI", "LAR", "SF", "SEA"],
+                   ["BUF", "MIA", "NE", "NYJ"], ["BAL", "CIN", "CLE", "PIT"], ["HOU", "IND", "JAX", "TEN"], ["DEN", "KC", "LV", "LAC"]];
+function divisionOf(id) { return DIVISIONS.find(d => d.includes(id)) || []; }
 const ALL_TEAMS = [{ ...MY_TEAM }, ...NFL_TEAMS.map(t => ({ ...t }))];
 function setMyTeam(id) {
     const mine = ALL_TEAMS.find(t => t.id === id) || ALL_TEAMS[0];
@@ -745,6 +782,9 @@ let credits = 0;       // coaching credits to spend on upgrades (part of the sav
 let bench = null;      // a backup at every roster spot (slot → player), see ensureFranchise
 let hallOfFame = [];   // retired greats: { name, slot, seasons, line, stars }
 let awardHistory = []; // { season, mvp, opoy, dpoy, roty, proBowl: [names] }
+let rivals = {};       // team id → rivalry heat 0–100 (60+ is a rivalry game), see rivalryAfterGame
+let seasonGoals = [];  // this season's three goals { id, target, reward, done }, see newSeasonGoals
+let rivalWins = 0;     // rivalry games won this season (for that goal)
 const SALARY_CAP = 100; // $M for all 24 players
 const BENCH_RESERVE = 18; // $M the starting draft leaves for the twelve backups
 const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
@@ -998,13 +1038,13 @@ document.body.addEventListener('click', () => { if(!audioCtx) initAudio(); }, {o
 /**
  * FRANCHISE LOGIC
  */
+// 17 games: your three division rivals home and away, plus 11 others; the bye somewhere in weeks 5–12
 function generateSchedule() {
-    let opponents = [...NFL_TEAMS];
-    for (let i = opponents.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [opponents[i], opponents[j]] = [opponents[j], opponents[i]];
-    }
-    let byeWeek = Math.floor(Math.random() * 8) + 5; 
+    const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const div = NFL_TEAMS.filter(t => divisionOf(MY_TEAM.id).includes(t.id));
+    const others = shuffle(NFL_TEAMS.filter(t => !div.includes(t))).slice(0, 17 - div.length * 2);
+    let opponents = shuffle([...div, ...div, ...others]);
+    let byeWeek = Math.floor(Math.random() * 8) + 5;
     
     for(let w=1; w<=18; w++) {
         if(w === byeWeek) { seasonSchedule.push({ week: w, opp: null, isBye: true, result: null }); }
@@ -1445,7 +1485,8 @@ function awardsHTML(aw) {
         row('ROOKIE OF THE YEAR', aw.roty) + row('TEAM MVP', aw.teamMvp) +
         `<div class="panel-title" style="margin-top:14px;">PRO BOWL (${aw.proBowl.length})</div>` +
         `<div style="font-size:0.6rem; line-height:2; margin-top:6px;">${aw.proBowl.length ? aw.proBowl.join(' · ') : 'NOBODY THIS YEAR'}</div>` +
-        `<div class="pcard-line" style="margin-top:12px;">🏈 +${aw.credits} COACHING CREDITS FOR THE HONORS</div></div>`;
+        `<div class="pcard-line" style="margin-top:12px;">🏈 +${aw.credits} COACHING CREDITS FOR THE HONORS</div></div>` +
+        (seasonGoals.length ? `<div class="panel" style="text-align:left;">${goalsHTML()}</div>` : '');
 }
 
 // Expiring contracts: what each one wants now; pay him or let him go (his backup steps up, or a
@@ -1564,6 +1605,98 @@ function showOffseason(title, html, buttons) {
 }
 function hideOffseason() { document.getElementById('offseason-screen').classList.add('hidden'); }
 
+// ─── RIVALRIES, SEASON GOALS & THE BRACKET ───────────────────────────────────
+// Rivalries: every team has a heat meter with you (0–100). Your division starts at 60; every game
+// against a team heats it up (more when it's close, a lot in the playoffs) and it cools a little
+// each offseason. At 60+ it's a RIVALRY GAME: it says so, and a win pays 2 more credits.
+const RIVALRY_HEAT = 60;
+function initRivals() {
+    rivals = {};
+    divisionOf(MY_TEAM.id).forEach(id => { if (id !== MY_TEAM.id) rivals[id] = 60; });   // division games are rivalry games from day one
+}
+function rivalHeat(id) { return rivals[id] || 0; }   // (declarations: the menu shows these at startup)
+function isRivalry(id) { return rivalHeat(id) >= 60; }   // RIVALRY_HEAT
+function flames(id) { const h = rivalHeat(id); return h >= 90 ? "🔥🔥🔥" : h >= 75 ? "🔥🔥" : h >= 60 ? "🔥" : ""; }
+function rivalryAfterGame(oppId, margin, playoffGame, userWon) {
+    const before = isRivalry(oppId);
+    rivals[oppId] = Math.min(100, rivalHeat(oppId) + 12 + (Math.abs(margin) <= 7 ? 10 : 0) + (playoffGame ? 25 : 0));
+    if (before && userWon) rivalWins++;
+    return before;
+}
+function coolRivals() {
+    const div = divisionOf(MY_TEAM.id);
+    Object.keys(rivals).forEach(id => { rivals[id] = Math.max(div.includes(id) ? 60 : 0, rivals[id] - 15); if (!rivals[id]) delete rivals[id]; });
+}
+
+// Season goals: three each season, picked from these; each one done pays 4 coaching credits the
+// moment you get there
+const GOAL_POOL = [
+    { id: 'wins',  targets: [9, 10, 11, 12],     label: n => `WIN ${n} GAMES`,                 value: () => myRecord.w },
+    { id: 'pass',  targets: [2500, 3000, 3500],  label: n => `THROW FOR ${n} YARDS`,           value: () => seasonStats.passYds },
+    { id: 'rush',  targets: [900, 1200, 1500],   label: n => `RUSH FOR ${n} YARDS`,            value: () => seasonStats.rushYds },
+    { id: 'ptd',   targets: [20, 25, 30],        label: n => `${n} TOUCHDOWN PASSES`,          value: () => seasonStats.passTD },
+    { id: 'picks', targets: [3, 5],              label: n => `${n} TAKEAWAYS BY YOU ON DEFENSE`, value: () => (seasonStats.defInt || 0) + (seasonStats.ff || 0) },
+    { id: 'rival', targets: [2],                 label: n => `WIN ${n} RIVALRY GAMES`,         value: () => rivalWins },
+    { id: 'top4',  targets: [1],                 label: () => 'FINISH THE SEASON TOP 4',       value: () => (currentWeek > 18 || seasonPhase !== 'regular') && standings().indexOf(MY_TEAM.id) < 4 ? 1 : 0 },
+    { id: 'po',    targets: [1],                 label: () => 'MAKE THE PLAYOFFS',             value: () => ['playoffs', 'champion', 'eliminated'].includes(seasonPhase) ? 1 : 0 },
+    { id: 'pwin',  targets: [1],                 label: () => 'WIN A PLAYOFF GAME',            value: () => playoffs && (playoffs.round > 0 || seasonPhase === 'champion') ? 1 : 0 },
+];
+const GOAL_REWARD = 4;
+function newSeasonGoals() {
+    const pool = GOAL_POOL.slice().sort(() => Math.random() - 0.5);
+    // Never two playoff goals at once
+    const picks = [];
+    pool.forEach(g => { if (picks.length < 3 && !(['po', 'pwin', 'top4'].includes(g.id) && picks.some(p => ['po', 'pwin', 'top4'].includes(p.id)))) picks.push(g); });
+    seasonGoals = picks.map(g => ({ id: g.id, target: g.targets[Math.floor(Math.random() * g.targets.length)], reward: GOAL_REWARD, done: false }));
+    rivalWins = 0;
+}
+const goalDef = g => GOAL_POOL.find(p => p.id === g.id);
+const goalText = g => goalDef(g).label(g.target);
+const goalNow = g => Math.min(g.target, goalDef(g).value());
+// After every game (and when the regular season ends): any goal just reached pays out
+function checkGoals() {
+    const done = [];
+    seasonGoals.forEach(g => {
+        if (!g.done && goalDef(g) && goalDef(g).value() >= g.target) { g.done = true; credits += g.reward; done.push(goalText(g)); }
+    });
+    if (done.length) flashBanner(`GOAL COMPLETE: ${done.join(' · ')} (+${GOAL_REWARD * done.length} CREDITS)`, 3000);
+    return done;
+}
+function goalsHTML() {
+    if (!seasonGoals.length) return '';
+    return `<div class="goals"><div class="goals-head">SEASON ${career.seasons} GOALS · +${GOAL_REWARD} CREDITS EACH</div>` +
+        seasonGoals.map(g => `<div class="goal ${g.done ? 'done' : ''}"><span>${g.done ? '✓' : '○'} ${goalText(g)}</span><span>${g.target > 1 ? `${goalNow(g)}/${g.target}` : (g.done ? 'DONE' : '')}</span></div>`).join('') +
+        `</div>`;
+}
+
+// The playoff bracket: eight seeds, three rounds. Played rounds show who won; the next ones fill in
+const PLAYOFF_COLUMNS = ['DIVISIONAL', 'CONFERENCE', 'SUPER BOWL'];
+function simRestOfPlayoffs() {
+    while (playoffs.alive.length > 1) {
+        const results = roundPairs().map(([a, b]) => ({ a, b, w: (simGame(a, b) || (Math.random() < 0.5 ? 1 : -1)) > 0 ? a : b }));
+        playoffs.history.push(results);
+        playoffs.alive = results.map(r => r.w);
+    }
+    playoffs.champion = playoffs.alive[0];
+}
+function openBracket() {
+    const P = playoffs;
+    if (!P.history) P.history = [];   // seasons saved before the bracket kept results
+    const seedOf = id => P.seeds.indexOf(id) + 1;
+    const team = (id, w) => id ? `<div class="bt ${id === MY_TEAM.id ? 'me' : ''} ${w ? (w === id ? 'win' : 'out') : ''}"><span class="bseed">${seedOf(id)}</span> ${id} <span class="brec">${recStr(league[id])}</span></div>` : '<div class="bt tbd">TBD</div>';
+    const cols = PLAYOFF_COLUMNS.map((title, r) => {
+        let games = P.history && P.history[r] ? P.history[r] : (r === P.history.length && P.alive.length > 1 ? roundPairs().map(([a, b]) => ({ a, b })) : []);
+        const count = 4 >> r;
+        while (games.length < count) games = games.concat([{}]);
+        return `<div class="bcol"><div class="bcol-title">${title}</div>${games.map(g => `<div class="bgame">${team(g.a, g.w)}${team(g.b, g.w)}</div>`).join('')}</div>`;
+    }).join('');
+    const champ = P.champion ? `<div class="bchamp">🏆 ${teamById(P.champion).id} ${teamById(P.champion).name}</div>` : '';
+    document.getElementById('bracket-body').innerHTML = `<div class="bracket">${cols}</div>${champ}`;
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('standings-screen').classList.add('hidden');
+    document.getElementById('bracket-screen').classList.remove('hidden');
+}
+
 // ─── LEAGUE, PLAYOFFS & SAVING ───────────────────────────────────────────────
 // (Plain function declarations: the season is loaded/created at startup, before this point runs.)
 function allTeams() { return [MY_TEAM, ...NFL_TEAMS]; }
@@ -1574,7 +1707,8 @@ function recStr(r) { return `${r.w}-${r.l}${r.t ? '-' + r.t : ''}`; }
 // Fresh season: everyone 0-0 with a strength rating (stronger teams win their simulated games more)
 function newLeague() {
     league = {};
-    allTeams().forEach(t => { league[t.id] = { w: 0, l: 0, t: 0, rating: 60 + Math.random() * 30 }; });
+    // Everyone gets a bye somewhere in weeks 5–12 (yours is in the schedule), so all play 17 games
+    allTeams().forEach(t => { league[t.id] = { w: 0, l: 0, t: 0, rating: 60 + Math.random() * 30, bye: 5 + Math.floor(Math.random() * 8) }; });
 }
 
 // Simulated game: 1 if a wins, −1 if b wins, 0 for a (rare) tie
@@ -1589,7 +1723,7 @@ function recordResult(a, b, res) {
 }
 // The rest of the league plays its week: random pairings among everyone not in your game
 function simLeagueWeek(excludeIds) {
-    const pool = allTeams().map(t => t.id).filter(id => !excludeIds.includes(id));
+    const pool = allTeams().map(t => t.id).filter(id => !excludeIds.includes(id) && league[id].bye !== currentWeek);
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
     for (let i = 0; i + 1 < pool.length; i += 2) recordResult(pool[i], pool[i + 1], simGame(pool[i], pool[i + 1]));
 }
@@ -1599,11 +1733,17 @@ function standings() { return allTeams().map(t => t.id).sort((a, b) => winPct(le
 function startPostseason() {
     const seeds = standings().slice(0, 8);
     const userSeed = seeds.indexOf(MY_TEAM.id) + 1;
-    if (!userSeed) { seasonPhase = 'missed'; return; }
+    if (!userSeed) {
+        // Missed it: the playoffs happen without you (the bracket still shows who won)
+        seasonPhase = 'missed';
+        playoffs = { seeds, alive: [...seeds], round: 0, userSeed: 0, opp: null, history: [] };
+        simRestOfPlayoffs(); checkGoals(); return;
+    }
     career.playoffApps++;
     seasonPhase = 'playoffs';
-    playoffs = { seeds, alive: [...seeds], round: 0, userSeed, opp: null };
+    playoffs = { seeds, alive: [...seeds], round: 0, userSeed, opp: null, history: [] };
     setPlayoffOpponent();
+    checkGoals();   // "make the playoffs", "top 4"
 }
 function roundPairs() {
     const a = playoffs.alive.slice().sort((x, y) => playoffs.seeds.indexOf(x) - playoffs.seeds.indexOf(y));
@@ -1616,15 +1756,17 @@ function setPlayoffOpponent() {
     playoffs.opp = pair[0] === MY_TEAM.id ? pair[1] : pair[0];
 }
 function playoffGameDone(userWon) {
-    roundPairs().forEach(([a, b]) => {
-        if (a === MY_TEAM.id || b === MY_TEAM.id) return;
+    // Every game of the round, yours included, goes into the bracket's history
+    const results = roundPairs().map(([a, b]) => {
+        if (a === MY_TEAM.id || b === MY_TEAM.id) return { a, b, w: userWon ? MY_TEAM.id : playoffs.opp };
         const res = simGame(a, b) || (Math.random() < 0.5 ? 1 : -1); // no ties in the playoffs
-        playoffs.alive = playoffs.alive.filter(id => id !== (res > 0 ? b : a));
+        return { a, b, w: res > 0 ? a : b };
     });
-    playoffs.alive = playoffs.alive.filter(id => id !== (userWon ? playoffs.opp : MY_TEAM.id));
-    if (!userWon) { seasonPhase = 'eliminated'; return; }
+    (playoffs.history = playoffs.history || []).push(results);
+    playoffs.alive = results.map(r => r.w);
+    if (!userWon) { seasonPhase = 'eliminated'; simRestOfPlayoffs(); return; }   // the rest of the bracket still crowns someone
     playoffs.round++;
-    if (playoffs.alive.length === 1) { seasonPhase = 'champion'; career.titles++; return; }
+    if (playoffs.alive.length === 1) { seasonPhase = 'champion'; career.titles++; playoffs.champion = MY_TEAM.id; return; }
     setPlayoffOpponent();
 }
 
@@ -1634,13 +1776,14 @@ function startNewSeason() {
     currentWeek = 1; seasonSchedule.length = 0;
     seasonStats = newStatLine(); seasonPhase = 'regular'; playoffs = null;
     offseasonDevelopment();
+    coolRivals(); newSeasonGoals();   // rivalries cool off a little; three new goals
     newLeague(); generateSchedule();
     saveSeason();
 }
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
@@ -1652,6 +1795,9 @@ function applySaveData(d) {
     roster = d.roster ? ensureRoster(d.roster) : newRoster(); // saves from before the roster existed get a fresh one
     credits = d.credits ?? 4;   // older saves start with a few to try it out
     bench = d.bench || null; hallOfFame = d.hallOfFame || []; awardHistory = d.awardHistory || [];
+    if (d.rivals) rivals = d.rivals; else initRivals();
+    rivalWins = d.rivalWins || 0;
+    if (d.seasonGoals && d.seasonGoals.length) seasonGoals = d.seasonGoals; else newSeasonGoals();
     ensureFranchise();   // backups and contracts for saves from before them
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
@@ -1683,6 +1829,7 @@ function startFreshSave() {
     career = { seasons: 1, titles: 0, playoffApps: 0, w: 0, l: 0, t: 0 };
     seasonPhase = 'regular'; playoffs = null;
     roster = newRoster(); credits = 5; bench = null; hallOfFame = []; awardHistory = [];
+    initRivals(); newSeasonGoals();
     newLeague(); generateSchedule();
 }
 
@@ -1778,7 +1925,8 @@ function updateMenuUI() {
     document.getElementById('roster-badge').innerText = credits;
     document.getElementById('roster-badge').classList.toggle('hidden', !credits);
     const playBtn = document.getElementById('btn-play'), next = document.getElementById('next-game');
-    const vs = id => { const t = teamById(id); return `${t.id} ${t.name} (${recStr(league[id])})`; };
+    const vs = id => { const t = teamById(id); return `${t.id} ${t.name} (${recStr(league[id])})${isRivalry(id) ? ' · ' + flames(id) + ' RIVALRY' : ''}`; };
+    document.getElementById('menu-goals').innerHTML = goalsHTML();
     if (seasonPhase === 'playoffs') {
         playBtn.innerText = `PLAY ${PLAYOFF_ROUNDS[playoffs.round]}`;
         next.innerText = `NEXT: ${vs(playoffs.opp)}`;
@@ -1939,9 +2087,19 @@ function openStandings() {
         const row = document.createElement('div');
         row.className = `schedule-row standings-row${id === MY_TEAM.id ? ' me' : ''}${i === 7 ? ' cut' : ''}`;
         const alive = seasonPhase === 'playoffs' && playoffs && playoffs.alive.includes(id) ? ' ★' : '';
-        row.innerHTML = `<span>${i + 1}. ${teamById(id).id} ${teamById(id).name}${alive}</span> <span>${recStr(league[id])}</span>`;
+        const div = divisionOf(MY_TEAM.id).includes(id) && id !== MY_TEAM.id ? ' <span class="div-tag">DIV</span>' : '';
+        row.innerHTML = `<span>${i + 1}. ${teamById(id).id} ${teamById(id).name}${alive}${div} ${flames(id)}</span> <span>${recStr(league[id])}</span>`;
         list.appendChild(row);
     });
+    // Your rivals (and how hot each one is), and the bracket once the playoffs are set
+    const hot = Object.keys(rivals).sort((a, b) => rivalHeat(b) - rivalHeat(a)).slice(0, 5);
+    if (hot.length) {
+        const r = document.createElement('div');
+        r.className = 'schedule-row'; r.style.borderTop = '3px solid #ff7a1a';
+        r.innerHTML = `<span style="color:#ff9a4a;">YOUR RIVALS</span> <span>${hot.map(id => `${id} ${rivalHeat(id)}%${flames(id) ? ' ' + flames(id) : ''}`).join(' · ')}</span>`;
+        list.appendChild(r);
+    }
+    document.getElementById('btn-bracket').classList.toggle('hidden', !playoffs);
 }
 
 function openStats() {
@@ -2009,6 +2167,10 @@ function openMatchupScreen() {
     }
     pickWeather(); applyWeather();
     document.getElementById('mu-weather').innerText = weatherText();
+    // A rivalry game says so (and a win pays 2 more credits)
+    const rv = document.getElementById('mu-rivalry');
+    rv.classList.toggle('hidden', !isRivalry(currentOpponent.id));
+    rv.innerText = `${flames(currentOpponent.id)} RIVALRY GAME ${flames(currentOpponent.id)}`;
     const oppRec = league[currentOpponent.id];
     const simW = oppRec.w, simL = oppRec.l;
 
@@ -8336,7 +8498,10 @@ function recordSeasonGame(isWin, isLoss) {
         simLeagueWeek([MY_TEAM.id, currentOpponent.id]);
     }
     simInjuries();   // the bumps and bruises of a whole game (on top of the hits you saw)
+    const rivalry = rivalryAfterGame(currentOpponent.id, scoreOff - scoreDef, wasPlayoffs, isWin);
     const earned = awardCredits(isWin, isLoss, wasPlayoffs);
+    if (rivalry && isWin) { credits += 2; earned.total += 2; earned.why.push('RIVALRY WIN +2'); }
+    const goalsDone = checkGoals();
     document.getElementById('bs-title').innerText = title;
     document.getElementById('bs-stats').innerText = statSummary(gameStats) + (gameStats.long ? `  ·  LONG ${gameStats.long}` : '');
     document.getElementById('bs-records').innerText = [
@@ -8344,6 +8509,7 @@ function recordSeasonGame(isWin, isLoss) {
         lastLevelUps.length ? '📈 ' + lastLevelUps.join(' · ') : '',
         `🏈 COACHING CREDITS +${earned.total} (${earned.why.join(', ')}) · ${credits} TO SPEND ON YOUR ROSTER`,
         gameInjuries.length ? `🚑 INJURIES: ${gameInjuries.join(" · ")} (THE BACKUPS ARE IN)` : "",
+        goalsDone.length ? `🎯 GOAL COMPLETE: ${goalsDone.join(' · ')} (+${GOAL_REWARD * goalsDone.length} CREDITS)` : '',
     ].filter(Boolean).join('\n');
     if (seasonPhase === 'champion') launchConfetti();
     saveSeason();
