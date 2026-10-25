@@ -34,6 +34,8 @@
         .diff-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 18px; font-size: 0.7rem; color: #aaa; letter-spacing: 2px; }
         .diff-btn { font-family: 'Press Start 2P', monospace; font-size: 0.65rem; padding: 8px 14px; cursor: pointer; background: #002244; color: #fff; border: 3px solid #fff; border-radius: 0; box-shadow: inset -3px -3px 0px rgba(0,0,0,0.5); }
         .diff-btn.active { background: #ffcc00; color: #000; }
+        .diff-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .diff-btn.fantastic-btn.active { background: #ff4fd8; color: #000; box-shadow: 0 0 12px #ff4fd8; }
         #replay-banner { position: absolute; top: 20px; left: 20px; z-index: 160; background: rgba(0,0,0,0.75); border: 3px solid #e31837; color: #fff; font-size: 0.75rem; letter-spacing: 3px; padding: 10px 14px; pointer-events: none; }
         #replay-banner .rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e31837; margin-right: 6px; animation: rec-blink 1s steps(2) infinite; }
         #replay-banner .replay-skip { display: block; font-size: 0.45rem; color: #aaa; margin-top: 6px; letter-spacing: 2px; }
@@ -221,6 +223,10 @@
                 <button class="diff-btn" data-dlevel="easy" onclick="setDefDifficulty('easy')" title="Hints show where the QB is looking and where the ball is going">EASY</button>
                 <button class="diff-btn" data-dlevel="medium" onclick="setDefDifficulty('medium')">MEDIUM</button>
                 <button class="diff-btn" data-dlevel="hard" onclick="setDefDifficulty('hard')" title="Blocks hold longer, their offense is quicker">HARD</button>
+            </div>
+            <div class="diff-row" style="margin-top:8px;">
+                <span style="color:#ff4fd8;">FANTASTIC</span>
+                <button class="diff-btn fantastic-btn" id="fantastic-btn" onclick="toggleFantastic()" title="Hall of Fame on both sides of the ball. Locks offense and defense difficulty while it's on.">OFF</button>
             </div>
             <div class="diff-row" style="margin-top:8px;">
                 <span>OPPONENT DRIVES</span>
@@ -515,6 +521,7 @@ let fpsWatch = { frames: 0, since: 0, slowFor: 0 }; // AUTO's frame-rate monitor
 let ko = null;          // full kickoff in progress, see startFullKickoff
 const KICK_G = 21.4, KICK_CARRY = 39;   // kick gravity and carry speed, see kickVelocity
 let oppKick = null;     // their field goal / extra point you're trying to block, see startOppKick
+let fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // what their kick unit has seen from you this game, see startOppKick
 let kickUnits = null;   // both units on the field during your own kick, see buildKickUnits
 let hookLadder = null;  // hook and ladder pitch after the catch, see startHookLadder
 let teamCeleb = null;   // a defense celebrating a turnover, see startTeamCelebration
@@ -574,6 +581,9 @@ const DIFFICULTY = {
     easy:   { trail: 1.5, breakDelay:  0.25, intRange: 0.7, shed: 1.4,  defSpeed: 0.92, cpuSkill: 0.8, kickZone: 1.3 },
     medium: { trail: 1.0, breakDelay:  0,    intRange: 1.0, shed: 1.0,  defSpeed: 1.0,  cpuSkill: 1.0, kickZone: 1.0 },
     hard:   { trail: 0.7, breakDelay: -0.1,  intRange: 1.3, shed: 0.75, defSpeed: 1.07, cpuSkill: 1.2, kickZone: 0.75 },
+    // FANTASTIC (the overall toggle): Hall of Fame. Blanket coverage that breaks on the throw, ballhawks, a
+    // rush that gets home, a faster defense and a CPU offense that rarely beats itself
+    fantastic: { trail: 0.5, breakDelay: -0.18, intRange: 1.6, shed: 0.55, defSpeed: 1.12, cpuSkill: 1.35, kickZone: 0.6 },
 };
 let difficulty = 'medium';
 try { difficulty = localStorage.getItem('ff-difficulty') || 'medium'; } catch (e) {}
@@ -589,24 +599,46 @@ const DEF_DIFFICULTY = {
     easy:   { block: 0.7, aiBlock: 1.8, offSkill: 0.93, qbRead: 1.6, hints: true, pickWindow: 0.2, hitStick: 1 / 3 },
     medium: { block: 1.0, aiBlock: 1.0, offSkill: 1.0,  qbRead: 1.4, hints: false, pickWindow: 0.13, hitStick: 1 / 5 },
     hard:   { block: 1.5, aiBlock: 1.2, offSkill: 1.06, qbRead: 1.15, hints: false, pickWindow: 0.08, hitStick: 1 / 10 },
+    fantastic: { block: 1.9, aiBlock: 1.35, offSkill: 1.12, qbRead: 0.95, hints: false, pickWindow: 0.05, hitStick: 1 / 15 },
 };
 let defDifficulty = 'medium';
 try { defDifficulty = localStorage.getItem('ff-def-difficulty') || 'medium'; } catch (e) {}
 if (!DEF_DIFFICULTY[defDifficulty]) defDifficulty = 'medium';
 const ddiff = () => DEF_DIFFICULTY[defDifficulty];
 function setDefDifficulty(level) {
+    if (fantasticMode) return;   // locked while FANTASTIC is on
     defDifficulty = level;
     try { localStorage.setItem('ff-def-difficulty', level); } catch (e) {}
     updateDifficultyButtons();
 }
 function setDifficulty(level) {
+    if (fantasticMode) return;
     difficulty = level;
     try { localStorage.setItem('ff-difficulty', level); } catch (e) {}
     updateDifficultyButtons();
 }
+// FANTASTIC: one switch for Hall of Fame on both sides of the ball. While it's on, offense and defense
+// difficulty are locked at 'fantastic'; turn it off and they go back to what you had picked.
+let fantasticMode = false;
+try { fantasticMode = localStorage.getItem('ff-fantastic') === '1'; } catch (e) {}
+function applyFantastic() {
+    if (fantasticMode) { difficulty = 'fantastic'; defDifficulty = 'fantastic'; return; }
+    try { difficulty = localStorage.getItem('ff-difficulty') || 'medium'; defDifficulty = localStorage.getItem('ff-def-difficulty') || 'medium'; } catch (e) { difficulty = defDifficulty = 'medium'; }
+    if (!DIFFICULTY[difficulty] || difficulty === 'fantastic') difficulty = 'medium';
+    if (!DEF_DIFFICULTY[defDifficulty] || defDifficulty === 'fantastic') defDifficulty = 'medium';
+}
+applyFantastic();
+function toggleFantastic() {
+    fantasticMode = !fantasticMode;
+    try { localStorage.setItem('ff-fantastic', fantasticMode ? '1' : '0'); } catch (e) {}
+    applyFantastic();
+    updateDifficultyButtons();
+}
 function updateDifficultyButtons() {
-    document.querySelectorAll('.diff-btn[data-level]').forEach(b => b.classList.toggle('active', b.dataset.level === difficulty));
-    document.querySelectorAll('.diff-btn[data-dlevel]').forEach(b => b.classList.toggle('active', b.dataset.dlevel === defDifficulty));
+    document.querySelectorAll('.diff-btn[data-level]').forEach(b => { b.classList.toggle('active', b.dataset.level === difficulty); b.disabled = fantasticMode; });
+    document.querySelectorAll('.diff-btn[data-dlevel]').forEach(b => { b.classList.toggle('active', b.dataset.dlevel === defDifficulty); b.disabled = fantasticMode; });
+    const fb = document.getElementById('fantastic-btn');
+    if (fb) { fb.classList.toggle('active', fantasticMode); fb.innerText = fantasticMode ? 'ON' : 'OFF'; }
     document.querySelectorAll('.diff-btn[data-mode]').forEach(b => b.classList.toggle('active', (b.dataset.mode === 'play') === defenseMode));
     document.querySelectorAll('.diff-btn[data-gfx]').forEach(b => b.classList.toggle('active', b.dataset.gfx === graphicsSetting));
     const autoBtn = document.querySelector('.diff-btn[data-gfx="auto"]');
@@ -920,7 +952,7 @@ const CHALLENGES = [
     { id: 'blowout', name: 'DOMINATE', desc: 'A FULL GAME. WIN BY 21 OR MORE.',
       setup: null, goal: () => scoreOff - scoreDef >= 21 },
 ];
-const STARS_FOR = { easy: 1, medium: 2, hard: 3 };
+const STARS_FOR = { easy: 1, medium: 2, hard: 3, fantastic: 3 };
 function challengeStars() { try { return JSON.parse(localStorage.getItem('ff-challenges')) || {}; } catch (e) { return {}; } }
 const starString = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 
@@ -1483,7 +1515,7 @@ function buildField() {
 
     // Ground fill: cover the gap between end zones (z ±120) and end stands (z ±145),
     // plus side margins between the 106-wide field and the stand walls.
-    const fillMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+    const fillMat = new THREE.MeshLambertMaterial({ color: 0x24491f });   // turf, like the sidelines (it was black)
     // Behind north end zone (z -120 to -145)
     const ngap = new THREE.Mesh(new THREE.PlaneGeometry(200, 26), fillMat);
     ngap.rotation.x = -Math.PI / 2; ngap.position.set(0, -0.05, -132); scene.add(ngap);
@@ -3125,6 +3157,7 @@ function startGame() {
 
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
     defBrain = newDefBrain(); // a fresh scouting report every game
+    fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // and their kick unit starts fresh too
     playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; recentPlays = []; defRead = ''; defKeyedPlay = null; // new film each game
     twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false;
     gameStats = newStatLine();
@@ -3410,7 +3443,7 @@ function cpuHitStickFromFront(carrier, d) {
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(carrier.group.quaternion).setY(0).normalize();
     const toD = d.group.position.clone().sub(carrier.group.position).setY(0).normalize();
     if (fwd.dot(toD) < 0.4) return false;
-    return Math.random() < { easy: 0.08, medium: 0.12, hard: 0.18 }[difficulty];
+    return Math.random() < { easy: 0.08, medium: 0.12, hard: 0.18, fantastic: 0.24 }[difficulty];
 }
 
 function triggerTackle(ballCarrier, tackler, message) {
@@ -3835,7 +3868,7 @@ let defKeyedPlay = null; // play the defense is jumping this snap (you've repeat
 const newDefBrain = () => ({ throwSide: { left: 0, middle: 0, right: 0 }, throwDepth: { short: 0, deep: 0 }, targets: {},
     runDir: { left: 0, middle: 0, right: 0 }, runs: 0, passes: 0, holds: [], scrambles: 0, tricks: {}, snapAt: 0 });
 let defBrain = newDefBrain();
-const brainSmarts = () => ({ easy: 0.35, medium: 1, hard: 1.6 }[difficulty]);
+const brainSmarts = () => ({ easy: 0.35, medium: 1, hard: 1.6, fantastic: 2.2 }[difficulty]);
 const decayAll = o => Object.keys(o).forEach(k => { o[k] *= 0.85; });
 const topOf = o => Object.keys(o).reduce((a, b) => (o[a] >= o[b] ? a : b));
 const shareOf = (o, k) => { const tot = Object.values(o).reduce((a, b) => a + b, 0); return tot > 0 ? o[k] / tot : 0; };
@@ -3932,7 +3965,7 @@ function notePlayCall(play) {
 }
 
 function pickDefScheme() {
-    const smarts = { easy: 0.35, medium: 1, hard: 1.7 }[difficulty];
+    const smarts = { easy: 0.35, medium: 1, hard: 1.7, fantastic: 2.4 }[difficulty];
     const total = Object.values(playTendency).reduce((a, b) => a + b, 0) || 1;
     const t = k => (playTendency[k] / total) * smarts;
     const yardsLeft = Math.max(1, Math.round(yardsToGo));
@@ -6598,7 +6631,10 @@ function startOppKick(opts) {
     });
     detachBallToScene(); ball.velocity = null; ball.rotation.set(0, 0, 0);
     ball.position.set(0, 0.6, L + 0.6);
-    oppKick = { opts, L, them, us, rushers, holder, kicker, user: rushers[4], t: 0, phase: 'presnap', blocked: false, userHold: (0.35 + Math.random() * 0.5) * ddiff().block };
+    // Your blocker holds longer each time you've already gotten a hand on one of their kicks
+    const userHold = (0.6 + Math.random() * 0.6) * ddiff().block * (1 + 0.35 * Math.min(2, fgMemory.blocks));
+    oppKick = { opts, L, them, us, rushers, holder, kicker, user: rushers[4], t: 0, phase: 'presnap', blocked: false, userHold, double: null };
+    oppKick.aiCanBlock = Math.random() < (opts.xp ? 0.02 : 0.05);   // real FG/XP blocks are rare: a teammate only gets home now and then
     ensureCtrlRing(); ctrlRing.visible = true;
     GAME_STATE = 'FG_BLOCK';
     document.getElementById('right-hud').classList.add('hidden');
@@ -6630,8 +6666,12 @@ function updateOppKick(dt) {
     // You: WASD (W = toward their line, +z), onside until the snap; a blocker slows you until you beat him
     const mv = new THREE.Vector3((keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0), 0, (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0));
     if (K.phase === 'presnap' && u.group.position.z + mv.z * 0.3 > L - 1.2) mv.z = Math.min(mv.z, 0);
-    const engaged = sinceSnap > 0 && K.userHold > 0 && u.fgBlocker && u.fgBlocker.group.position.distanceTo(u.group.position) < 1.7;
-    if (engaged) K.userHold -= dt * (Math.abs(mv.x) > 0 ? 2 : 1);   // a swim move sideways gets you off him faster
+    const onYou = b => b && !isFalling(b) && b.group.position.distanceTo(u.group.position) < 1.7;
+    const doubled = onYou(K.double);
+    const engaged = sinceSnap > 0 && K.userHold > 0 && (onYou(u.fgBlocker) || doubled);
+    // A swim move sideways gets you off him faster — unless he's mirroring you step for step; two of them, slower still
+    const swim = Math.abs(mv.x) > 0 && !K.mirrored ? 2 : 1;
+    if (engaged) K.userHold -= dt * swim * (doubled ? 0.5 : 1);
     if (mv.lengthSq() > 0 && K.phase !== 'done') steerTo(u, u.group.position.clone().add(mv.normalize().multiplyScalar(3)), ((keys['ShiftLeft'] || keys['ShiftRight']) ? 9 : 7) * (engaged ? 0.3 : 1), dt);
     else u.currentMoveSpeed = 0;
     K.rushers.concat(K.us).forEach(p => {   // jumps come back down
@@ -6641,7 +6681,20 @@ function updateOppKick(dt) {
     });
     ctrlRing.position.set(u.group.position.x, 0.06, u.group.position.z);
 
-    if (K.phase === 'presnap' && K.t >= FG_SNAP_AT) { K.phase = 'snap'; sfxHut(); }
+    if (K.phase === 'presnap' && K.t >= FG_SNAP_AT) {
+        K.phase = 'snap'; sfxHut();
+        // The line adjusts to you: if you've blocked one already, or you keep coming through the same
+        // gap, they slide protection your way and the nearest other blocker doubles you (which leaves
+        // somebody else's man a little freer)
+        const x = u.group.position.x, lanes = fgMemory.lanes;
+        const sameGap = lanes.length >= 1 && lanes.slice(-2).every(l => Math.abs(l - x) < 3);
+        lanes.push(x); if (lanes.length > 4) lanes.shift();
+        if (fgMemory.blocks > 0 || sameGap) {
+            const helper = K.rushers.filter(r => r !== u && r.fgBlocker && r.fgBlocker !== u.fgBlocker)
+                .sort((a, b) => a.fgBlocker.group.position.distanceTo(u.group.position) - b.fgBlocker.group.position.distanceTo(u.group.position))[0];
+            if (helper) { K.double = helper.fgBlocker; helper.fgBlocker = null; helper.fgHold *= 0.3; flashBanner('THEY SLID PROTECTION TO YOU', 1100); }
+        }
+    }
     if (K.phase === 'snap' || K.phase === 'kick') {
         // Rushers: held up by their man, then they shed him and go for the spot in front of the holder
         const spot = V(0, L + 3.6);
@@ -6651,8 +6704,22 @@ function updateOppKick(dt) {
             if (r.fgHold > 0 && b) { r.fgHold -= dt; steerTo(r, b.group.position.clone().add(V(0, -1)), 0.8, dt); }
             else steerTo(r, spot.clone().add(V(r.group.position.x * 0.3, 0)), 7.5 * r.mind.pace, dt);
         });
-        // Their line: each man mirrors his rusher, giving a little ground
+        // Your man (and the double) mirrors you: he stays between you and the spot, matching your
+        // slide step for step and giving ground slowly. Quicker on harder difficulties.
+        const toSpot = spot.clone().sub(u.group.position).setY(0);
+        const guard = u.group.position.clone().addScaledVector(toSpot.lengthSq() > 0.01 ? toSpot.normalize() : V(0, 1), 1.15);
+        guard.z = Math.max(L + 0.6, Math.min(L + 3.2, guard.z));
+        const mirrorSpeed = 6.6 * Math.sqrt(ddiff().block);
+        K.mirrored = false;
+        [u.fgBlocker, K.double].forEach((b, i) => {
+            if (!b || isFalling(b) || K.userHold <= 0) return;
+            const want = guard.clone().add(V(i ? (b.group.position.x < u.group.position.x ? -0.9 : 0.9) : 0, 0));
+            if (steerTo(b, want, mirrorSpeed, dt) < 0.6 && i === 0) K.mirrored = true;
+            turnToward(b, u.group.position.clone().sub(b.group.position), dt);
+        });
+        // The rest of their line: each man mirrors his rusher, giving a little ground
         K.rushers.forEach(r => {
+            if (r === u && K.userHold > 0) return;   // handled above
             const b = r.fgBlocker; if (!b || isFalling(b)) return;
             const gap = r.group.position.clone().add(V(0, 1.1));
             steerTo(b, V(b.group.position.x * 0.6 + gap.x * 0.4, Math.max(L + 0.6, Math.min(L + 3, gap.z))), 3.5, dt);
@@ -6682,11 +6749,13 @@ function updateOppKick(dt) {
         if (!K.blocked && K.t - K.kickT < 0.7) {
             K.rushers.forEach(r => {
                 if (K.blocked || isFalling(r)) return;
+                if (r !== u && !K.aiCanBlock) return;   // their protection holds against everyone but you, most kicks
                 const hand = r.group.position.clone().add(new THREE.Vector3(0, r === u ? 3.0 : 2.8, 0));
                 if (hand.distanceTo(ball.position) < (r === u ? 1.35 : 1.0)) {
                     K.blocked = true; sfxHit(1.2); triggerCheer();
                     ball.velocity.set((Math.random() - 0.5) * 6, 5, 7);   // knocked back toward their side
                     flashBanner(r === u ? 'BLOCKED BY YOU!' : 'BLOCKED!', 1800);
+                    if (r === u) fgMemory.blocks++;   // they won't forget it
                 }
             });
         }
@@ -6716,7 +6785,7 @@ function updateOppKick(dt) {
 function finishOppKick() {
     const K = oppKick;
     if (!K) return;
-    oppKick = null;
+    oppKick = null; fgMemory.kicks++;
     K.them.concat(K.us).forEach(p => scene.remove(p.group));
     if (ctrlRing) ctrlRing.visible = false;
     droneSimPlayers.forEach(p => { p.group.visible = true; });
