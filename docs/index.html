@@ -158,7 +158,6 @@
         .sim-def { color: #ff6666; }
 
         /* Franchise Additions */
-        #team-record-display { font-size: 1rem; color: #00ff00; margin-bottom: 20px; letter-spacing: 2px;}
         .schedule-list { width: 60%; height: 400px; background: #000; border: 4px solid #fff; overflow-y: auto; padding: 10px; font-size: 0.8rem; line-height: 1.8;}
         .schedule-row { display: flex; justify-content: space-between; border-bottom: 2px dashed #444; padding: 10px; }
         .schedule-row.active { background: #002244; color: #ffcc00; border: 2px solid #ffcc00; }
@@ -199,6 +198,84 @@
             .table-retro th, .table-retro td { border-width: 2px; padding: 8px 4px; }
             #quarter-break-text { font-size: 1.1rem; }
         }
+        /* ─── MENU LOOK ─────────────────────────────────────────────────────────────
+           One look for every menu screen: a dark field glow tinted with your team's color (--team,
+           set in updateMenuUI), faint scanlines, gold titles, chunky pixel buttons that lift on hover,
+           and panels/cards with hard drop shadows. */
+        :root { --team: #004c54; --team2: #ffffff; }
+        .menu {
+            background:
+                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 4px),
+                radial-gradient(ellipse 80% 55% at 50% 0%, color-mix(in srgb, var(--team) 55%, transparent), transparent 70%),
+                radial-gradient(ellipse at center, rgba(0, 20, 40, 0.93), rgba(0, 3, 10, 0.98));
+
+        }
+        .menu > * { animation: menu-in 0.25s ease-out both; }   /* the content eases in; the backdrop stays solid */
+        @keyframes menu-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        .menu h1 { text-shadow: 4px 4px 0 #e31837, 0 0 26px rgba(255, 204, 0, 0.35); letter-spacing: 2px; }
+        .menu h1::after { content: ''; display: block; width: 70%; height: 4px; margin: 12px auto 0;
+                          background: linear-gradient(90deg, transparent, #ffcc00, transparent); }
+        .menu h1.title { font-size: 3.2rem; margin-bottom: 18px; animation: title-glow 3s ease-in-out infinite; }
+        @keyframes title-glow { 50% { text-shadow: 4px 4px 0 #e31837, 0 0 40px rgba(255, 204, 0, 0.6); } }
+        .btn-retro { box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.5), 3px 3px 0 #000; transition: transform 0.1s, filter 0.1s, box-shadow 0.1s; }
+        .btn-retro:hover { filter: brightness(1.15); transform: translate(-2px, -2px); box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.5), 5px 5px 0 #000; }
+        .diff-btn { transition: background 0.1s, transform 0.1s; }
+        .diff-btn:hover:not(:disabled):not(.active) { background: #0a3a66; transform: translateY(-1px); }
+
+        /* Main menu hub */
+        .hub { width: min(580px, 92vw); display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+        .team-banner { background: linear-gradient(135deg, var(--team), color-mix(in srgb, var(--team) 45%, #000));
+                       border: 4px solid var(--team2); box-shadow: 6px 6px 0 #000; padding: 16px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+        .tb-name { font-size: 1.25rem; text-shadow: 3px 3px 0 #000; letter-spacing: 2px; text-align: center; }
+        .tb-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+        .chip { font-size: 0.55rem; padding: 6px 9px; background: rgba(0, 0, 0, 0.5); border: 2px solid rgba(255, 255, 255, 0.4); letter-spacing: 1px; }
+        .chip-credit { color: #00ff88; border-color: #00ff88; }
+        .btn-retro.btn-play { width: 100%; margin-top: 4px; font-size: 1.15rem; padding: 20px; animation: play-pulse 2.4s ease-in-out infinite; }
+        @keyframes play-pulse { 50% { box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.5), 3px 3px 0 #000, 0 0 22px rgba(227, 24, 55, 0.75); } }
+        .next-game { text-align: center; font-size: 0.55rem; color: #88ccff; letter-spacing: 1px; line-height: 1.7; }
+        .tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .tile { position: relative; font-family: 'Press Start 2P', monospace; font-size: 0.55rem; color: #fff; background: rgba(0, 34, 68, 0.92);
+                border: 3px solid rgba(255, 255, 255, 0.75); padding: 14px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 9px;
+                box-shadow: 4px 4px 0 #000; transition: transform 0.1s, background 0.1s, border-color 0.1s, box-shadow 0.1s; }
+        .tile:hover { transform: translate(-2px, -2px); background: rgba(0, 62, 112, 0.95); border-color: #ffcc00; box-shadow: 6px 6px 0 #000; }
+        .tile .ti { font-size: 1.5rem; line-height: 1; font-family: sans-serif; }
+        .tile .badge { position: absolute; top: -9px; right: -9px; background: #00ff88; color: #000; font-size: 0.5rem; padding: 4px 6px; border: 2px solid #000; }
+        .link-btn { align-self: center; background: none; border: none; color: #88aacc; font-family: 'Press Start 2P', monospace; font-size: 0.55rem; cursor: pointer; padding: 8px; letter-spacing: 1px; }
+        .link-btn:hover { color: #fff; }
+        @media (max-width: 520px) { .tile-grid { grid-template-columns: repeat(2, 1fr); } .menu h1.title { font-size: 2.2rem; } }
+
+        /* Panels (settings) */
+        .panel { width: min(760px, 94vw); box-sizing: border-box; background: rgba(0, 24, 48, 0.88); border: 3px solid rgba(255, 255, 255, 0.55);
+                 box-shadow: 5px 5px 0 #000; padding: 12px 16px 16px; margin-top: 14px; }
+        .panel-title { color: #ffcc00; font-size: 0.7rem; letter-spacing: 3px; border-bottom: 2px dashed #2c4a6a; padding-bottom: 8px; }
+        .panel .diff-row { justify-content: flex-start; margin-top: 12px !important; }
+        .panel .diff-row > span:first-child { flex: 0 0 250px; text-align: left; white-space: nowrap; letter-spacing: 1px; color: #cde; }
+        .panel .controls-list { margin: 12px 0 0; border: none; background: none; padding: 0; font-size: 0.6rem; }
+        @media (max-width: 620px) { .panel .diff-row > span:first-child { flex-basis: 100%; } }
+
+        /* Save slots */
+        .slot-card { border-width: 4px; transition: transform 0.12s, box-shadow 0.12s; }
+        .slot-card:hover { transform: translate(-2px, -3px); box-shadow: 8px 9px 0 #000; }
+        .slot-band { width: 100%; box-sizing: border-box; border: 3px solid #fff; padding: 10px 6px; text-shadow: 2px 2px 0 #000; }
+        .slot-id { font-size: 1.4rem; margin-bottom: 6px; }
+        .slot-band .slot-team { font-size: 0.7rem; }
+        .slot-card.empty { border-style: dashed; border-color: #556; background: rgba(0, 20, 40, 0.6); }
+        .slot-plus { font-size: 2.4rem; color: #34a853; text-shadow: 3px 3px 0 #000; }
+
+        /* Team picker */
+        #team-grid { gap: 10px; }
+        .team-pick { transition: transform 0.1s, box-shadow 0.1s, filter 0.1s; }
+        .team-pick:hover { filter: brightness(1.2); box-shadow: 0 0 0 3px #ffcc00, 6px 6px 0 #000; }
+
+        /* Roster and draft cards */
+        .pcard { border: 3px solid var(--team2); position: relative; transition: transform 0.1s, box-shadow 0.1s; }
+        .pcard:hover { transform: translate(-1px, -2px); box-shadow: 6px 7px 0 #000; }
+        .pcard-top { margin: -10px -12px 6px; padding: 8px 12px; background: linear-gradient(90deg, color-mix(in srgb, var(--team) 80%, #000), transparent); }
+        .pcard-pos.pos-off { background: #ffcc00; } .pcard-pos.pos-st { background: #00ff88; } .pcard-pos.pos-def { background: #ff5a6e; }
+        .rbar-track { background: repeating-linear-gradient(90deg, #262a33 0 9px, #15181e 9px 10px); }
+        .rbar-fill { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35); }
+        .roster-group { border-left: 6px solid #ffcc00; padding-left: 10px; }
+        #roster-team .pcard-stars { font-size: 0.7rem; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
             integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
@@ -226,21 +303,23 @@
 
     <div id="ui-layer">
         <div id="main-menu" class="menu">
-            <h1>FANTASTIC<br>FOOTBALL</h1>
-            <div id="team-record-display">PHI EAGLES | 0-0-0</div>
-            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:10px;">
-                <button id="btn-play" class="btn-retro" onclick="openMatchupScreen()">PLAY WEEK 1</button>
-                <button class="btn-retro" style="background:#00aaff;" onclick="openSchedule()">SCHEDULE</button>
-            </div>
-            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
-                <button class="btn-retro" style="background:#ffcc00; color:#000; font-size:0.7rem; padding:10px 20px;" onclick="openStandings()">STANDINGS</button>
-                <button class="btn-retro" style="background:#7a3cff; font-size:0.7rem; padding:10px 20px;" onclick="openStats()">STATS</button>
-                <button class="btn-retro" style="background:#e31837; font-size:0.7rem; padding:10px 20px;" onclick="openChallenges()">CHALLENGES</button>
-            </div>
-            <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
-                <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="openRoster()">ROSTER</button>
-                <button class="btn-retro" style="background:#444; font-size:0.7rem; padding:10px 20px;" onclick="openSettings()">⚙ SETTINGS</button>
-                <button class="btn-retro" style="background:#2a6f97; font-size:0.7rem; padding:10px 20px;" onclick="openSaveSelect()">SWITCH SAVE</button>
+            <h1 class="title">FANTASTIC<br>FOOTBALL</h1>
+            <div class="hub">
+                <div class="team-banner">
+                    <div class="tb-name" id="tb-name">PHI EAGLES</div>
+                    <div class="tb-chips"><span class="chip" id="tb-record">0-0</span><span class="chip hidden" id="tb-status"></span><span class="chip chip-credit" id="tb-credits">0 CREDITS</span></div>
+                </div>
+                <button id="btn-play" class="btn-retro btn-play" onclick="openMatchupScreen()">PLAY WEEK 1</button>
+                <div id="next-game" class="next-game"></div>
+                <div class="tile-grid">
+                    <button class="tile" onclick="openSchedule()"><span class="ti">📅</span>SCHEDULE</button>
+                    <button class="tile" onclick="openStandings()"><span class="ti">🏆</span>STANDINGS</button>
+                    <button class="tile" onclick="openRoster()"><span class="ti">🏈</span>ROSTER<span id="roster-badge" class="badge hidden">0</span></button>
+                    <button class="tile" onclick="openStats()"><span class="ti">📊</span>STATS</button>
+                    <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
+                    <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
+                </div>
+                <button class="link-btn" onclick="openSaveSelect()">⇄ SWITCH SAVE</button>
             </div>
         </div>
 
@@ -278,6 +357,7 @@
         <!-- Settings: difficulty, opponent drives, graphics, audio, Drive saves and the controls -->
         <div id="settings-screen" class="menu hidden">
             <h1 style="font-size:2rem;">SETTINGS</h1>
+            <div class="panel"><div class="panel-title">GAMEPLAY</div>
             <div class="diff-row">
                 <span>OFFENSE DIFFICULTY</span>
                 <button class="diff-btn" data-level="easy" onclick="setDifficulty('easy')">EASY</button>
@@ -299,6 +379,8 @@
                 <button class="diff-btn" data-mode="play" onclick="setDefenseMode('play')">PLAY DEFENSE</button>
                 <button class="diff-btn" data-mode="watch" onclick="setDefenseMode('watch')">WATCH</button>
             </div>
+            </div>
+            <div class="panel"><div class="panel-title">DISPLAY &amp; SOUND</div>
             <div class="diff-row" style="margin-top:8px;">
                 <span>GRAPHICS</span>
                 <button class="diff-btn" data-gfx="auto" onclick="setGraphics('auto')">AUTO</button>
@@ -309,12 +391,15 @@
                 <span>AUDIO</span>
                 <button id="btn-mute" class="diff-btn" onclick="toggleAudio()">MUTE AUDIO</button>
             </div>
+            </div>
+            <div class="panel"><div class="panel-title">SAVES</div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:12px;">
                 <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="saveToDrive()">SAVE TO DRIVE</button>
                 <button class="btn-retro" style="background:#4285f4; font-size:0.7rem; padding:10px 20px;" onclick="loadFromDrive()">LOAD FROM DRIVE</button>
             </div>
             <div id="drive-status" class="hidden" style="font-size:0.65rem; margin-top:10px; letter-spacing:2px;"></div>
-            <div class="stats-head" style="margin-top:14px;">CONTROLS</div>
+            </div>
+            <div class="panel"><div class="panel-title">CONTROLS</div>
             <div class="controls-list">
                 <div><span>WASD</span> Move / Scramble</div>
                 <div><span>Mouse Click</span> Throw Pass</div>
@@ -326,6 +411,7 @@
                 <div><span>H</span> No-Huddle</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>On Defense</span> WASD Move · SPACE Jump · E Switch Player · F Hit Stick / Intercept (when the rings meet)</div>
+            </div>
             </div>
             <button class="btn-retro" onclick="closeInfoScreen('settings-screen')">BACK TO MENU</button>
         </div>
@@ -1081,7 +1167,7 @@ function renderDraft() {
         const stars = pr.hidden.length ? '?' : starsText(starRating(p, slot));
         const note = pr.own ? `YOUR ${MY_TEAM.name}` : pr.tag || '';
         const vs = D.kind === 'rookie' ? `<div class="pcard-career">REPLACES #${cur.num} ${cur.name} ${starsText(starRating(cur, slot))} (AGE ${cur.age})</div>` : '';
-        return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${stars}</span></div>
+        return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos ${slot === 'K' ? 'pos-st' : DEF_SLOTS.includes(slot) ? 'pos-def' : 'pos-off'}">${SLOT_LABEL[slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${stars}</span></div>
             <div class="pcard-age">AGE ${p.age}${note ? ' · ' + note : ''}</div>${bars}${vs}
             <button class="btn-retro draft-pick" onclick="draftPick(${i})">${D.kind === 'start' && pr.own ? 'KEEP HIM' : 'DRAFT HIM'}</button></div>`;
     }).join('');
@@ -1251,12 +1337,13 @@ function openSaveSelect() {
             const phase = { regular: `WEEK ${d.currentWeek}`, playoffs: 'PLAYOFFS', champion: 'CHAMPIONS!', eliminated: 'SEASON OVER', missed: 'SEASON OVER' }[d.seasonPhase] || '';
             card.style.borderColor = t.color === '#101820' ? '#a5acaf' : t.color;
             card.innerHTML = `<div class="slot-n">SAVE ${n}</div>
-                <div class="slot-team" style="color:#fff; background:${t.color}; padding:6px 10px; border:2px solid ${t.helmet}; text-shadow: 2px 2px 0 #000;">${t.id} ${t.name}</div>
+                <div class="slot-band" style="background:linear-gradient(135deg, ${t.color}, #000); border-color:${t.helmet === t.color ? '#fff' : t.helmet};"><div class="slot-id">${t.id}</div><div class="slot-team">${t.name}</div></div>
                 <div class="slot-info">SEASON ${d.career ? d.career.seasons : 1} · ${recStr(d.myRecord)} · ${phase}</div>
                 <div class="slot-buttons"><button class="btn-retro" onclick="selectSlot(${n})">PLAY</button>
                 <button class="btn-retro slot-del" onclick="deleteSlot(${n})">DELETE</button></div>`;
         } else {
-            card.innerHTML = `<div class="slot-n">SAVE ${n}</div><div class="slot-team" style="color:#888;">EMPTY</div>
+            card.classList.add('empty');
+            card.innerHTML = `<div class="slot-n">SAVE ${n}</div><div class="slot-plus">+</div><div class="slot-info" style="color:#aaa;">START A NEW FRANCHISE</div>
                 <div class="slot-buttons"><button class="btn-retro" style="background:#34a853;" onclick="selectSlot(${n})">NEW SAVE</button></div>`;
         }
         list.appendChild(card);
@@ -1315,15 +1402,28 @@ function updateMenuUI() {
         eliminated: 'ELIMINATED FROM THE PLAYOFFS',
         missed:     `MISSED THE PLAYOFFS (#${rank})`,
     }[seasonPhase];
-    document.getElementById('team-record-display').innerText = `${MY_TEAM.id} ${MY_TEAM.name} | ${recStr(myRecord)}${status ? ' | ' + status : ''} | ${credits} CREDITS`;
-    const playBtn = document.getElementById('btn-play');
+    // The team banner (in your colors), the big play button and what's next
+    document.documentElement.style.setProperty('--team', MY_TEAM.color);
+    document.documentElement.style.setProperty('--team2', MY_TEAM.helmet === MY_TEAM.color ? '#ffffff' : MY_TEAM.helmet);
+    document.getElementById('tb-name').innerText = `${MY_TEAM.id} ${MY_TEAM.name}`;
+    document.getElementById('tb-record').innerText = `${recStr(myRecord)} · SEASON ${career.seasons}`;
+    document.getElementById('tb-status').innerText = status || '';
+    document.getElementById('tb-status').classList.toggle('hidden', !status);
+    document.getElementById('tb-credits').innerText = `${credits} CREDITS`;
+    document.getElementById('roster-badge').innerText = credits;
+    document.getElementById('roster-badge').classList.toggle('hidden', !credits);
+    const playBtn = document.getElementById('btn-play'), next = document.getElementById('next-game');
+    const vs = id => { const t = teamById(id); return `${t.id} ${t.name} (${recStr(league[id])})`; };
     if (seasonPhase === 'playoffs') {
         playBtn.innerText = `PLAY ${PLAYOFF_ROUNDS[playoffs.round]}`;
+        next.innerText = `NEXT: ${vs(playoffs.opp)}`;
     } else if (seasonPhase !== 'regular') {
-        playBtn.innerText = 'START NEW SEASON';
+        playBtn.innerText = 'ROOKIE DRAFT ▶';
+        next.innerText = 'THE SEASON IS OVER — DRAFT YOUR ROOKIES, THEN SEASON ' + (career.seasons + 1);
     } else {
         let currentMatch = seasonSchedule[currentWeek-1];
         playBtn.innerText = currentMatch.isBye ? `SIMULATE BYE WEEK` : `PLAY WEEK ${currentWeek}`;
+        next.innerText = currentMatch.isBye ? 'BYE WEEK — A WEEK OFF' : `WEEK ${currentWeek} OF 18 · NEXT: ${vs(currentMatch.opp.id)}`;
     }
     updateDifficultyButtons();
 }
@@ -1413,8 +1513,8 @@ function rosterCardHTML(slot) {
         return `<div class="rbar"><span>${slot === 'K' && k === 'power' ? 'KICK POWER' : RATING_NAMES[k]}</span>
         <div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span>${btn}</div>`;
     }).join('');
-    return `<div class="pcard" style="border-color:${MY_TEAM.color === '#101820' ? '#a5acaf' : MY_TEAM.color};">
-        <div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
+    return `<div class="pcard">
+        <div class="pcard-top"><span class="pcard-pos ${slot === 'K' ? 'pos-st' : DEF_SLOTS.includes(slot) ? 'pos-def' : 'pos-off'}">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
         <div class="pcard-age">AGE ${p.age}</div>${bars}
         <div class="pcard-line">SEASON (${p.season.gp} GP): ${playerLineText(slot, p.season)}</div>
         <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div></div>`;
