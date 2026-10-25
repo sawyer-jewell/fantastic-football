@@ -6875,7 +6875,7 @@ function snapBall() {
     if (GAME_STATE !== 'PRE_SNAP') return;
     if (!isTwoPointAttempt && Math.random() < 0.015) { falseStart(); return; }
     players.offense.concat(players.defense).forEach(p => { p.showboat = null; p.showboatHint = false; p.catchStyle = null; p.catchFlourish = null; });
-    startPancake.left = 1;   // one pancake a play, at most
+    startPancake.left = Math.random() < 0.15 ? 1 : 0;   // a pancake now and then — not every run
     motionAtSnap();
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
@@ -9091,7 +9091,7 @@ function startLiveDefensePlay(down, toGo, onDone) {
     dp = { kind, play, L, off, def, qb: off[0], rb: off[1], carrier: null, phase: 'presnap', t: 0, onDone, offSkill, side: rbSide,
            holeX: [-3.6, -1.2, 1.2, 3.6][Math.floor(Math.random() * 4)], thrown: false, target: null, nextRead: 1.0, ended: false };
     setControlled(def[5]); // middle linebacker
-    startPancake.left = 1;
+    startPancake.left = Math.random() < 0.15 ? 1 : 0;
     def.concat(off).forEach(d => { d.hitStun = 0; d.intHold = 0; d.intShed = false; d.laneDir = null; d.dAir = false; });
     off.forEach(o => { o.dStam = Math.min(100, (o.dStam ?? 100) + 20); }); // a breather in the huddle — not all of it back
     detachBallToScene(); ball.velocity = null; ball.position.set(0, 0.3, L);
@@ -11002,7 +11002,8 @@ function startPancake(p, by) {
     const q1 = yawPitchQuat(yaw, -Math.PI / 2, (Math.random() - 0.5) * 0.4);
     p.pancake = { t: 0, q0: p.group.quaternion.clone(), q1, rest: restHeight(p, q1), push: push.multiplyScalar(4) };
     p.rag = null; p.blockFoe = null; p.currentMoveSpeed = 0;
-    if (p.team === 'defense' && GAME_STATE !== 'DEFENSE') { flashBanner('PANCAKE!', 900); if (Math.random() < 0.6) commentate(pick([`${nameOf(by)} PANCAKES HIS MAN!`, `PANCAKE BLOCK! HE PUT HIM ON HIS BACK!`])); }
+    // Only called out once in a while (the booth mentions it now and then; no big banner)
+    if (p.team === 'defense' && GAME_STATE !== 'DEFENSE' && Math.random() < 0.3) commentate(pick([`${nameOf(by)} PANCAKES HIS MAN!`, `PANCAKE BLOCK! HE PUT HIM ON HIS BACK!`]));
     sfxHit(0.9);
 }
 function updatePancake(p, dt) {
