@@ -117,6 +117,13 @@
         /* Halftime overlay */
         #coin-toss { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.6); color: #fff; pointer-events: auto; }
         #coin-toss.hidden { display: none; }
+        /* League news ticker along the bottom of the main menu */
+        #news-ticker { position: fixed; left: 0; right: 0; bottom: 0; height: 30px; display: flex; align-items: stretch; background: #001226; border-top: 3px solid #ffcc00; z-index: 101; font-size: 0.55rem; }
+        .news-label { background: #e31837; color: #fff; padding: 0 12px; display: flex; align-items: center; white-space: nowrap; box-shadow: 4px 0 0 #000; z-index: 1; }
+        .news-window { flex: 1; overflow: hidden; display: flex; align-items: center; }
+        #news-track { display: flex; white-space: nowrap; animation: ticker 60s linear infinite; color: #ffcc00; }
+        #news-track span { padding-right: 80px; }
+        @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
         /* Main menu tabs */
         .menu-tabs { display: flex; gap: 6px; }
         .menu-tab { flex: 1; font-family: "Press Start 2P", monospace; font-size: 0.55rem; padding: 11px 4px; background: rgba(0, 20, 40, 0.85); color: #9ab; border: 3px solid rgba(255, 255, 255, 0.25); cursor: pointer; box-shadow: 3px 3px 0 #000; }
@@ -490,6 +497,8 @@
                     </div>
                     <button class="link-btn" onclick="openSaveSelect()">⇄ SWITCH SAVE</button>
                 </div>
+            </div>
+            <div id="news-ticker"><div class="news-label">LEAGUE NEWS</div><div class="news-window"><div id="news-track"></div></div>
             </div>
         </div>
 
@@ -1213,6 +1222,7 @@ let practice = null;   // a practice drill in progress (see PRACTICE)
 let teamLook = null;   // your custom team name and colors, or null for the real team's look (see TEAM LOOK)
 let refs = [];   // the officiating crew on the field (see REFS)
 let halftimeShow = null;   // the marching band at halftime (see HALFTIME SHOW)
+let leagueNews = {};   // last week's scores around the league and recent trades, for the menu ticker (part of the save)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -3309,7 +3319,39 @@ function recordResult(a, b, res) {
 function simLeagueWeek(excludeIds) {
     const pool = allTeams().map(t => t.id).filter(id => !excludeIds.includes(id) && league[id].bye !== currentWeek);
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-    for (let i = 0; i + 1 < pool.length; i += 2) recordResult(pool[i], pool[i + 1], simGame(pool[i], pool[i + 1]));
+    const scores = [];
+    for (let i = 0; i + 1 < pool.length; i += 2) {
+        const a = pool[i], b = pool[i + 1], res = simGame(a, b);
+        recordResult(a, b, res);
+        // A believable final for the ticker (football numbers: 17, 24, 31... not 4)
+        const PTS = [0, 3, 6, 7, 10, 13, 14, 16, 17, 19, 20, 21, 23, 24, 26, 27, 28, 30, 31, 34, 35, 38, 41];
+        const highs = PTS.filter(p => p >= 17), w = highs[Math.floor(Math.random() * highs.length)];
+        const lows = PTS.filter(p => p < w && p >= w - 24), l = res === 0 ? w : lows[Math.floor(Math.random() * lows.length)];
+        scores.push(res >= 0 ? `${a} ${w}, ${b} ${l}` : `${b} ${w}, ${a} ${l}`);
+    }
+    leagueNews.scores = scores.slice(0, 8); leagueNews.week = currentWeek;
+    // Now and then two other teams make a deal
+    if (Math.random() < 0.3) {
+        const ids = NFL_TEAMS.map(t => t.id).sort(() => Math.random() - 0.5), pos = ['QB', 'RB', 'WR', 'TE', 'DL', 'LB', 'CB', 'S'];
+        leagueNews.trades = [`TRADE: ${ids[0]} SENDS A ${pos[Math.floor(Math.random() * 8)]} TO ${ids[1]} FOR A ${pos[Math.floor(Math.random() * 8)]}`, ...(leagueNews.trades || [])].slice(0, 3);
+    }
+}
+// The ticker along the bottom of the menu: around the league, your team, what's next
+function renderNewsTicker() {
+    const el = document.getElementById('news-track'); if (!el || !league || !league[MY_TEAM.id]) return;
+    const items = [];
+    if (leagueNews.scores && leagueNews.scores.length) items.push(`🏈 WEEK ${leagueNews.week} SCORES: ` + leagueNews.scores.join(' · '));
+    const top = standings().slice(0, 5).map((id, i) => `${i + 1}. ${id} (${recStr(league[id])})`);
+    items.push('📈 POWER RANKINGS: ' + top.join('  '));
+    const hurt = roster ? ALL_SLOTS.filter(s => roster[s].injury > 0).map(s => `${roster[s].name} (${SLOT_LABEL[s]}, ${roster[s].injury} WK)`) : [];
+    items.push(hurt.length ? `🩹 ${MY_TEAM.id} INJURIES: ${hurt.join(', ')}` : `🩹 ${MY_TEAM.id} IS FULLY HEALTHY`);
+    (leagueNews.trades || []).forEach(t => items.push('🔁 ' + t));
+    const next = seasonSchedule[currentWeek - 1];
+    if (seasonPhase === 'regular' && next && !next.isBye && next.opp) items.push(`📅 NEXT: ${MY_TEAM.id} vs ${next.opp.id} (${recStr(league[next.opp.id])})${isRivalry(next.opp.id) ? ' 🔥 RIVALRY GAME' : ''}`);
+    if (currentWeek <= TRADE_DEADLINE && seasonPhase === 'regular') items.push(`⏰ TRADE DEADLINE AFTER WEEK ${TRADE_DEADLINE}`);
+    const text = items.join('     ★     ');
+    el.innerHTML = `<span>${text}</span><span>${text}</span>`;   // twice, so the scroll loops seamlessly
+    el.style.animationDuration = Math.max(25, text.length * 0.18) + 's';
 }
 function standings() { return allTeams().map(t => t.id).sort((a, b) => winPct(league[b]) - winPct(league[a]) || league[b].rating - league[a].rating); }
 
@@ -3368,12 +3410,13 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, teamLook, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, customPlays, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, teamLook, leagueNews, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, customPlays, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
     setMyTeam(d.team || 'PHI');   // saves from before team select were all the Eagles
     teamLook = d.teamLook || null; applyTeamLook();   // your custom name and colors
+    leagueNews = d.leagueNews || {};
     myRecord = d.myRecord; currentWeek = d.currentWeek; league = d.league; seasonPhase = d.seasonPhase; playoffs = d.playoffs;
     // Saves from the 19-team league: the 13 teams added since join with a record that matches the weeks played
     allTeams().forEach(t => { if (!league[t.id]) { const g = Math.max(0, currentWeek - 2); const w = Math.round(g * Math.random()); league[t.id] = { w, l: g - w, t: 0, rating: 60 + Math.random() * 30 }; } });
@@ -3409,6 +3452,7 @@ function migrateOldSave() {
 
 // A brand-new franchise for whichever team MY_TEAM is now
 function startFreshSave() {
+    leagueNews = {};
     teamLook = null;
     myRecord = { w: 0, l: 0, t: 0 };
     currentWeek = 1; seasonSchedule.length = 0;
@@ -3495,6 +3539,7 @@ function pickTeam(id) {
 
 function updateMenuUI() {
     if (!document.querySelector('.menu-tab.on')) restoreMenuTab();   // the tab you were on last
+    setTimeout(renderNewsTicker, 0);   // (after the whole script has loaded: it reads constants declared further down)
     const rank = league[MY_TEAM.id] ? standings().indexOf(MY_TEAM.id) + 1 : 0;
     const status = {
         regular:    rank && myRecord.w + myRecord.l + myRecord.t > 0 ? `#${rank} IN LEAGUE` : '',
