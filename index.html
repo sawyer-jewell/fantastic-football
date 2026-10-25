@@ -276,6 +276,52 @@
         .rbar-fill { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35); }
         .roster-group { border-left: 6px solid #ffcc00; padding-left: 10px; }
         #roster-team .pcard-stars { font-size: 0.7rem; }
+
+        /* ─── IN-GAME LOOK ──────────────────────────────────────────────────────────
+           The same look on the field: a TV-style score bug with each team's box in its colors
+           (--team/--opp, set in startGame), dark glass panels with a gold edge, pixel shadows. */
+        :root { --opp: #e31837; --opp2: #ffffff; }
+        #scoreboard { background: linear-gradient(180deg, rgba(0, 24, 48, 0.95), rgba(0, 8, 20, 0.95)); border: 3px solid rgba(255, 255, 255, 0.7);
+                      border-bottom: 4px solid #ffcc00; box-shadow: 0 6px 0 rgba(0, 0, 0, 0.5), 0 0 24px rgba(0, 0, 0, 0.4); padding: 10px 14px; }
+        .score-row { gap: 0; }
+        .score-row .team-name { background: linear-gradient(180deg, var(--team), color-mix(in srgb, var(--team) 55%, #000)); color: #fff;
+                                padding: 8px 12px; border: 2px solid var(--team2); text-shadow: 2px 2px 0 #000; }
+        .score-row .team-name.def { background: linear-gradient(180deg, var(--opp), color-mix(in srgb, var(--opp) 55%, #000)); border-color: var(--opp2); }
+        .score-row .score { background: #000; padding: 6px 12px; min-width: 1.6em; text-align: center; border: 2px solid #333; font-size: 1.35rem; }
+        .score-row .clock { margin: 0 14px; text-shadow: 0 0 10px rgba(255, 204, 0, 0.5); }
+        #down-distance { margin-top: 10px; background: #ffcc00; color: #000; padding: 4px 10px; font-size: 0.7rem; box-shadow: 2px 2px 0 #000; }
+        #play-clock.urgent { animation: rec-blink 0.6s steps(2) infinite; }
+
+        #playbook { background: linear-gradient(180deg, rgba(0, 26, 52, 0.95), rgba(0, 8, 20, 0.95)); border: 3px solid rgba(255, 255, 255, 0.7);
+                    border-top: 4px solid #ffcc00; box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); }
+        .play-card { border-color: rgba(255, 255, 255, 0.55); background: linear-gradient(180deg, #0c3060, #04172e); box-shadow: 3px 3px 0 #000;
+                     transition: transform 0.1s, background 0.1s, box-shadow 0.1s; }
+        .play-card:hover { transform: translate(-1px, -2px); background: linear-gradient(180deg, #16508f, #0a2748); box-shadow: 4px 5px 0 #000; }
+        .play-divider { display: flex; align-items: center; gap: 8px; color: #ffcc00; }
+        .play-divider::before, .play-divider::after { content: ''; flex: 1; height: 2px; background: currentColor; opacity: 0.45; }
+
+        #instructions:not(.hidden) { display: inline-block; background: rgba(0, 10, 24, 0.8); border: 2px solid rgba(255, 204, 0, 0.75); padding: 8px 14px; box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5); }
+        #instructions:empty { display: none; }
+        #stamina-bar { border-width: 3px; box-shadow: 3px 3px 0 #000; }
+        #stamina-bar::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 22px, rgba(0, 0, 0, 0.45) 22px 24px); pointer-events: none; }
+        .stamina-label { color: #fff; text-shadow: 2px 2px 0 #000; z-index: 1; }
+        #vertical-power-meter { box-shadow: 4px 4px 0 #000; }
+        #vertical-power-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 20px, rgba(0, 0, 0, 0.5) 20px 23px); pointer-events: none; }
+        #timeout-panel, #extra-point-screen > div:first-child { box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); }
+        #timeout-panel { background: linear-gradient(180deg, rgba(0, 26, 52, 0.96), rgba(0, 8, 20, 0.96)); border: 3px solid rgba(255, 255, 255, 0.7); border-top: 4px solid #ffcc00; }
+        #pat-meter { box-shadow: 4px 4px 0 #000; }
+        #pat-meter-good { background: repeating-linear-gradient(90deg, #00cc44 0 8px, #00b33c 8px 10px); }
+
+        .table-retro { background: rgba(0, 16, 32, 0.92); box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); }
+        .table-retro th, .table-retro td { border: 3px solid rgba(255, 255, 255, 0.6); }
+        .table-retro th { background: linear-gradient(180deg, #ffd633, #e6b800); }
+        .table-retro td:first-child { color: #fff; background: linear-gradient(90deg, var(--team), transparent); text-shadow: 2px 2px 0 #000; }
+        .table-retro tr:last-child td:first-child { color: #fff; background: linear-gradient(90deg, var(--opp), transparent); }
+        .table-retro .final-score-col { color: #ffcc00; font-size: 1.3rem; text-shadow: 2px 2px 0 #000; }
+        .bs-line:not(:empty) { background: rgba(0, 20, 40, 0.85); border: 2px solid rgba(255, 255, 255, 0.35); padding: 10px 14px; box-shadow: 3px 3px 0 #000; }
+        #sim-screen { background: radial-gradient(ellipse 80% 55% at 50% 0%, color-mix(in srgb, var(--team) 50%, transparent), transparent 70%),
+                                  radial-gradient(ellipse at center, #00264d, #000a14); }
+        .sim-log { border: 3px solid rgba(255, 255, 255, 0.7); border-top: 4px solid #ffcc00; box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); background: rgba(0, 0, 0, 0.85); }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
             integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu"
@@ -522,7 +568,7 @@
             <div style="text-align:center; color:#ffcc00; font-size:0.65rem; padding:5px 0 8px; letter-spacing:3px; border-bottom:2px solid #ffcc00; margin-bottom:8px;">SELECT PLAY</div>
             <div class="playbook-inner">
                 <div id="btn-hurry" class="play-card hurry-toggle" onclick="toggleHurryUp()">NO-HUDDLE: OFF</div>
-                <div class="play-divider">── PASS PLAYS ──</div>
+                <div class="play-divider">PASS PLAYS</div>
                 <div class="play-card" onclick="selectPlay('slant')" onmouseenter="previewPlay('slant')" onmouseleave="clearRoutePreview()">SLANTS</div>
                 <div class="play-card" onclick="selectPlay('verts')" onmouseenter="previewPlay('verts')" onmouseleave="clearRoutePreview()">FOUR VERTS</div>
                 <div class="play-card" onclick="selectPlay('curls')" onmouseenter="previewPlay('curls')" onmouseleave="clearRoutePreview()">CURLS</div>
@@ -534,18 +580,18 @@
                 <div class="play-card" onclick="selectPlay('digs')" onmouseenter="previewPlay('digs')" onmouseleave="clearRoutePreview()">DIGS</div>
                 <div class="play-card" onclick="selectPlay('comeback')" onmouseenter="previewPlay('comeback')" onmouseleave="clearRoutePreview()">COMEBACK</div>
                 <div class="play-card" onclick="selectPlay('screen')" onmouseenter="previewPlay('screen')" onmouseleave="clearRoutePreview()">WR SCREEN</div>
-                <div class="play-divider">── RUN PLAYS ──</div>
+                <div class="play-divider" style="color:#ff5a6e;">RUN PLAYS</div>
                 <div class="play-card" onclick="selectPlay('dive')" style="border-color:#e31837;">HB DIVE</div>
                 <div class="play-card" onclick="selectPlay('sweepl')" style="border-color:#e31837;">SWEEP LEFT</div>
                 <div class="play-card" onclick="selectPlay('sweepr')" style="border-color:#e31837;">SWEEP RIGHT</div>
                 <div class="play-card" onclick="selectPlay('draw')" style="border-color:#e31837;">DRAW</div>
                 <div class="play-card" onclick="selectPlay('sneak')" style="border-color:#e31837;">QB SNEAK</div>
-                <div class="play-divider" style="color:#b46cff;">— TRICK PLAYS —</div>
+                <div class="play-divider" style="color:#b46cff;">TRICK PLAYS</div>
                 <div class="play-card" onclick="selectPlay('playaction')" onmouseenter="previewPlay('playaction')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">PLAY ACTION</div>
                 <div class="play-card" onclick="selectPlay('flea')" onmouseenter="previewPlay('flea')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">FLEA FLICKER</div>
                 <div class="play-card" onclick="selectPlay('hookladder')" onmouseenter="previewPlay('hookladder')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">HOOK &amp; LADDER</div>
                 <div class="play-card" onclick="selectPlay('philly')" onmouseenter="previewPlay('philly')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">PHILLY SPECIAL</div>
-                <div class="play-divider" style="color:#00ccff;">— SPECIAL TEAMS —</div>
+                <div class="play-divider" style="color:#00ccff;">SPECIAL TEAMS</div>
                 <div class="play-card" onclick="selectPlay('fieldgoal')" style="border-color:#00ccff;">FIELD GOAL</div>
                 <div class="play-card" onclick="selectPlay('fakefg')" onmouseenter="previewPlay('fakefg')" onmouseleave="clearRoutePreview()" style="border-color:#00ccff;">FAKE FG</div>
                 <div class="play-card" onclick="selectPlay('punt')" style="border-color:#00ccff;">PUNT</div>
@@ -3722,6 +3768,10 @@ function startGame() {
 
     document.getElementById('scoreboard-off-name').innerText = MY_TEAM.id;
     document.getElementById('scoreboard-opp-name').innerText = currentOpponent.id;
+    // The score bug's team boxes in each team's colors (see IN-GAME LOOK)
+    const root = document.documentElement.style;
+    root.setProperty('--team', MY_TEAM.color); root.setProperty('--team2', MY_TEAM.helmet === MY_TEAM.color ? '#ffffff' : MY_TEAM.helmet);
+    root.setProperty('--opp', currentOpponent.color); root.setProperty('--opp2', currentOpponent.helmet === currentOpponent.color ? '#ffffff' : currentOpponent.helmet);
 
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
     defBrain = newDefBrain(); // a fresh scouting report every game
