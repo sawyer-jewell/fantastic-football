@@ -452,6 +452,7 @@
                     <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
                     <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
                     <button class="tile" onclick="openOnline()"><span class="ti">🌐</span>ONLINE</button>
+                    <button class="tile" onclick="openBeAPro()"><span class="ti">🌟</span>BE A PRO</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -1166,6 +1167,7 @@ let easterEgg = null, eggUsed = false;   // ??? (startEasterEgg) — once a game
 let walkout = null;   // the pre-game run out of the tunnel (startWalkout)
 let p2 = { on: false, ctrl: null, ring: null };   // a second player on the same keyboard (see TWO PLAYERS)
 let net = null;   // online play: { role: 'host' | 'guest', peer, conn, ... } (see ONLINE)
+let pro = null;   // a Be a Pro game in progress (see BE A PRO)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1585,7 +1587,7 @@ function swapStarter(slot, quiet) {
 // ─── Injuries ───
 // A carrier you tackle, a man who makes a tackle: now and then he's hurt for 1–6 weeks
 function maybeInjure(slot, chance) {
-    if (!slot || !roster || challengeMode || matchOn() || Math.random() >= chance) return;
+    if (!slot || !roster || challengeMode || matchOn() || pro || Math.random() >= chance) return;
     const p = roster[slot];
     if (p.injury > 0) return;
     const weeks = 1 + Math.floor(Math.pow(Math.random(), 1.8) * 6);
@@ -1844,6 +1846,140 @@ function updateP2(dt) {
         if (show && hint.innerText !== matchDefensePrompt()) hint.innerText = matchDefensePrompt();
         document.body.classList.toggle('net-def', matchDefending('host'));
     } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+}
+
+// ─── BE A PRO ────────────────────────────────────────────────────────────────
+// Make one player (QB, RB or WR) and play only his snaps for your team. A QB plays like always.
+// An RB or WR: the coach calls the plays and snaps it; you run your route with WASD (leave it and
+// he runs the drawn route), take the handoff on runs, and SPACE calls for the ball — the QB comes
+// to you if you're open, otherwise he goes elsewhere. The other team's drives are watched, not
+// played. After each game: a grade, XP, rating bumps every level, and a climb from BACKUP to
+// STARTER to PRO BOWL to MVP. Pro games are exhibitions: your franchise isn't touched.
+const PRO_SLOT = { QB: 'QB', RB: 'RB', WR: 'WR1' }, PRO_INDEX = { QB: 0, RB: 5, WR: 1 };
+const PRO_STATUS = ['BACKUP', 'STARTER', 'PRO BOWL', 'MVP'];
+function proCareer() { try { return JSON.parse(localStorage.getItem('ff-pro') || 'null'); } catch (e) { return null; } }
+function saveProCareer(c) { try { localStorage.setItem('ff-pro', JSON.stringify(c)); } catch (e) {} }
+function proSkill() { return !!(pro && pro.career.pos !== 'QB'); }
+function openBeAPro() {
+    const c = proCareer();
+    if (!c) {
+        showOffseason('BE A PRO', `<div class="panel" style="width:min(520px,92vw); display:flex; flex-direction:column; gap:14px; align-items:center;">
+            <div style="font-size:0.6rem; color:#cde; line-height:2; text-align:center;">CREATE YOUR PLAYER. YOU'LL PLAY ONLY HIS SNAPS FOR ${MY_TEAM.id} AND WORK YOUR WAY FROM BACKUP TO MVP.</div>
+            <input id="pro-name" maxlength="14" placeholder="NAME" style="font-family:'Press Start 2P',monospace; font-size:0.9rem; width:12em; padding:10px; text-align:center; text-transform:uppercase; border:3px solid #ffcc00; background:#001a33; color:#fff;">
+            <div style="display:flex; gap:10px;">${['QB', 'RB', 'WR'].map(pp => `<button class="diff-btn" data-pro-pos="${pp}" onclick="document.querySelectorAll('[data-pro-pos]').forEach(b => b.classList.toggle('active', b.dataset.proPos === '${pp}'))">${pp}</button>`).join('')}</div>
+            </div>`, [['CREATE', 'createPro()'], ['BACK TO MENU', "hideOffseason(); showOnly('main-menu');"]]);
+        document.querySelector('[data-pro-pos="WR"]').classList.add('active');
+        return;
+    }
+    const slot = PRO_SLOT[c.pos], xpTo = 100;
+    const bars = SLOT_RATINGS[slot].map(k => `<div class="rbar"><span>${RATING_NAMES[k]}</span><div class="rbar-track"><div class="rbar-fill" style="width:${c.r[k]}%; background:${ratingColor(c.r[k])};"></div></div><span>${c.r[k]}</span><span></span></div>`).join('');
+    const games = (c.history || []).slice(-5).reverse().map(h => `<div class="pcard-line">${h.res} ${h.score} vs ${h.opp} — ${h.line} — <span style="color:#ffcc00;">${h.grade}</span></div>`).join('') || '<div class="pcard-line">NO GAMES YET</div>';
+    showOffseason('BE A PRO', `<div class="pcard" style="width:min(520px,92vw);"><div class="pcard-top"><span class="pcard-pos">${c.pos}</span><span class="pcard-name">#${c.num} ${c.name}</span><span class="pcard-stars" style="color:#ffcc00;">${c.status}</span></div>
+        <div class="pcard-age">${c.team} · LEVEL ${c.level} · ${c.games} ${c.games === 1 ? "GAME" : "GAMES"}</div>
+        <div class="rbar"><span>XP</span><div class="rbar-track"><div class="rbar-fill" style="width:${c.xp % xpTo}%; background:#00e5ff;"></div></div><span>${c.xp % xpTo}</span><span></span></div>${bars}
+        <div class="stats-head" style="margin-top:10px;">LAST GAMES</div>${games}</div>`,
+        [['PLAY A PRO GAME ▶', 'startProGame()'], ['RETIRE HIM', "if (confirm('Retire your pro and start a new one?')) { localStorage.removeItem('ff-pro'); openBeAPro(); }"], ['BACK TO MENU', "hideOffseason(); showOnly('main-menu');"]]);
+}
+function createPro() {
+    const name = (document.getElementById('pro-name').value || '').toUpperCase().replace(/[^A-Z .'-]/g, '').trim().slice(0, 14);
+    const sel = document.querySelector('[data-pro-pos].active'), pos = sel ? sel.dataset.proPos : 'WR';
+    if (!name) { flashBanner('GIVE HIM A NAME', 900); return; }
+    const r = {}; SLOT_RATINGS[PRO_SLOT[pos]].forEach(k => { r[k] = 62 + Math.floor(Math.random() * 6); });
+    saveProCareer({ name, pos, num: pos === 'QB' ? 7 : pos === 'RB' ? 28 : 18, r, level: 1, xp: 0, games: 0, status: 'BACKUP', team: MY_TEAM.id, history: [], best: 0 });
+    openBeAPro();
+}
+function startProGame() {
+    const c = proCareer(); if (!c || !roster) return;
+    const slot = PRO_SLOT[c.pos];
+    const me = { name: c.name, num: c.num, age: 22 + Math.floor(c.games / 17), xp: 0, season: newPlayerLine(), career: newPlayerLine(), injury: 0, ...c.r };
+    pro = { career: c, slot, orig: roster[slot], defenseMode, ctrl: null, autoT: 0, qbT: 0, callFor: false };
+    roster[slot] = me;   // he's in the lineup (put back after the game)
+    defenseMode = false;   // their drives are watched
+    hideOffseason();
+    currentOpponent = NFL_TEAMS[Math.floor(Math.random() * NFL_TEAMS.length)]; isUserHome = Math.random() < 0.5;
+    pickWeather(); applyWeather();
+    startGame();
+}
+// Each frame of a pro game (RB/WR): the coach's call, the snap, the QB's read, the camera
+function proTick(dt) {
+    if (!pro) return;
+    pro.ctrl = players.offense[PRO_INDEX[pro.career.pos]] || null;
+    if (!proSkill()) return;
+    if (GAME_STATE === 'PLAYBOOK') {
+        if ((pro.autoT += dt) > 1.4) {
+            pro.autoT = 0;
+            const runs = ['dive', 'sweepl', 'sweepr', 'draw'], passes = ['curls', 'slant', 'posts', 'digs', 'outs', 'crossing', 'hitches', 'comeback'];
+            const call = pro.career.pos === 'RB' && Math.random() < 0.55 ? runs[Math.floor(Math.random() * runs.length)] : passes[Math.floor(Math.random() * passes.length)];
+            selectPlay(call); flashBanner(`COACH CALLS: ${PLAY_NAMES[call] || call.toUpperCase()}`, 1000);
+        }
+    } else if (GAME_STATE === 'PRE_SNAP') {
+        if ((pro.autoT += dt) > 1.3) { pro.autoT = 0; pro.qbT = 0; pro.callFor = false; snapBall(); }
+    } else pro.autoT = 0;
+    // The QB's read: you if you called for it and you're open, otherwise whoever's most open
+    if (GAME_STATE === 'PLAY' && !isRunPlay && !ball.velocity && !handoffPending && !trickPitch && activeReceiver !== players.offense[0]) {
+        pro.qbT += dt;
+        const wrs = players.offense.filter(p => p.role === 'WR');
+        const open = p => Math.min(...players.defense.map(d => d.group.position.distanceTo(p.group.position)));
+        const me = pro.ctrl, meOpen = me && me.role === 'WR' && open(me) > 2.4;
+        let target = null;
+        if (pro.callFor && pro.qbT > 0.8 && meOpen) target = me;
+        else if (pro.qbT > 3.0) target = wrs.filter(p => p !== me || meOpen).sort((a, b) => open(b) - open(a))[0] || wrs[0];
+        if (target) {
+            const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(target.group.quaternion).setY(0).normalize();
+            passTarget.copy(target.group.position).addScaledVector(fwd, 5 + target.currentMoveSpeed * 0.5); passTarget.y = 0;
+            pro.aiThrow = true; try { onMouseDown({}); } finally { pro.aiThrow = false; }
+            if (target === me) flashBanner('HERE IT COMES!', 800);
+            pro.callFor = false;
+        }
+    }
+}
+// WASD for your pro on his route (nothing pressed: he runs the route he was given)
+function proSteer(p, speed, dt) {
+    const d = new THREE.Vector3((keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0), 0, (keys['KeyS'] ? 1 : 0) - (keys['KeyW'] ? 1 : 0));
+    if (!d.lengthSq()) return false;
+    steerTo(p, p.group.position.clone().addScaledVector(d.normalize(), 3), speed * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.15 : 1), dt);
+    return true;
+}
+// Behind your pro, wherever he goes
+function proCamera(dt) {
+    if (!proSkill() || !pro.ctrl || !['PRE_SNAP', 'PLAY', 'POST_CATCH'].includes(GAME_STATE)) return;
+    const t = activeReceiver && GAME_STATE === 'POST_CATCH' ? activeReceiver : pro.ctrl, p = t.group.position, k = 1 - Math.exp(-5 * Math.min(dt, 0.1));
+    camera.position.lerp(new THREE.Vector3(p.x * 0.85, 7, p.z + 13), k);
+    camera.lookAt(p.x * 0.9, 1.2, p.z - 12);
+}
+// Final whistle: how'd he do?
+function proFinal() {
+    const P = pro, c = P.career, l = (gameStats.byPlayer && gameStats.byPlayer[P.slot]) || newPlayerLine();
+    roster[P.slot] = P.orig; defenseMode = P.defenseMode; pro = null;
+    const win = scoreOff > scoreDef;
+    const pts = c.pos === 'QB' ? l.pyd / 25 + l.ptd * 6 - l.pint * 6 + l.ryd / 10 + l.rtd * 6
+              : c.pos === 'RB' ? l.ryd / 10 + l.rtd * 6 + l.yds / 10 + l.td * 6
+              : l.rec + l.yds / 10 + l.td * 6;
+    const total = pts + (win ? 4 : 0);
+    const grade = total >= 25 ? 'A+' : total >= 18 ? 'A' : total >= 12 ? 'B' : total >= 7 ? 'C' : total >= 3 ? 'D' : 'F';
+    const line = c.pos === 'QB' ? `${l.cmp}/${l.att} ${l.pyd} YDS ${l.ptd} TD ${l.pint} INT` : c.pos === 'RB' ? `${l.car} CAR ${l.ryd} YDS ${l.rtd} TD` : `${l.rec} REC ${l.yds} YDS ${l.td} TD`;
+    const before = c.level, gained = Math.max(10, Math.round(total * 8));
+    c.xp += gained; c.games++;
+    const ups = [];
+    while (c.xp >= c.level * 100) {
+        c.level++;
+        Object.keys(c.r).forEach(k => { if (c.r[k] < 99) { c.r[k] = Math.min(99, c.r[k] + 2); } });
+        ups.push(c.level);
+    }
+    c.history = (c.history || []).concat([{ opp: currentOpponent.id, res: win ? 'W' : scoreOff === scoreDef ? 'T' : 'L', score: `${scoreOff}-${scoreDef}`, line, grade }]).slice(-20);
+    const goodGames = c.history.filter(h => h.grade === 'A' || h.grade === 'A+').length;
+    const was = c.status;
+    c.status = c.level >= 10 && goodGames >= 6 ? 'MVP' : c.level >= 6 && goodGames >= 3 ? 'PRO BOWL' : c.games >= 3 && goodGames >= 1 ? 'STARTER' : 'BACKUP';
+    if (PRO_STATUS.indexOf(c.status) < PRO_STATUS.indexOf(was)) c.status = was;   // never a demotion
+    saveProCareer(c);
+    GAME_STATE = 'GAME_OVER';
+    ['scoreboard', 'playbook', 'right-hud', 'instructions', 'vertical-power-meter', 'hang-time-ui'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    showOffseason('PRO GAME FINAL', `<div style="font-size:1.2rem; color:#ffcc00; margin:12px 0;">${MY_TEAM.id} ${scoreOff} — ${currentOpponent.id} ${scoreDef}</div>
+        <div class="pcard" style="width:min(520px,92vw);"><div class="pcard-top"><span class="pcard-pos">${c.pos}</span><span class="pcard-name">${c.name}</span><span class="pcard-stars" style="font-size:1.4rem; color:#ffcc00;">${grade}</span></div>
+        <div class="pcard-line">${line}</div><div class="pcard-line">+${gained} XP${ups.length ? ` · LEVEL UP! NOW LEVEL ${c.level} (+2 TO EVERY RATING)` : ''}</div>
+        ${c.status !== was ? `<div class="pcard-line" style="color:#00ff88;">PROMOTED: ${c.status}!</div>` : ''}</div>`,
+        [['CONTINUE', 'goToMainMenu(); openBeAPro();']]);
+    if (grade === 'A+') commentate(`${c.name} WAS UNSTOPPABLE TODAY!`);
 }
 
 // ─── ONLINE ──────────────────────────────────────────────────────────────────
@@ -2872,7 +3008,7 @@ function applySaveData(d) {
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
-function saveSeason() { if (!activeSlot || matchOn()) return; try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(getSaveData())); } catch (e) {} }
+function saveSeason() { if (!activeSlot || matchOn() || pro) return; try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(getSaveData())); } catch (e) {} }
 // ─── SAVE SLOTS & TEAM SELECT ────────────────────────────────────────────────
 // Three saves, each its own franchise: team, record, league, roster and stats. The game opens on
 // SELECT YOUR SAVE; an empty slot asks you to pick your team (any of the 32) and starts fresh, a used
@@ -5583,6 +5719,7 @@ class Player {
                 let moveDir = new THREE.Vector3();
                 if (keys['KeyW']) moveDir.z = -1; if (keys['KeyS']) moveDir.z = 1;
                 if (keys['KeyA']) moveDir.x = -1; if (keys['KeyD']) moveDir.x = 1;
+                if (proSkill()) moveDir.set(0, 0, 0);   // Be a Pro: your keys move your pro, not the QB
                 // From under center he takes his drop on his own (until you move him)
                 if (this.dropBack && moveDir.lengthSq() === 0 && !ball.velocity && this.group.position.z < this.dropBack - 0.2) {
                     this.group.position.z = Math.min(this.dropBack, this.group.position.z + 6.5 * dt);
@@ -5611,6 +5748,7 @@ class Player {
                 }
             }
         } else if (this.team === 'offense' && GAME_STATE === 'PLAY' && this.role !== 'QB' && this.role !== 'OL' && !(isRunPlay && this.role === 'TE') && !(isRunPlay && this.role === 'WR')) {
+            if (proSkill() && this === pro.ctrl && !handoffPending && proSteer(this, actualPlayerSpeed, dt)) { this.animateLimbs(dt); return; }   // Be a Pro: you're running it
             // RB runs to QB for the handoff; contact triggers the exchange.
             if (handoffPending && this.role === 'RB') {
                 const qb = players.offense[0];
@@ -5857,6 +5995,7 @@ class Player {
             let moveDir = new THREE.Vector3();
             if (keys['KeyW']) moveDir.z = -1; if (keys['KeyS']) moveDir.z = 1;
             if (keys['KeyA']) moveDir.x = -1; if (keys['KeyD']) moveDir.x = 1;
+            if (proSkill() && this !== pro.ctrl) moveDir.set(0, 0, 0);   // Be a Pro: a teammate with the ball runs on his own
 
             if (moveDir.length() > 0) {
                 // Player took control — disable auto-run and steer with input only.
@@ -8059,6 +8198,7 @@ function checkInputs(e) {
     if (e.code === 'Space' && GAME_STATE === 'DEFENSE' && e.type === 'keydown') { defJump(); return; }
     if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
     if (e.code === 'KeyR' && hookLadder && e.type === 'keydown' && !e.repeat) { pitchHookLadder(); return; }   // hook and ladder pitch
+    if (proSkill() && e.code === 'Space' && GAME_STATE === 'PLAY' && e.type === 'keydown' && !e.repeat) { pro.callFor = true; flashBanner('CALLING FOR IT!', 700); return; }   // Be a Pro: I'm open!
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
     if (e.code === 'KeyM' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown' && !e.repeat) startMotion();
     if (GAME_STATE === 'PRE_SNAP' && e.type === 'keydown' && !e.repeat) {
@@ -8096,6 +8236,7 @@ function onMouseMove(e) {
     cursorX = e.clientX; cursorY = e.clientY;
     if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, false); return; }
     if (matchDefending('host')) return;   // the friend's aiming, not yours
+    if (proSkill()) return;   // Be a Pro (RB/WR): the QB aims
     if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP') {
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObjects([field, endzoneHome, endzoneDef]);
@@ -8108,6 +8249,7 @@ function onMouseMove(e) {
 function onMouseDown(e) {
     if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, true); return; }
     if (matchDefending('host') && !net.remoteClick) return;   // only the friend's clicks throw for their offense
+    if (proSkill() && !pro.aiThrow && GAME_STATE === 'PLAY') return;   // Be a Pro (RB/WR): the QB throws, not you
     if (walkout) { endWalkout(); return; }
     if (GAME_STATE === 'REPLAY') { endReplay(); return; }
     if (performance.now() < trickThrowLockUntil || trickPitch) return; // still carrying out the fake
@@ -11231,6 +11373,7 @@ function finalizeGameStats() {
 }
 
 function endGame() {
+    if (pro) { proFinal(); return; }             // a Be a Pro game: his career, not the franchise
     if (matchOn()) { matchFinal(); return; }   // online exhibition: no franchise results
     checkGameAchievements();
     GAME_STATE = 'GAME_OVER';
@@ -11325,6 +11468,7 @@ function launchConfetti() {
 }
 
 function goToMainMenu() {
+    if (pro) { roster[pro.slot] = pro.orig; defenseMode = pro.defenseMode; pro = null; }   // quit a pro game: the lineup back as it was
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
     clearKickLeftovers(); hideCommentary(); challengeable = null;
     challengeMode = null; // quitting a challenge just ends it
@@ -11929,6 +12073,7 @@ function animate() {
     if (walkout) updateWalkout(dt);
     if (matchOn()) { net.ecam = [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w]; net.camSwapped = true; }   // the offense's camera, for whoever has the ball (restored next frame under any override)
     applyCameraMode(dt);
+    proTick(dt); proCamera(dt);
     updateP2(dt);
     netHostTick(dt); netGuestTick();
     // Online match, you're on defense: the defense camera, and none of their offense's aiming lines
