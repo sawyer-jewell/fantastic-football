@@ -52,6 +52,19 @@
         .standings-row.me { color: #ffcc00; }
         .standings-row.cut { border-bottom: 3px solid #e31837; }
         .stats-head { color: #ffcc00; padding: 10px 10px 4px; }
+        #slot-list { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 900px; }
+        .slot-card { width: 250px; min-height: 170px; border: 4px solid #555; background: rgba(0, 20, 40, 0.9); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; box-shadow: 6px 6px 0 #000; }
+        .slot-n { color: #aaa; font-size: 0.65rem; letter-spacing: 2px; }
+        .slot-team { font-size: 0.95rem; line-height: 1.4; }
+        .slot-info { font-size: 0.55rem; color: #00ff88; line-height: 1.6; }
+        .slot-buttons { display: flex; gap: 8px; margin-top: auto; }
+        .slot-buttons .btn-retro { font-size: 0.6rem; padding: 8px 12px; }
+        .slot-buttons .slot-del { background: #333; }
+        #team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; width: min(900px, 94vw); }
+        .team-pick { font-family: "Press Start 2P", monospace; color: #fff; border: 4px solid #fff; padding: 10px 4px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; align-items: center; box-shadow: 4px 4px 0 #000; text-shadow: 2px 2px 0 #000; }
+        .team-pick:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 #000; }
+        .tp-id { font-size: 0.85rem; }
+        .tp-name { font-size: 0.45rem; }
         .confetti { position: absolute; top: -20px; width: 10px; height: 16px; pointer-events: none; z-index: 5; animation: confetti-fall linear forwards; }
         @keyframes confetti-fall { to { transform: translateY(110vh) rotate(720deg); } }
 
@@ -202,7 +215,22 @@
             </div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
                 <button class="btn-retro" style="background:#444; font-size:0.7rem; padding:10px 20px;" onclick="openSettings()">⚙ SETTINGS</button>
+                <button class="btn-retro" style="background:#2a6f97; font-size:0.7rem; padding:10px 20px;" onclick="openSaveSelect()">SWITCH SAVE</button>
             </div>
+        </div>
+
+        <!-- The first screen: pick one of the three saves -->
+        <div id="save-select" class="menu hidden">
+            <h1>FANTASTIC<br>FOOTBALL</h1>
+            <div class="stats-head" style="font-size:1.1rem; margin-bottom:12px;">SELECT YOUR SAVE</div>
+            <div id="slot-list"></div>
+        </div>
+
+        <!-- New save: pick your team -->
+        <div id="team-select" class="menu hidden">
+            <h1 style="font-size:2rem;">SELECT YOUR TEAM</h1>
+            <div id="team-grid"></div>
+            <button class="btn-retro" style="background:#444; margin-top:12px;" onclick="openSaveSelect()">BACK</button>
         </div>
 
         <!-- Settings: difficulty, opponent drives, graphics, audio, Drive saves and the controls -->
@@ -467,8 +495,24 @@ const NFL_TEAMS = [
     {id: 'CHI', name: 'BEARS', color: '#0b162a', helmet: '#0b162a'}, {id: 'DET', name: 'LIONS', color: '#0076b6', helmet: '#b0b7bc'},
     {id: 'MIN', name: 'VIKINGS', color: '#4f2683', helmet: '#4f2683'}, {id: 'ATL', name: 'FALCONS', color: '#a71930', helmet: '#000000'}, 
     {id: 'NO', name: 'SAINTS', color: '#d3bc8d', helmet: '#d3bc8d'}, {id: 'TB', name: 'BUCCANEERS', color: '#d50a0a', helmet: '#34302b'}, 
-    {id: 'LAR', name: 'RAMS', color: '#003594', helmet: '#003594'}, {id: 'SEA', name: 'SEAHAWKS', color: '#002244', helmet: '#002244'}
+    {id: 'LAR', name: 'RAMS', color: '#003594', helmet: '#003594'}, {id: 'SEA', name: 'SEAHAWKS', color: '#002244', helmet: '#002244'},
+    {id: 'NYJ', name: 'JETS', color: '#125740', helmet: '#125740'}, {id: 'NE', name: 'PATRIOTS', color: '#002244', helmet: '#b0b7bc'},
+    {id: 'MIA', name: 'DOLPHINS', color: '#008e97', helmet: '#ffffff'}, {id: 'CLE', name: 'BROWNS', color: '#311d00', helmet: '#ff3c00'},
+    {id: 'HOU', name: 'TEXANS', color: '#03202f', helmet: '#03202f'}, {id: 'IND', name: 'COLTS', color: '#002c5f', helmet: '#ffffff'},
+    {id: 'JAX', name: 'JAGUARS', color: '#006778', helmet: '#101820'}, {id: 'TEN', name: 'TITANS', color: '#0c2340', helmet: '#0c2340'},
+    {id: 'DEN', name: 'BRONCOS', color: '#fb4f14', helmet: '#002244'}, {id: 'LV', name: 'RAIDERS', color: '#101820', helmet: '#a5acaf'},
+    {id: 'LAC', name: 'CHARGERS', color: '#0080c6', helmet: '#ffffff'}, {id: 'ARI', name: 'CARDINALS', color: '#97233f', helmet: '#ffffff'},
+    {id: 'CAR', name: 'PANTHERS', color: '#0085ca', helmet: '#a5acaf'}
 ];
+// All 32 teams. MY_TEAM is whichever one this save plays as, and NFL_TEAMS the other 31 (both are
+// changed in place by setMyTeam, so everything that reads them follows along).
+const ALL_TEAMS = [{ ...MY_TEAM }, ...NFL_TEAMS.map(t => ({ ...t }))];
+function setMyTeam(id) {
+    const mine = ALL_TEAMS.find(t => t.id === id) || ALL_TEAMS[0];
+    Object.assign(MY_TEAM, mine);
+    NFL_TEAMS.length = 0;
+    ALL_TEAMS.forEach(t => { if (t.id !== mine.id) NFL_TEAMS.push({ ...t }); });
+}
 
 let myRecord = { w: 0, l: 0, t: 0 };
 let currentWeek = 1;
@@ -579,7 +623,9 @@ let league = {};              // team id → { w, l, t, rating }
 let seasonPhase = 'regular';  // 'regular' | 'playoffs' | 'champion' | 'eliminated' | 'missed'
 let playoffs = null;          // { seeds: [ids], alive: [ids], round, opp, userSeed }
 const PLAYOFF_ROUNDS = ['DIVISIONAL ROUND', 'CONFERENCE CHAMPIONSHIP', 'SUPER BOWL'];
-const SAVE_KEY = 'fantastic-football-save';
+const SAVE_KEY = 'fantastic-football-save';   // each save slot is SAVE_KEY-1..3, see openSaveSelect
+const SAVE_SLOTS = 3;
+let activeSlot = null;   // which save slot you're playing (1..3), null until you pick one
 
 let tackleFalls = []; // active tackle falls, see startTackleFall
 let riseAnims = [];   // players easing back upright after a fall
@@ -737,10 +783,12 @@ let nextWaveAt = 30;      // seconds (clock time) until the crowd starts a wave
 
 init();
 loadPlayerModel(); // the Blender player model (parsed in the background; players switch over once it is ready)
-if (!loadSeason()) { newLeague(); generateSchedule(); }
-if (!roster) roster = newRoster();
+// A placeholder Eagles season until you pick a save (it is never written anywhere); then the save screen
+migrateOldSave();
+newLeague(); generateSchedule(); roster = newRoster();
 applyGraphics(graphicsLevel);
 updateMenuUI();
+openSaveSelect();
 animate();
 
 document.body.addEventListener('click', () => { if(!audioCtx) initAudio(); }, {once:true});
@@ -774,11 +822,15 @@ function newRoster() {
     const last = ['SMITH', 'JOHNSON', 'WILLIAMS', 'BROWN', 'JONES', 'DAVIS', 'MILLER', 'WILSON', 'MOORE', 'TAYLOR', 'JACKSON', 'HARRIS',
                   'MARTIN', 'THOMPSON', 'WHITE', 'LEWIS', 'WALKER', 'HALL', 'ALLEN', 'YOUNG', 'KING', 'WRIGHT', 'HILL', 'SCOTT', 'GREEN', 'CARTER'];
     const r = {};
+    // Any team but the Eagles: numbers and names from that team's generated roster
+    const tr = MY_TEAM.id === 'PHI' ? null : teamRoster(MY_TEAM.id);
     ROSTER_SLOTS.forEach(slot => {
-        // The name on his jersey when there is one (the Eagles roster), otherwise a made-up one
-        const onJersey = PLAYER_NAME_MAP[({ QB: 'QB', RB: 'RB', TE: 'TE' }[slot] || 'WR') + SLOT_NUMBERS[slot]];
+        const role = { QB: 'QB', RB: 'RB', TE: 'TE' }[slot] || 'WR';
+        const num = tr ? tr.nums[role][{ WR1: 0, WR2: 1, SLOT: 2 }[slot] || 0] : SLOT_NUMBERS[slot];
+        // The name on his jersey when there is one (the Eagles roster, or the team's), otherwise a made-up one
+        const onJersey = tr ? tr.names[role + num] : PLAYER_NAME_MAP[role + num];
         const p = { name: onJersey || `${first[Math.floor(Math.random() * first.length)]} ${last.splice(Math.floor(Math.random() * last.length), 1)[0]}`,
-                    num: SLOT_NUMBERS[slot], xp: 0, season: { rec: 0, yds: 0, td: 0 } };
+                    num, xp: 0, season: { rec: 0, yds: 0, td: 0 } };
         SLOT_RATINGS[slot].forEach(k => { p[k] = 68 + Math.floor(Math.random() * 17); });
         r[slot] = p;
     });
@@ -909,24 +961,118 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
+    setMyTeam(d.team || 'PHI');   // saves from before team select were all the Eagles
     myRecord = d.myRecord; currentWeek = d.currentWeek; league = d.league; seasonPhase = d.seasonPhase; playoffs = d.playoffs;
+    // Saves from the 19-team league: the 13 teams added since join with a record that matches the weeks played
+    allTeams().forEach(t => { if (!league[t.id]) { const g = Math.max(0, currentWeek - 2); const w = Math.round(g * Math.random()); league[t.id] = { w, l: g - w, t: 0, rating: 60 + Math.random() * 30 }; } });
     seasonStats = { ...newStatLine(), ...d.seasonStats }; careerStats = { ...newStatLine(), ...d.careerStats }; records = d.records; career = d.career;
     roster = d.roster || newRoster(); // saves from before the roster existed get a fresh one
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
-function saveSeason() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(getSaveData())); } catch (e) {} }
-function loadSeason() {
+function saveSeason() { if (!activeSlot) return; try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(getSaveData())); } catch (e) {} }
+// ─── SAVE SLOTS & TEAM SELECT ────────────────────────────────────────────────
+// Three saves, each its own franchise: team, record, league, roster and stats. The game opens on
+// SELECT YOUR SAVE; an empty slot asks you to pick your team (any of the 32) and starts fresh, a used
+// one goes straight to the main menu as that team. The old single save becomes slot 1 (the Eagles).
+function slotKey(n) { return `${SAVE_KEY}-${n}`; }
+function readSlot(n) { try { const d = JSON.parse(localStorage.getItem(slotKey(n))); return d && d.v === 2 ? d : null; } catch (e) { return null; } }
+function migrateOldSave() {
     try {
-        const d = JSON.parse(localStorage.getItem(SAVE_KEY));
-        if (d && d.v === 2) { applySaveData(d); return true; }
+        const old = localStorage.getItem(SAVE_KEY);
+        if (old && !localStorage.getItem(slotKey(1))) {
+            const d = JSON.parse(old); d.team = d.team || 'PHI';
+            localStorage.setItem(slotKey(1), JSON.stringify(d));
+        }
+        localStorage.removeItem(SAVE_KEY);
     } catch (e) {}
-    return false;
 }
+
+// A brand-new franchise for whichever team MY_TEAM is now
+function startFreshSave() {
+    myRecord = { w: 0, l: 0, t: 0 };
+    currentWeek = 1; seasonSchedule.length = 0;
+    seasonStats = newStatLine(); careerStats = newStatLine();
+    records = { passYds: 0, passTD: 0, rushYds: 0, long: 0 };
+    career = { seasons: 1, titles: 0, playoffApps: 0, w: 0, l: 0, t: 0 };
+    seasonPhase = 'regular'; playoffs = null;
+    roster = newRoster();
+    newLeague(); generateSchedule();
+}
+
+function showOnly(id) {
+    ['main-menu', 'save-select', 'team-select'].forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+
+function openSaveSelect() {
+    activeSlot = null;
+    const list = document.getElementById('slot-list');
+    list.innerHTML = '';
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+        const d = readSlot(n), card = document.createElement('div');
+        card.className = 'slot-card';
+        if (d) {
+            const t = ALL_TEAMS.find(x => x.id === d.team) || ALL_TEAMS[0];
+            const phase = { regular: `WEEK ${d.currentWeek}`, playoffs: 'PLAYOFFS', champion: 'CHAMPIONS!', eliminated: 'SEASON OVER', missed: 'SEASON OVER' }[d.seasonPhase] || '';
+            card.style.borderColor = t.color === '#101820' ? '#a5acaf' : t.color;
+            card.innerHTML = `<div class="slot-n">SAVE ${n}</div>
+                <div class="slot-team" style="color:#fff; background:${t.color}; padding:6px 10px; border:2px solid ${t.helmet}; text-shadow: 2px 2px 0 #000;">${t.id} ${t.name}</div>
+                <div class="slot-info">SEASON ${d.career ? d.career.seasons : 1} · ${recStr(d.myRecord)} · ${phase}</div>
+                <div class="slot-buttons"><button class="btn-retro" onclick="selectSlot(${n})">PLAY</button>
+                <button class="btn-retro slot-del" onclick="deleteSlot(${n})">DELETE</button></div>`;
+        } else {
+            card.innerHTML = `<div class="slot-n">SAVE ${n}</div><div class="slot-team" style="color:#888;">EMPTY</div>
+                <div class="slot-buttons"><button class="btn-retro" style="background:#34a853;" onclick="selectSlot(${n})">NEW SAVE</button></div>`;
+        }
+        list.appendChild(card);
+    }
+    showOnly('save-select');
+}
+
+function selectSlot(n) {
+    const d = readSlot(n);
+    activeSlot = n;
+    if (d) {
+        applySaveData(d);   // sets the team too
+        updateMenuUI(); showOnly('main-menu');
+    } else openTeamSelect();
+}
+
+function deleteSlot(n) {
+    const d = readSlot(n);
+    if (!d) return;
+    if (!confirm(`Delete SAVE ${n} (${d.team})? This can't be undone.`)) return;
+    try { localStorage.removeItem(slotKey(n)); } catch (e) {}
+    openSaveSelect();
+}
+
+function openTeamSelect() {
+    const grid = document.getElementById('team-grid');
+    if (!grid.children.length) {
+        ALL_TEAMS.slice().sort((a, b) => a.id.localeCompare(b.id)).forEach(t => {
+            const b = document.createElement('button');
+            b.className = 'team-pick';
+            b.style.background = t.color;
+            b.style.borderColor = t.helmet === t.color ? '#fff' : t.helmet;
+            b.innerHTML = `<span class="tp-id">${t.id}</span><span class="tp-name">${t.name}</span>`;
+            b.onclick = () => pickTeam(t.id);
+            grid.appendChild(b);
+        });
+    }
+    showOnly('team-select');
+}
+
+function pickTeam(id) {
+    setMyTeam(id);
+    startFreshSave();
+    saveSeason();
+    updateMenuUI(); showOnly('main-menu');
+}
+
 
 function updateMenuUI() {
     const rank = league[MY_TEAM.id] ? standings().indexOf(MY_TEAM.id) + 1 : 0;
@@ -1434,10 +1580,23 @@ function teamRoster(teamId) {
     return (teamRosterCache[teamId] = r);
 }
 
-// Name on a player's back: your team ('offense' side is always you) uses the Eagles roster above
+// Name on a player's back. Your team ('offense' side is always you): your skill players' names from
+// the save's roster, then the real Eagles names when you're the Eagles, else your team's generated roster.
+function slotRole(slot) { return { QB: 'QB', RB: 'RB', TE: 'TE' }[slot] || 'WR'; }
 function jerseyName(team, role, number) {
-    if (team === 'offense') return PLAYER_NAME_MAP[role + number] || '';
+    if (team === 'offense') {
+        const slot = roster && ROSTER_SLOTS.find(s => roster[s] && String(roster[s].num) === String(number) && slotRole(s) === role);
+        if (slot) return roster[slot].name;
+        if (MY_TEAM.id === 'PHI') return PLAYER_NAME_MAP[role + number] || '';
+        return teamRoster(MY_TEAM.id).names[role + number] || '';
+    }
     return currentOpponent ? (teamRoster(currentOpponent.id).names[role + number] || '') : '';
+}
+// Your number for the i-th player at role: the Eagles' real numbers, or your team's generated roster
+function myNum(role, i, eagles) {
+    if (MY_TEAM.id === 'PHI') return String(eagles);
+    const nums = teamRoster(MY_TEAM.id).nums[role] || [eagles];
+    return String(i < nums.length ? nums[i] : eagles);   // past the starters: a backup's number
 }
 
 // The opponent's number for the i-th player at role (falls back to the old fixed numbers)
@@ -4021,19 +4180,20 @@ function setupFormation() {
     document.getElementById('stamina-bar').classList.add('hidden');
 
     isRunPlay = false;
-    let qb = new Player(0, lineOfScrimmageZ + 5, 'offense', 'QB', '1', isUserHome, currentOpponent);
-    let wr1  = new Player(-18, lineOfScrimmageZ, 'offense', 'WR', '11', isUserHome, currentOpponent);
-    let wr2  = new Player( 18, lineOfScrimmageZ, 'offense', 'WR', '6',  isUserHome, currentOpponent);
-    let slot = new Player(-11, lineOfScrimmageZ, 'offense', 'WR', '14', isUserHome, currentOpponent);
-    let te   = new Player(  8, lineOfScrimmageZ, 'offense', 'TE', '88', isUserHome, currentOpponent);
+    const rn = slot => String(roster ? roster[slot].num : SLOT_NUMBERS[slot]);   // your skill players wear their roster numbers
+    let qb = new Player(0, lineOfScrimmageZ + 5, 'offense', 'QB', rn('QB'), isUserHome, currentOpponent);
+    let wr1  = new Player(-18, lineOfScrimmageZ, 'offense', 'WR', rn('WR1'), isUserHome, currentOpponent);
+    let wr2  = new Player( 18, lineOfScrimmageZ, 'offense', 'WR', rn('WR2'), isUserHome, currentOpponent);
+    let slot = new Player(-11, lineOfScrimmageZ, 'offense', 'WR', rn('SLOT'), isUserHome, currentOpponent);
+    let te   = new Player(  8, lineOfScrimmageZ, 'offense', 'TE', rn('TE'), isUserHome, currentOpponent);
     // RB lines up directly behind the QB in the backfield (index 5).
-    let rb = new Player(0, lineOfScrimmageZ + 9, 'offense', 'RB', '22', isUserHome, currentOpponent);
+    let rb = new Player(0, lineOfScrimmageZ + 9, 'offense', 'RB', rn('RB'), isUserHome, currentOpponent);
     // Offensive line: 5 linemen at the LOS. Center is at x=0 (snaps the ball).
-    let center = new Player(0, lineOfScrimmageZ, 'offense', 'OL', '60', isUserHome, currentOpponent);
-    let lg = new Player(-2.5, lineOfScrimmageZ, 'offense', 'OL', '63', isUserHome, currentOpponent);
-    let rg = new Player( 2.5, lineOfScrimmageZ, 'offense', 'OL', '69', isUserHome, currentOpponent);
-    let lt = new Player(-5,   lineOfScrimmageZ, 'offense', 'OL', '78', isUserHome, currentOpponent);
-    let rt = new Player( 5,   lineOfScrimmageZ, 'offense', 'OL', '70', isUserHome, currentOpponent);
+    let center = new Player(0, lineOfScrimmageZ, 'offense', 'OL', myNum('OL', 0, 60), isUserHome, currentOpponent);
+    let lg = new Player(-2.5, lineOfScrimmageZ, 'offense', 'OL', myNum('OL', 1, 63), isUserHome, currentOpponent);
+    let rg = new Player( 2.5, lineOfScrimmageZ, 'offense', 'OL', myNum('OL', 2, 69), isUserHome, currentOpponent);
+    let lt = new Player(-5,   lineOfScrimmageZ, 'offense', 'OL', myNum('OL', 3, 78), isUserHome, currentOpponent);
+    let rt = new Player( 5,   lineOfScrimmageZ, 'offense', 'OL', myNum('OL', 4, 70), isUserHome, currentOpponent);
     players.offense.push(qb, wr1, wr2, slot, te, rb, center, lg, rg, lt, rt);
     applyRosterToFormation();
     // Face offense toward the defense (−Z = downfield)
@@ -5819,7 +5979,7 @@ function buildDroneTeams(L) {
     droneSimPlayers.forEach(p => scene.remove(p.group));
     const seen = {};  // their offense in their own numbers; your defense in the Eagles' (so the names match)
     const off = DRONE_OFFENSE.map(([role]) => new Player(0, L, 'defense', role, oppNum(role, (seen[role] = (seen[role] ?? -1) + 1), 0), isUserHome, currentOpponent));
-    const def = DRONE_DEFENSE.map(([role], i) => new Player(0, L, 'offense', role, String([94, 98, 99, 91, 55, 58, 50, 7, 21, 6, 28][i]), isUserHome, currentOpponent));
+    const def = DRONE_DEFENSE.map(([role], i) => new Player(0, L, 'offense', role, myNum(role, DRONE_DEFENSE.slice(0, i).filter(([r]) => r === role).length, [94, 98, 99, 91, 55, 58, 50, 7, 21, 6, 28][i]), isUserHome, currentOpponent));
     droneSimPlayers = [...off, ...def];
     placeDroneFormation(L);
 }
@@ -6647,12 +6807,12 @@ function startOppKick(opts) {
     const holder = mk(0.8, L + 7, 'defense', 'QB', R.nums.QB[0] + 1, true, them);
     holder.kneel = true; holder.animateLimbs(0);
     const kicker = mk(-1.8, L + 10, 'defense', 'QB', 3, true, them);
-    // Yours: ten rushers across the line and one back deep (the Eagles' numbers, so the names match)
+    // Yours: ten rushers across the line and one back deep (your team's numbers, so the names match)
     const rushX = [-9.2, -7, -4.8, -2.6, -0.6, 0.6, 2.6, 4.8, 7, 9.2];
     const rushRole = ['LB', 'DL', 'DL', 'DL', 'LB', 'LB', 'DL', 'DL', 'DL', 'CB'];
-    const rushNum = [58, 94, 98, 99, 55, 50, 91, 95, 97, 21];
+    const rushNum = rushRole.map((role, i) => myNum(role, rushRole.slice(0, i).filter(r => r === role).length, [58, 94, 98, 99, 55, 50, 91, 95, 97, 21][i]));
     rushX.forEach((x, i) => mk(x, L - 1.4, 'offense', rushRole[i], rushNum[i], false, us));
-    mk(0, L - 20, 'offense', 'FS', 28, false, us);
+    mk(0, L - 20, 'offense', 'FS', myNum('FS', 0, 28), false, us);
     const rushers = us.slice(0, 10), blockers = them.slice(0, 9);
     rushers.forEach(r => { r.fgHold = (0.7 + Math.random() * 1.7) * ddiff().aiBlock; r.fgBlocker = null; r.dAir = false; });
     // Each blocker takes the rusher in front of him; the snapper takes the middle man
