@@ -117,6 +117,8 @@
         /* Halftime overlay */
         #coin-toss { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.6); color: #fff; pointer-events: auto; }
         #coin-toss.hidden { display: none; }
+        #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
+        body.egg-on #scoreboard, body.egg-on #hud, body.egg-on #right-hud, body.egg-on #instructions, body.egg-on #quarter-break { visibility: hidden; }
         .coin { width: 120px; height: 120px; position: relative; transform-style: preserve-3d; perspective: 600px; }
         .coin-face { position: absolute; inset: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2.6rem; color: #6b4a00; background: radial-gradient(circle at 35% 30%, #fff3a0, #ffcc00 45%, #b88a00); border: 6px solid #8a6500; backface-visibility: hidden; }
         .coin-tails { transform: rotateY(180deg); background: radial-gradient(circle at 35% 30%, #f0f0f0, #c0c0c0 45%, #7a7a7a); border-color: #555; color: #333; }
@@ -798,6 +800,7 @@
         <button class="btn-retro" onclick="resumeFromHalftime()">START 2ND HALF</button>
     </div>
 
+    <div id="egg-fade"></div>
     <div id="coin-toss" class="hidden">
         <h1 style="font-size:2rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:10px;">COIN TOSS</h1>
         <div id="coin" class="coin"><div class="coin-face coin-heads">H</div><div class="coin-face coin-tails">T</div></div>
@@ -1108,6 +1111,8 @@ let patMeterPos = 0; let patMeterDir = 1; let patActive = false;
 let isTwoPointAttempt = false;
 let blimpGroup = null;
 let scenery = null;   // skyline, clouds, sun and jumbotrons (buildScenery)
+let oppQB = null;     // the opposing QB's brain for this game (newOppQB)
+let easterEgg = null, eggUsed = false;   // ??? (startEasterEgg) — once a game
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -5087,7 +5092,7 @@ class Player {
             }
 
             if (divePending) { divePending = false; triggerDive(this); return; }
-            if (keys['Space'] && !this.isJumping && jumpCooldown <= 0) { this.isJumping = true; this.yVelocity = 12; jumpCooldown = 7.0; }
+            if (keys['Space'] && !this.isJumping && jumpCooldown <= 0) { this.isJumping = true; this.yVelocity = 12; jumpCooldown = 7.0; this.lastJumpAt = performance.now(); }
 
             camera.position.x = THREE.MathUtils.lerp(camera.position.x, this.group.position.x, 0.1);
             camera.position.z = THREE.MathUtils.lerp(camera.position.z, this.group.position.z + 12, 0.1);
@@ -5208,6 +5213,8 @@ function startGame() {
 
     lineOfScrimmageZ = 60; currentDown = 1; yardsToGo = 10; gameTime = 120; currentQuarter = 1; scoreOff = 0; scoreDef = 0;
     defBrain = newDefBrain(); // a fresh scouting report every game
+    oppQB = newOppQB();       // and a different QB across from you, who learns as he goes
+    eggUsed = false;
     fgMemory = { kicks: 0, blocks: 0, lanes: [] };   // and their kick unit starts fresh too
     playTendency = { deep: 0, short: 0, middle: 0, run: 0 }; recentPlays = []; defRead = ''; defKeyedPlay = null; // new film each game
     twoMinWarned = {}; clockRunning = false; nextClockRuns = false; twoMinStop = false; defScheme = null; fakeFgUsed = false;
@@ -5303,6 +5310,8 @@ function addScore(team, pts) {
 }
 
 function triggerDive(carrier) {
+    const egg = !eggUsed && carrier.group.position.distanceTo(new THREE.Vector3(0, carrier.group.position.y, 0)) < 7
+        && (carrier.isJumping || performance.now() - (carrier.lastJumpAt || 0) < 1200);   // jump, then dive, on the midfield logo
     GAME_STATE = 'TACKLED';
     // Ball stays parented to carrier.group during flight — detach happens on landing
     document.getElementById('instructions').innerText = "DIVE!";
@@ -5326,6 +5335,115 @@ function triggerDive(carrier) {
 
     // duration 0.45s: fast explosive dive
     diveAnim = { carrier, lunge, yaw, startPos: startPos.clone(), endPos: endPos.clone(), elapsed: 0, duration: 0.45 };
+    if (egg) startEasterEgg();
+}
+
+// ─── ??? ─────────────────────────────────────────────────────────────────────
+// Jump, then dive, right on the logo at midfield (once a game): the stadium goes up in flames,
+// everything goes black... and you're in an endless white room, and a guy in a grey hoodie and
+// black shorts is sprinting straight at you. Then you're back on the field like nothing happened.
+const EGG_BOOM = 2.2, EGG_BLACK = 1.0, EGG_ROOM = 3.8;
+function startEasterEgg() {
+    eggUsed = true;
+    const fade = document.getElementById('egg-fade');
+    easterEgg = { t: 0, prev: GAME_STATE, booms: [], inRoom: false, camPos: camera.position.clone(), camQuat: camera.quaternion.clone(), fade };
+    GAME_STATE = 'EASTER_EGG';
+    document.body.classList.add('egg-on');
+    sfxHit(2); sfxWhistle();
+}
+function eggFireball() {
+    const E = easterEgg;
+    const a = Math.random() * Math.PI * 2, r = 0.75 + Math.random() * 0.3;
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xff7a1a : 0xffc23a, transparent: true, opacity: 1, fog: false }));
+    m.position.set(Math.cos(a) * (BOWL_HX + 40) * r, 8 + Math.random() * 45, Math.sin(a) * (BOWL_HZ + 40) * r);
+    m.userData = { age: 0, size: 22 + Math.random() * 30 };
+    scene.add(m); E.booms.push(m);
+    if (Math.random() < 0.4) sfxHit(1.2 + Math.random());
+}
+function buildEggRoom() {
+    const room = new THREE.Scene();
+    room.background = new THREE.Color(0xffffff); room.fog = new THREE.Fog(0xffffff, 20, 70);   // no walls, no end: just white
+    room.add(new THREE.HemisphereLight(0xffffff, 0xd8d8d8, 1.0));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.35); sun.position.set(3, 10, 6); room.add(sun);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }));
+    floor.rotation.x = -Math.PI / 2; room.add(floor);
+    // The guy: grey hoodie (hood up behind his head, front pocket, drawstrings), black shorts
+    const M = c => new THREE.MeshLambertMaterial({ color: c });
+    const hoodie = M(0x85898e), hoodieDark = M(0x6e7277), skin = M(0xc99a78), shorts = M(0x141414), shoe = M(0xf4f4f4), hair = M(0x2a1d14);
+    const box = (w, h, d, mat, x, y, z, parent) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); b.position.set(x, y, z); parent.add(b); return b; };
+    const guy = new THREE.Group(), body = new THREE.Group(); guy.add(body);
+    box(0.9, 1.0, 0.5, hoodie, 0, 1.55, 0, body);                 // torso
+    box(0.55, 0.22, 0.04, hoodieDark, 0, 1.25, 0.27, body);        // front pocket
+    box(0.03, 0.3, 0.03, M(0xeeeeee), -0.1, 1.82, 0.27, body); box(0.03, 0.3, 0.03, M(0xeeeeee), 0.1, 1.82, 0.27, body);   // drawstrings
+    const head = new THREE.Group(); head.position.set(0, 2.25, 0); body.add(head);
+    box(0.46, 0.5, 0.46, skin, 0, 0, 0, head);
+    box(0.48, 0.14, 0.48, hair, 0, 0.22, -0.01, head);
+    box(0.62, 0.62, 0.36, hoodie, 0, 0.02, -0.17, head);           // the hood, up
+    box(0.08, 0.06, 0.02, M(0x222222), -0.1, 0.05, 0.235, head); box(0.08, 0.06, 0.02, M(0x222222), 0.1, 0.05, 0.235, head);   // eyes
+    const limb = (x, y, upMat, loMat, upLen, loLen, w, parent) => {
+        const up = new THREE.Group(); up.position.set(x, y, 0); parent.add(up);
+        box(w, upLen, w, upMat, 0, -upLen / 2, 0, up);
+        const lo = new THREE.Group(); lo.position.y = -upLen; up.add(lo);
+        box(w * 0.92, loLen, w * 0.92, loMat, 0, -loLen / 2, 0, lo);
+        return { up, lo };
+    };
+    const armL = limb(-0.56, 1.98, hoodie, hoodie, 0.5, 0.5, 0.24, body), armR = limb(0.56, 1.98, hoodie, hoodie, 0.5, 0.5, 0.24, body);
+    box(0.2, 0.2, 0.2, skin, 0, -0.55, 0, armL.lo); box(0.2, 0.2, 0.2, skin, 0, -0.55, 0, armR.lo);   // hands
+    box(0.92, 0.42, 0.52, shorts, 0, 0.92, 0, body);                // shorts
+    const legL = limb(-0.24, 0.95, shorts, skin, 0.5, 0.48, 0.3, body), legR = limb(0.24, 0.95, shorts, skin, 0.5, 0.48, 0.3, body);
+    box(0.3, 0.16, 0.46, shoe, 0, -0.52, 0.08, legL.lo); box(0.3, 0.16, 0.46, shoe, 0, -0.52, 0.08, legR.lo);   // sneakers
+    guy.position.set(0, 0, -48);
+    room.add(guy);
+    const cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+    cam.position.set(0, 1.9, 6); cam.lookAt(0, 1.6, -10);
+    return { room, cam, guy, body, head, armL, armR, legL, legR };
+}
+function updateEasterEgg(dt) {
+    const E = easterEgg; E.t += dt;
+    const t = E.t, fade = E.fade;
+    if (t < EGG_BOOM) {
+        // The stadium goes up: fireballs all around the bowl, the ground shaking, a white flash
+        for (let i = 0; i < 4; i++) if (Math.random() < 0.7) eggFireball();
+        camera.position.copy(E.camPos).add(new THREE.Vector3((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 2.2));
+        fade.style.background = '#fff'; fade.style.opacity = String(Math.max(0, 0.85 - t * 2));
+    } else if (t < EGG_BOOM + EGG_BLACK) {
+        fade.style.background = '#000'; fade.style.opacity = String(Math.min(1, (t - EGG_BOOM) / 0.4));
+    } else if (t < EGG_BOOM + EGG_BLACK + EGG_ROOM) {
+        if (!E.inRoom) {
+            E.inRoom = true; Object.assign(E, buildEggRoom());
+            E.booms.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }); E.booms = [];
+            camera.position.copy(E.camPos); camera.quaternion.copy(E.camQuat);
+            E.cam.aspect = window.innerWidth / window.innerHeight; E.cam.updateProjectionMatrix();
+        }
+        const u = t - EGG_BOOM - EGG_BLACK;
+        fade.style.background = '#000'; fade.style.opacity = String(Math.max(0, 1 - u / 0.8));
+        // He sprints straight at you, all out
+        E.guy.position.z = Math.min(4.2, -48 + u * 15);
+        const ph = u * 13, s = Math.sin(ph);
+        E.legL.up.rotation.x = s * 0.95; E.legR.up.rotation.x = -s * 0.95;
+        E.legL.lo.rotation.x = 0.4 + 0.9 * Math.max(0, -s); E.legR.lo.rotation.x = 0.4 + 0.9 * Math.max(0, s);
+        E.armL.up.rotation.x = -s * 0.9; E.armR.up.rotation.x = s * 0.9;
+        E.armL.lo.rotation.x = -1.4; E.armR.lo.rotation.x = -1.4;
+        E.body.position.y = 0.12 * Math.abs(Math.cos(ph)); E.body.rotation.x = 0.18;
+        E.head.rotation.x = -0.15;
+        if (u > EGG_ROOM - 0.5) { fade.style.opacity = String(Math.min(1, (u - (EGG_ROOM - 0.5)) / 0.4)); }   // he's right in your face — black
+    } else {
+        // ...and back to the game, like nothing happened
+        const u = t - EGG_BOOM - EGG_BLACK - EGG_ROOM;
+        if (E.inRoom) { E.inRoom = false; GAME_STATE = E.prev; document.body.classList.remove('egg-on'); flashBanner('...WHAT WAS THAT?', 1800); }
+        fade.style.opacity = String(Math.max(0, 1 - u / 0.8));
+        if (u > 0.8) { fade.style.opacity = '0'; easterEgg = null; }
+        return;
+    }
+    // Fireballs swell and burn out
+    E.booms = E.booms.filter(m => {
+        m.userData.age += dt;
+        const k = m.userData.age / 0.7;
+        m.scale.setScalar(m.userData.size * Math.min(1, k * 1.6));
+        m.material.opacity = Math.max(0, 1 - k);
+        if (k >= 1) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); return false; }
+        return true;
+    });
 }
 
 function triggerTDCelebration(scorer) {
@@ -8464,14 +8582,60 @@ const CPU_PLAY_ROUTES = {
     pa:    ['go', 'post', 'dig'],
     screen:['go'],
 };
+// ─── THE OPPOSING QB'S BRAIN ─────────────────────────────────────────────────
+// Every game their QB is his own player — a gunslinger or a game manager, a scrambler or a statue,
+// with a favorite target — and he learns as the game goes: calls that gain yards against you get
+// called more, ones you shut down get shelved, and if you keep sitting on the run he goes play
+// action. He knows the situation (behind late, he lets it fly; ahead late, he grinds the clock;
+// in the red zone, the field shrinks), and he never runs the same thing three times in a row.
+// After the snap he reads like a QB: openness first, but also how far downfield a man is, his
+// favorite target, and where YOU are — he throws away from the defender you're playing. Under
+// pressure he can roll out and throw on the run, and now and then he pump-fakes.
+function newOppQB() {
+    const aggr = 0.3 + Math.random() * 0.7;   // 0.3 game manager … 1 gunslinger
+    return { aggr, scramble: Math.random(), patience: 0.7 + Math.random() * 0.6, fav: Math.floor(Math.random() * 4),
+             calls: {}, last: [], runStops: 0, userX: [] };
+}
+function oppQBNote(P, result) {
+    if (!oppQB || !P) return;
+    const y = Number(result.yards) || 0, c = oppQB.calls[P.play] || (oppQB.calls[P.play] = { n: 0, yds: 0 });
+    c.n++; c.yds += result.turnover ? -15 : y;
+    oppQB.last.push(P.play); if (oppQB.last.length > 3) oppQB.last.shift();
+    if (P.kind === 'run') oppQB.runStops = y <= 2 ? oppQB.runStops + 1 : Math.max(0, oppQB.runStops - 1);
+    if (P.userX0 != null) { oppQB.userX.push(P.userX0); if (oppQB.userX.length > 6) oppQB.userX.shift(); }
+}
 function pickCpuDefPlay(down, toGo) {
-    const r = Math.random(), roll = list => { let a = Math.random() * list.reduce((s, [, w]) => s + w, 0); for (const [n, w] of list) { if ((a -= w) < 0) return n; } return list[0][0]; };
+    const B = oppQB || (oppQB = newOppQB());
+    const roll = list => { let a = Math.random() * list.reduce((s, [, w]) => s + w, 0); for (const [n, w] of list) { if ((a -= w) < 0) return n; } return list[0][0]; };
+    // Situation: the score (their points are yours to give up: scoreDef), the clock, the field
+    const lead = scoreDef - scoreOff, late = currentQuarter >= 4 || (currentQuarter === 2 && gameTime < 45);
+    const redZone = droneSimLine < -70;
     let passRate = down === 1 ? 0.48 : 0.55;
     if (down >= 3 && toGo >= 7) passRate = 0.85; else if (down >= 3 && toGo <= 2) passRate = 0.35;
-    if (r >= passRate) return { kind: 'run', play: roll(toGo <= 1 ? [['sneak', 4], ['inside', 4], ['outside', 2]] : [['inside', 5], ['outside', 3], ['draw', down >= 2 && toGo >= 6 ? 3 : 1]]) };
-    if (toGo <= 4) return { kind: 'pass', play: roll([['quick', 6], ['mid', 2], ['screen', 1], ['pa', 1.5], ['deep', 1]]) };
-    if (toGo >= 10) return { kind: 'pass', play: roll([['quick', 2], ['mid', 4], ['deep', 2.5], ['screen', 2], ['pa', 1]]) };
-    return { kind: 'pass', play: roll([['quick', 4], ['mid', 3], ['deep', 1.5], ['screen', 1.5], ['pa', down === 1 ? 2.5 : 1]]) };
+    if (late && lead < 0) passRate += 0.25;   // behind late: throw it
+    if (late && lead > 0) passRate -= 0.25;   // ahead late: run the clock
+    passRate += (B.aggr - 0.6) * 0.2;
+    // What's been working: average yards for runs vs passes so far this game
+    const avg = names => { let n = 0, y = 0; names.forEach(k => { const c = B.calls[k]; if (c) { n += c.n; y += c.yds; } }); return n ? y / n : null; };
+    const runAvg = avg(['inside', 'outside', 'draw', 'sneak']), passAvg = avg(['quick', 'mid', 'deep', 'screen', 'pa']);
+    if (runAvg != null && passAvg != null) passRate += THREE.MathUtils.clamp((passAvg - runAvg) / 20, -0.2, 0.2);
+    passRate = THREE.MathUtils.clamp(passRate, 0.15, 0.95);
+    // Each call's weight: the playbook's, times how it's gone this game, less if it was just run
+    const adjust = list => list.map(([n, w]) => {
+        const c = B.calls[n];
+        if (c && c.n) w *= THREE.MathUtils.clamp(1 + (c.yds / c.n - 4) / 8, 0.35, 1.9);
+        const reps = B.last.filter(p => p === n).length;
+        if (B.last.length >= 2 && B.last[B.last.length - 1] === n && B.last[B.last.length - 2] === n) w = 0;   // never three in a row
+        else w *= reps ? 0.55 : 1;
+        if (n === 'deep') w *= (0.5 + B.aggr) * (redZone ? 0.35 : 1) * (late && lead < 0 ? 1.8 : 1);
+        if (n === 'pa' && B.runStops >= 2) w *= 2.2;   // you keep stuffing the run: time to fake it
+        if (redZone && (n === 'quick' || n === 'screen')) w *= 1.5;
+        return [n, Math.max(0, w) + 0.01];
+    });
+    if (Math.random() >= passRate) return { kind: 'run', play: roll(adjust(toGo <= 1 ? [['sneak', 4], ['inside', 4], ['outside', 2]] : [['inside', 5], ['outside', 3], ['draw', down >= 2 && toGo >= 6 ? 3 : 1]])) };
+    if (toGo <= 4) return { kind: 'pass', play: roll(adjust([['quick', 6], ['mid', 2], ['screen', 1], ['pa', 1.5], ['deep', 1]])) };
+    if (toGo >= 10) return { kind: 'pass', play: roll(adjust([['quick', 2], ['mid', 4], ['deep', 2.5], ['screen', 2], ['pa', 1]])) };
+    return { kind: 'pass', play: roll(adjust([['quick', 4], ['mid', 3], ['deep', 1.5], ['screen', 1.5], ['pa', down === 1 ? 2.5 : 1]])) };
 }
 
 function setDefenseMode(mode) {
@@ -8796,6 +8960,7 @@ function endDefPlay(result, delay = 1300) {
         document.getElementById('right-hud').classList.add('hidden');
         const done = () => {
             if (dp !== P) return;
+            oppQBNote(P, result);   // their QB remembers how that call went
             dp = null;
             GAME_STATE = 'DRONE_SIM';
             P.onDone({ clock: Math.round(P.t) + 5, ...result });
@@ -8939,7 +9104,10 @@ function updateDefensePlay(dt) {
     } else {
         // Play action: fake to the back first. Everyone else: drop back (deep shots drop deeper)
         const fake = P.play === 'pa' && t < 0.6;
-        if (!P.thrown && ai(qb) && P.carrier === qb) steerTo(qb, fake ? V(0.6, L + 3.2) : V(0, L + (P.play === 'deep' || P.play === 'pa' ? 8.5 : P.play === 'quick' ? 5 : 7)), 6, dt);
+        if (!P.thrown && ai(qb) && P.carrier === qb) {
+            if (P.scramble) steerTo(qb, V(P.scramble * 16, L + 6), 7.5, dt);   // rolling out, eyes still downfield
+            else steerTo(qb, fake ? V(0.6, L + 3.2) : V(0, L + (P.play === 'deep' || P.play === 'pa' ? 8.5 : P.play === 'quick' ? 5 : 7)), 6, dt);
+        }
         const targets = rb.dRoute ? wrs.concat(rb) : wrs;
         targets.forEach(r => {
             if (!ai(r)) return;
@@ -8958,16 +9126,44 @@ function updateDefensePlay(dt) {
         // Quick game comes out fast; deep shots wait longer; the screen goes to the back once he's set up.
         if (!P.thrown && P.carrier === qb && t > P.nextRead) {
             P.nextRead = t + 0.15;
+            const B = oppQB || (oppQB = newOppQB());
             const openness = r => Math.min(...P.def.map(d => d.group.position.distanceTo(r.group.position))) - (r === rb && P.play !== 'screen' ? 2 : 0);
-            const best = targets.reduce((a, c) => openness(c) > openness(a) ? c : a);
+            // His read: open first, then how far downfield (a gunslinger likes that more), his favorite
+            // target, and stay away from the man YOU control (and the side you've been playing). A
+            // little of his own judgment each play, so it's never the same read twice.
+            if (P.userX0 == null && ctrl) P.userX0 = ctrl.group.position.x;
+            if (!P.readNoise) P.readNoise = new Map(targets.map(r => [r, (Math.random() - 0.5) * 2.2]));
+            const usualX = B.userX.length ? B.userX.reduce((s, x) => s + x, 0) / B.userX.length : null;
+            const value = r => {
+                const p = r.group.position;
+                let v = openness(r) + THREE.MathUtils.clamp((L - p.z) / 20, 0, 1.5) * B.aggr * 1.4 + (P.readNoise.get(r) || 0);
+                if (wrs.indexOf(r) === B.fav) v += 0.9;
+                if (ctrl && !isFalling(ctrl)) v -= Math.max(0, 7 - ctrl.group.position.distanceTo(p)) * 0.35 * ddiff().offSkill;
+                if (usualX != null && Math.sign(p.x) === Math.sign(usualX) && Math.abs(usualX) > 4) v -= 0.5;
+                return v;
+            };
+            const best = targets.reduce((a, c) => value(c) > value(a) ? c : a);
             P.eyes = P.planned || (P.play === 'screen' ? rb : best); // who he's looking at (shown on easy)
             const pressured = P.def.some(d => !isFalling(d) && d.group.position.distanceTo(qb.group.position) < 2.4);
             const base = ddiff().qbRead;
-            const firstRead = base + ({ quick: -0.55, deep: 0.5, pa: 0.8 }[P.play] || 0);
-            const wantOpen = 5 - Math.max(0, t - firstRead) * 1.6;
-            if (P.planned) { if (t >= 3) throwDefPass(P.planned); }                 // easy: the one you were shown, 3 s later
+            if (P.readDelay == null) P.readDelay = (Math.random() - 0.5) * 0.7 * B.patience;   // some plays he lets it rip, some he waits
+            const firstRead = base + P.readDelay + ({ quick: -0.55, deep: 0.5, pa: 0.8 }[P.play] || 0);
+            const wantOpen = 5 - Math.max(0, t - firstRead) * 1.6 / B.patience;
+            // Under pressure with nobody open: a scrambler rolls out away from the rush and keeps looking
+            if (pressured && !P.scramble && t > 0.9 && openness(best) < wantOpen && Math.random() < B.scramble * 0.35) {
+                const rusher = P.def.reduce((a, d) => d.group.position.distanceTo(qb.group.position) < a.group.position.distanceTo(qb.group.position) ? d : a);
+                P.scramble = rusher.group.position.x > qb.group.position.x ? -1 : 1;
+                P.nextRead = t + 0.5;
+            }
+            // A pump fake now and then, when he has time and nobody's open yet
+            if (!P.pumped && !pressured && t > firstRead - 0.2 && openness(best) < wantOpen && Math.random() < 0.06) {
+                P.pumped = true; qb.throwTimer = 0.3; P.nextRead = t + 0.45;
+                P.def.forEach(d => { if (d !== ctrl && !d.dHeld && d.group.position.distanceTo(best.group.position) < 9) d.hitStun = Math.max(d.hitStun || 0, 0.25); });   // the nearby DBs bite
+            }
+            if (P.nextRead > t + 0.2) { /* rolling out or selling the fake */ }
+            else if (P.planned) { if (t >= 3) throwDefPass(P.planned); }                 // easy: the one you were shown, 3 s later
             else if (P.play === 'screen') { if (t > 1.15 || (pressured && t > 0.8)) throwDefPass(rb); }
-            else if ((t > firstRead && openness(best) > wantOpen) || t > firstRead + 1.8 || (pressured && t > 1.0 && Math.random() < 0.25)) throwDefPass(best);
+            else if ((t > firstRead && openness(best) > wantOpen) || t > firstRead + 1.8 * B.patience + (P.scramble ? 1 : 0) || (pressured && t > 1.0 && Math.random() < 0.25)) throwDefPass(best);
         }
     }
 
@@ -9081,6 +9277,13 @@ function throwDefPass(r) {
     const err = (1.15 - P.offSkill) * 4; // better offenses throw tighter balls
     P.catchPt = r.group.position.clone().addScaledVector(vel.lengthSq() > 0.0001 ? vel.normalize() : new THREE.Vector3(0, 0, -1), 9 * T)
         .add(new THREE.Vector3((Math.random() - 0.5) * err, 0, (Math.random() - 0.5) * err));
+    // Put it where only his man can get it: away from the nearest defender (a back-shoulder ball
+    // when the DB is over the top), more precisely the better the offense
+    const near = P.def.filter(d => !isFalling(d)).reduce((a, d) => (!a || d.group.position.distanceTo(P.catchPt) < a.group.position.distanceTo(P.catchPt)) ? d : a, null);
+    if (near) {
+        const away = P.catchPt.clone().sub(near.group.position).setY(0);
+        if (away.lengthSq() > 0.01 && away.length() < 6) P.catchPt.addScaledVector(away.normalize(), 1.6 * P.offSkill);
+    }
     P.catchPt.x = THREE.MathUtils.clamp(P.catchPt.x, -SIDELINE_X + 3, SIDELINE_X - 3);
     detachBallToScene(); ball.position.copy(from);
     const tgt = P.catchPt.clone().setY(1.6);
@@ -10467,7 +10670,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
@@ -10561,7 +10764,9 @@ function animate() {
     updateChallengeButton(); updateCrunchTime(); updateChants(dt); updateFingerDetail();
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else { recordReplayFrame(dt); keepPlayersOnField(); }
-    renderer.render(scene, camera);
+    if (easterEgg) updateEasterEgg(dt);
+    if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
+    else renderer.render(scene, camera);
 }
 
 // ─── BALL CARRIER MOVES ───
