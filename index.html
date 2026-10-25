@@ -2335,10 +2335,67 @@ function proQBRead(dt) {
 }
 // WASD for your pro on his route (nothing pressed: he runs the route he was given)
 function proSteer(p, speed, dt) {
-    const d = new THREE.Vector3((keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0), 0, (keys['KeyS'] ? 1 : 0) - (keys['KeyW'] ? 1 : 0));
+    const sx = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    const d = new THREE.Vector3(sx, 0, (keys['KeyS'] ? 1 : 0) - (keys['KeyW'] ? 1 : 0));
     if (!d.lengthSq()) return false;
-    steerTo(p, p.group.position.clone().addScaledVector(d.normalize(), 3), speed * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.15 : 1), dt);
+    proCutCheck(p, sx);
+    const burst = (p.proBurst = Math.max(0, (p.proBurst || 0) - dt)) > 0 ? 1.25 : 1;   // exploding out of a cut
+    steerTo(p, p.group.position.clone().addScaledVector(d.normalize(), 3), speed * burst * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.15 : 1), dt);
+    p.proSpd = p.currentMoveSpeed;
     return true;
+}
+// How a defender covering a receiver sees him: not where he is this instant, but where he was a
+// beat ago (his reaction time, about 0.2–0.45 s depending on the man and the difficulty), carried
+// forward the way he was going then. So he can't mirror a cut: for that beat he keeps going the
+// old way, and only then reacts — which is where separation, and broken ankles, come from.
+function coverRead(d, r) {
+    const now = animate.t || 0, tr = r.covTrail || (r.covTrail = []);
+    if (!tr.length || now - tr[tr.length - 1].t > 0.03) { tr.push({ t: now, p: r.group.position.clone() }); if (tr.length > 40) tr.shift(); }
+    const lvl = typeof difficulty === 'string' ? difficulty : 'medium';
+    const lag = THREE.MathUtils.clamp(0.2 + (d.mind ? d.mind.react : 0.15) * 0.8, 0.18, 0.45) * (lvl === 'easy' ? 1.3 : lvl === 'hard' ? 0.8 : 1);
+    const at = now - lag;
+    let i = tr.length - 1; while (i > 0 && tr[i].t > at) i--;
+    const a = tr[i], b = tr[Math.min(i + 1, tr.length - 1)];
+    const vel = b.t > a.t ? b.p.clone().sub(a.p).divideScalar(b.t - a.t) : new THREE.Vector3();
+    return a.p.clone().addScaledVector(vel, Math.min(lag, now - a.t) * 0.9).setY(0);
+}
+// Ankle breakers: snap left-right (or right-left) at speed and the man covering you may bite on
+// the first step — he stumbles and loses a step or two, and now and then he hits the turf. A
+// quicker cut, a better ROUTES rating and a closer defender all help; a double move (three quick
+// cuts) is the nastiest. A short wait between cuts so you can't just wiggle.
+function proCutCheck(p, sx) {
+    const now = performance.now();
+    if (!sx) return;
+    if (p.cutSide && sx !== p.cutSide) {
+        const gap = (now - p.cutAt) / 1000;
+        p.cutChain = gap < 0.45 ? (p.cutChain || 1) + 1 : 1;
+        if (gap < 0.45 && (p.proSpd || 0) > 4 && now > (p.cutReady || 0)) {   // (his speed last frame: this frame's isn't set yet)
+            p.cutReady = now + 1100; p.proBurst = 0.45;
+            const routes = p.rating && p.rating.routes ? p.rating.routes : 65;
+            const victims = players.defense.filter(d => !isFalling(d) && !d.pancake && d.group.position.distanceTo(p.group.position) < 5.5);
+            let broke = 0;
+            victims.forEach(dd => {
+                const near = 1 - dd.group.position.distanceTo(p.group.position) / 5.5;
+                const chance = THREE.MathUtils.clamp(0.05 + (routes - 60) / 120 + (0.45 - gap) * 0.5 + near * 0.15 + (p.cutChain >= 3 ? 0.2 : 0), 0.05, 0.75);
+                if (Math.random() >= chance) return;
+                broke++;
+                dd.stunTimer = 1.1; dd.covBreakDelay = 1.2; dd.brokeUntil = now + 1200;
+                if (Math.random() < 0.3 + (p.cutChain >= 3 ? 0.25 : 0)) ankleFall(dd, sx);   // all the way down
+            });
+            if (broke) {
+                sfxHit(0.4); triggerCheer(); flashBanner(p.cutChain >= 3 ? 'DOUBLE MOVE — ANKLES BROKEN!' : 'ANKLES BROKEN!', 1000);
+                commentate(pick([`${nameOf(p)} JUST BROKE HIS ANKLES!`, `OH! HE SENT THAT CORNER TO THE CONCESSION STAND!`, `WHAT A CUT BY ${nameOf(p)}! HE'S WIDE OPEN!`]));
+            }
+        }
+    }
+    if (sx !== p.cutSide) { p.cutSide = sx; p.cutAt = now; }
+}
+// He bit so hard he went down: over sideways the way he lunged, and back up a moment later
+function ankleFall(d, sx) {
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(d.group.quaternion);
+    const q1 = yawPitchQuat(Math.atan2(fwd.x, fwd.z), 0.25, -sx * Math.PI / 2);
+    d.pancake = { t: 0, q0: d.group.quaternion.clone(), q1, rest: restHeight(d, q1), push: new THREE.Vector3(-sx * 2.5, 0, 0) };
+    d.rag = null; d.blockFoe = null; d.currentMoveSpeed = 0;
 }
 // Behind your pro, wherever he goes
 function proCamera(dt) {
@@ -6542,7 +6599,7 @@ class Player {
             else if (this.spy && GAME_STATE === 'PLAY') {   // spying a running QB: mirror him from 4 yards off the ball
                 const q = players.offense[0]; targetPos = new THREE.Vector3(q.group.position.x, 0, lineOfScrimmageZ - 8);
             }
-            else if (this.targetPlayer) targetPos = this.targetPlayer.group.position.clone();
+            else if (this.targetPlayer) targetPos = GAME_STATE === 'PLAY' && (this.role === 'CB' || this.role === 'FS' || this.role === 'SS') ? coverRead(this, this.targetPlayer) : this.targetPlayer.group.position.clone();   // a man-cover DB plays what he SAW, a beat late
 
             if (targetPos) {
                 let dir = new THREE.Vector3().subVectors(targetPos, this.group.position); dir.y = 0;
@@ -6565,6 +6622,17 @@ class Player {
                     this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * 0.85 * dt);
                     turnToward(this, new THREE.Vector3(0, 0, 1), dt, 10);   // facing the offense
                     this.currentMoveSpeed = actualPlayerSpeed * speedMul * 0.85;
+                    this.covVel = dir.clone().multiplyScalar(this.currentMoveSpeed);
+                } else if (isCovDB) {
+                    // A body in motion: he can only change speed and direction so fast, so when his man
+                    // breaks off he has to plant and redirect — a hard cut gets him overrunning it
+                    const v = this.covVel || (this.covVel = new THREE.Vector3());
+                    const dv = dir.clone().multiplyScalar(actualPlayerSpeed * speedMul).sub(v), maxDv = 15 * dt;
+                    if (dv.length() > maxDv) dv.setLength(maxDv);
+                    v.add(dv);
+                    this.group.position.addScaledVector(v, dt);
+                    if (v.lengthSq() > 0.04) this.group.lookAt(this.group.position.clone().add(v));
+                    this.currentMoveSpeed = v.length();
                 } else { this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul; }
             }
         }
@@ -12517,6 +12585,7 @@ function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeig
 function animate() {
     requestAnimationFrame(animate);
     let dt = Math.min(clock.getDelta(), 0.1) * timeScale;
+    animate.t = (animate.t || 0) + dt;   // game time (what the defenders' reaction delays run on)
     // Online, on defense, the screen shows the defense camera — but the game keeps its own (offense)
     // camera underneath, for the friend: put it back before this frame's updates move it
     if (net && net.camSwapped && net.ecam) { camera.position.set(net.ecam[0], net.ecam[1], net.ecam[2]); camera.quaternion.set(net.ecam[3], net.ecam[4], net.ecam[5], net.ecam[6]); net.camSwapped = false; }
