@@ -70,6 +70,12 @@
         .pcard-line { color: #00ff88; margin-top: 6px; }
         .pcard-career { color: #8ab; }
         .draft-pick { font-size: 0.6rem; padding: 8px 12px; margin-top: 8px; width: 100%; background: #34a853; }
+        #draft-team { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: min(1000px, 96vw); margin-bottom: 10px; }
+        .dteam { font-size: 0.45rem; padding: 4px 6px; border: 2px solid #444; background: rgba(0,20,40,0.9); color: #aaa; white-space: nowrap; }
+        .dteam b { color: #ffcc00; }
+        .dteam.done { border-color: #00ff88; color: #fff; }
+        .dteam.now { border-color: #ffcc00; color: #fff; box-shadow: 0 0 8px #ffcc00; }
+        .dteam .pcard-stars { font-size: 0.5rem; }
         #slot-list { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 900px; }
         .slot-card { width: 250px; min-height: 170px; border: 4px solid #555; background: rgba(0, 20, 40, 0.9); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; box-shadow: 6px 6px 0 #000; }
         .slot-n { color: #aaa; font-size: 0.65rem; letter-spacing: 2px; }
@@ -257,6 +263,7 @@
         <div id="draft-screen" class="menu hidden">
             <h1 id="draft-title" style="font-size:1.8rem;">DRAFT</h1>
             <div id="draft-sub" class="stats-head" style="margin-bottom:8px;"></div>
+            <div id="draft-team"></div>
             <div id="draft-board" class="roster-grid" style="width:min(1000px, 96vw);"></div>
             <button id="draft-pass" class="btn-retro hidden" style="background:#444; margin-top:12px;" onclick="draftPass()">PASS ON THIS PICK</button>
         </div>
@@ -1001,9 +1008,10 @@ function offseasonDevelopment() {
 // ─── THE DRAFT ───────────────────────────────────────────────────────────────
 // STARTING DRAFT (a new save, right after you pick your team): one round for each spot on the roster,
 // choosing from four — your team's own guy, a veteran star, a young player and a solid starter.
-// ROOKIE DRAFT (after every season): three rounds of college prospects, 21–22 years old with one
-// skill hidden until you take him. The worse your record, the earlier you pick and the better the
-// board. A rookie replaces the starter at his spot (and wears his number); you can pass on a pick.
+// ROOKIE DRAFT (after every season): seven rounds of college prospects from all over the roster,
+// 21–22 years old with one skill hidden until you take him. The worse your record, the earlier you
+// pick and the better the board. A rookie replaces the starter at his spot (and wears his number);
+// you can pass on a pick. Your whole team shows across the top as it takes shape.
 let draft = null;   // { kind, round, rounds, board, onDone }
 
 function makeProspect(slot, base, age) {
@@ -1023,10 +1031,10 @@ function myDraftPick() {
 }
 
 function openDraft(kind, onDone) {
-    draft = { kind, round: 0, onDone };
+    draft = { kind, round: 0, onDone, picked: new Set() };
     if (kind === 'start') draft.rounds = ALL_SLOTS.length;
     else {
-        draft.rounds = 3;
+        draft.rounds = 7;
         draft.pick = myDraftPick();
         draft.quality = 75 - 9 * (draft.pick / allTeams().length);   // first pick ~75 base, last ~66
     }
@@ -1046,10 +1054,10 @@ function nextDraftRound() {
             Object.assign(makeProspect(slot, 75, 24 + Math.floor(Math.random() * 4)), { tag: 'SOLID STARTER' })]
             .sort(() => Math.random() - 0.5);
     } else {
-        // Five prospects at different spots; later rounds are thinner
-        const slots = ALL_SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 5);
+        // Eight prospects a round from all over the roster (offense, kicker, defense); later rounds are thinner
+        const slots = ALL_SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 8);
         draft.board = slots.map(slot => {
-            const pr = makeProspect(slot, draft.quality - draft.round * 3 + (Math.random() < 0.12 ? 8 : 0), 21 + Math.floor(Math.random() * 2));
+            const pr = makeProspect(slot, draft.quality - draft.round * 1.7 + (Math.random() < 0.12 ? 8 : 0), 21 + Math.floor(Math.random() * 2));
             pr.hidden = [SLOT_RATINGS[slot][Math.floor(Math.random() * SLOT_RATINGS[slot].length)]];   // scouts can't see everything
             return pr;
         });
@@ -1078,6 +1086,13 @@ function renderDraft() {
             <button class="btn-retro draft-pick" onclick="draftPick(${i})">${D.kind === 'start' && pr.own ? 'KEEP HIM' : 'DRAFT HIM'}</button></div>`;
     }).join('');
     document.getElementById('draft-pass').classList.toggle('hidden', D.kind === 'start');
+    // Your whole team across the top: done spots checked, this round's spot lit, new rookies marked
+    document.getElementById('draft-team').innerHTML = ALL_SLOTS.map((slot, i) => {
+        const p = roster[slot];
+        const state = D.kind === 'start' ? (i < D.round ? 'done' : i === D.round ? 'now' : '') : (D.picked.has(slot) ? 'now' : '');
+        const mark = D.kind === 'start' ? (i < D.round ? '✓ ' : '') : (D.picked.has(slot) ? 'NEW ' : '');
+        return `<div class="dteam ${state}"><b>${SLOT_LABEL[slot]}</b> ${mark}${D.kind === 'start' && i >= D.round ? '—' : p.name} <span class="pcard-stars">${D.kind === 'start' && i >= D.round ? '' : starsText(starRating(p, slot))}</span></div>`;
+    }).join('');
 }
 
 function draftPick(i) {
@@ -1085,7 +1100,7 @@ function draftPick(i) {
     if (!pr.own) {
         const old = roster[pr.slot];
         pr.p.num = old.num;   // he takes the number of the man he replaces
-        roster[pr.slot] = pr.p;
+        roster[pr.slot] = pr.p; draft.picked.add(pr.slot);
         flashBanner(`${pr.p.name} · ${SLOT_LABEL[pr.slot]}${pr.hidden.length ? ` · ${RATING_NAMES[pr.hidden[0]]} ${pr.p[pr.hidden[0]]}` : ''}`, 1600);
     }
     draft.round++;
