@@ -119,6 +119,7 @@
         #coin-toss.hidden { display: none; }
         #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
         #kick-choice.hidden { display: none; }
+        #p2-hint { position: fixed; left: 16px; bottom: 16px; z-index: 60; background: rgba(122, 28, 42, 0.9); border: 2px solid #ff3344; color: #fff; padding: 8px 10px; font-size: 0.5rem; pointer-events: none; }
         #achv-toast { position: fixed; top: 20px; right: 20px; z-index: 300; background: #002244; border: 3px solid #ffcc00; color: #fff; padding: 12px 16px; font-size: 0.7rem; box-shadow: 4px 4px 0 #000; pointer-events: none; }
         #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
         body.egg-on #scoreboard, body.egg-on #hud, body.egg-on #right-hud, body.egg-on #instructions, body.egg-on #quarter-break { visibility: hidden; }
@@ -654,6 +655,7 @@
             </div>
             <div id="mu-weather" class="mu-weather"></div>
             <div id="mu-rivalry" class="mu-rivalry hidden"></div>
+            <button class="btn-retro" id="btn-2p" style="background:#7a1c2a;" onclick="toggleTwoPlayer()">PLAYERS: 1</button>
             <button class="btn-retro" onclick="startGame()">START GAME</button>
             <button class="btn-retro" style="background:#444; padding: 10px 20px; font-size: 0.7rem;" onclick="closeMatchupScreen()">BACK</button>
         </div>
@@ -812,6 +814,7 @@
 
     <div id="egg-fade"></div>
     <div id="achv-toast" class="hidden"></div>
+    <div id="p2-hint" class="hidden">PLAYER 2 (RED RING): ARROWS MOVE · RIGHT SHIFT SPRINT · / SWITCH</div>
     <div id="kick-choice" class="hidden">
         <h1 style="font-size:1.8rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">KICKOFF</h1>
         <div id="kick-choice-sub" style="font-size:0.7rem; margin-bottom:22px;"></div>
@@ -1134,6 +1137,7 @@ let scenery = null;   // skyline, clouds, sun and jumbotrons (buildScenery)
 let oppQB = null;     // the opposing QB's brain for this game (newOppQB)
 let easterEgg = null, eggUsed = false;   // ??? (startEasterEgg) — once a game
 let walkout = null;   // the pre-game run out of the tunnel (startWalkout)
+let p2 = { on: false, ctrl: null, ring: null };   // a second player on the same keyboard (see TWO PLAYERS)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1713,6 +1717,64 @@ function signFreeAgent(i) {
     flashBanner(`SIGNED ${f.p.name}`, 1200);
     renderFreeAgency();
 }
+// ─── TWO PLAYERS, ONE KEYBOARD ───────────────────────────────────────────────
+// Player 2 plays against you: on your drives they're a defender (ARROWS move, RIGHT SHIFT sprints,
+// / switches to the man nearest the ball) — tackle your carrier, sack your QB. On their drives they
+// run with the ball once it's handed off or caught. A red ring marks Player 2's man.
+// Arrows are screen-relative for whichever way the camera is looking.
+function toggleTwoPlayer() {
+    p2.on = !p2.on;
+    try { localStorage.setItem('ff-2p', p2.on ? '1' : '0'); } catch (e) {}
+    const b = document.getElementById('btn-2p'); if (b) b.innerText = `PLAYERS: ${p2.on ? 2 : 1}`;
+}
+function p2Dir(view) {
+    const x = (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0), y = (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0);
+    if (!x && !y) return null;
+    // Your drives: the camera looks down the field (−Z); their drives: it looks back up it (+Z)
+    return (view === 'dp' ? new THREE.Vector3(-x, 0, y) : new THREE.Vector3(x, 0, -y)).normalize();
+}
+const p2Sprint = () => !!keys['ShiftRight'];
+// Your drives: Player 2's defender
+function p2Control(p, dt) {
+    const d = p2Dir('offense');
+    if (p.stunTimer > 0) p.stunTimer -= dt;
+    if (d) steerTo(p, p.group.position.clone().addScaledVector(d, 3), p.baseSpeed * (p2Sprint() ? 1.25 : 1) * (p.stunTimer > 0 ? 0.3 : 1), dt);
+    else p.currentMoveSpeed = 0;
+    const qb = players.offense[0];
+    if (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending && !trickPitch && qb && activeReceiver !== qb && p.group.position.distanceTo(qb.group.position) < 1.6) triggerTackle(qb, p, 'SACKED BY PLAYER 2!');
+    p.animateLimbs(dt);
+}
+// Their drives: Player 2 carries it
+function p2Steer(p, spd, dt) {
+    const d = p2Dir('dp');
+    if (d) return steerTo(p, p.group.position.clone().addScaledVector(d, 5), spd * (p2Sprint() ? 1.15 : 1), dt);
+    p.currentMoveSpeed = 0; return 0;
+}
+function p2Switch() {
+    if (!p2.on || !(GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH' || GAME_STATE === 'PRE_SNAP')) return;
+    const at = ball.getWorldPosition(new THREE.Vector3());
+    const pick = players.defense.filter(d => d !== p2.ctrl && !isFalling(d) && !d.pancake)
+        .reduce((a, d) => (!a || d.group.position.distanceTo(at) < a.group.position.distanceTo(at)) ? d : a, null);
+    if (pick) p2.ctrl = pick;
+}
+// Every frame: who Player 2 has, and the red ring under him
+function updateP2(dt) {
+    if (!p2.ring) {
+        p2.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.12, 6, 24), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
+        p2.ring.rotation.x = Math.PI / 2; scene.add(p2.ring);
+    }
+    let who = null;
+    if (p2.on) {
+        if (['PRE_SNAP', 'PLAY', 'POST_CATCH', 'TACKLED'].includes(GAME_STATE)) {
+            if (!p2.ctrl || !players.defense.includes(p2.ctrl)) p2.ctrl = players.defense[0] || null;   // the middle linebacker to start
+            who = p2.ctrl;
+        } else if (GAME_STATE === 'DEFENSE' && dp && dp.carrier && !(dp.carrier === dp.qb && dp.kind === 'pass' && !dp.thrown)) who = dp.carrier;
+    }
+    p2.ring.visible = !!who;
+    if (who) p2.ring.position.set(who.group.position.x, 0.07, who.group.position.z);
+    const hint = document.getElementById('p2-hint'); if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+}
+
 // ─── ACHIEVEMENTS ────────────────────────────────────────────────────────────
 // Trophies for big moments, kept across every save (localStorage 'ff-achievements'). Unlocking one
 // pops a toast in the corner; the ACHIEVEMENTS tile shows them all, locked ones as a hint.
@@ -2704,6 +2766,8 @@ function closeSchedule() { document.getElementById('schedule-screen').classList.
 
 function openMatchupScreen() {
     if(!audioCtx) initAudio();
+    try { p2.on = localStorage.getItem('ff-2p') === '1'; } catch (e) {}
+    const b2 = document.getElementById('btn-2p'); if (b2) b2.innerText = `PLAYERS: ${p2.on ? 2 : 1}`;
     // Season over: the rookie draft first, then the new season
     if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openOffseason(); return; }   // awards, re-signing, the draft, free agency
 
@@ -4968,6 +5032,7 @@ class Player {
         if (GAME_STATE === 'TACKLED') return;
         if (this.catchDive) return; // layout dive is driven by updateCatchDives
         if (this.pancake) { updatePancake(this, dt); return; }   // flat on his back for a moment
+        if (p2.on && this === p2.ctrl && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH')) { p2Control(this, dt); return; }   // Player 2's defender
         if (this.inMotion && GAME_STATE === 'PRE_SNAP') { stepMotion(this, dt); this.animateLimbs(dt); return; }
         if (GAME_STATE === 'PRE_SNAP' && this.team === 'defense' && this.targetPlayer && this.targetPlayer.inMotion && defScheme === 'man') {
             // Man coverage: he goes across with the man in motion (that's your tell)
@@ -7476,6 +7541,7 @@ function checkInputs(e) {
     if (walkout && e.type === 'keydown' && (e.code === 'Space' || e.code === 'Enter')) { endWalkout(); return; }   // skip the walkout
     if (GAME_STATE === 'KICK_CHOICE' && e.type === 'keydown' && (e.code === 'KeyK' || e.code === 'KeyO')) { chooseKick(e.code === 'KeyO'); return; }
     if (e.code === 'KeyB' && e.type === 'keydown' && !e.repeat) { cycleCamera(); return; }
+    if (e.code === 'Slash' && e.type === 'keydown' && !e.repeat && p2.on) { p2Switch(); return; }
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
@@ -7515,8 +7581,8 @@ function checkInputs(e) {
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
 
     if ((GAME_STATE === 'PRE_SNAP' || (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending)) && e.type === 'keydown') {   // power can change after the snap too, until he lets it go
-        if (e.code === 'KeyE' || e.code === 'ArrowUp')   passPower = Math.min(maxPassPower(), passPower + 0.1); // the QB's arm sets the cap
-        if (e.code === 'KeyQ' || e.code === 'ArrowDown')  passPower = Math.max(0.1, passPower - 0.1);
+        if (e.code === 'KeyE' || (e.code === 'ArrowUp' && !p2.on))   passPower = Math.min(maxPassPower(), passPower + 0.1); // the QB's arm sets the cap (arrows are Player 2's in 2-player)
+        if (e.code === 'KeyQ' || (e.code === 'ArrowDown' && !p2.on))  passPower = Math.max(0.1, passPower - 0.1);
         document.getElementById('vertical-power-fill').style.height = (passPower * 100) + '%';
         // Colour: green = floater, yellow = mid, red = bomb
         const r = Math.round(passPower * 255); const g = Math.round((1 - passPower) * 255);
@@ -9621,7 +9687,9 @@ function updateDefensePlay(dt) {
     });
     // Tired legs: a man who's been running all drive is up to 18% slower (dStam, see startLiveDefensePlay)
     const fat = p => 0.82 + 0.18 * (p.dStam ?? 100) / 100;
-    const runIt = (p, spd) => steerTo(p, p.group.position.clone().addScaledVector(defRunnerDir(p, P.def), 5), spd * fat(p), dt);
+    const runIt = (p, spd) => p2.on && p === P.carrier && !(p === qb && P.kind === 'pass' && !P.thrown)
+        ? p2Steer(p, spd * fat(p), dt)   // Player 2 has the ball
+        : steerTo(p, p.group.position.clone().addScaledVector(defRunnerDir(p, P.def), 5), spd * fat(p), dt);
     P.off.forEach(o => { if (o.currentMoveSpeed > 6) o.dStam = Math.max(0, (o.dStam ?? 100) - dt * 10); }); // sprinting wears them down
     if (P.kind === 'run') {
         if (P.play === 'sneak') {
@@ -11343,6 +11411,7 @@ function animate() {
     if (easterEgg) updateEasterEgg(dt);
     if (walkout) updateWalkout(dt);
     applyCameraMode(dt);
+    updateP2(dt);
     if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
     else renderer.render(scene, camera);
 }
