@@ -3492,7 +3492,30 @@ function updateScenery(night, kind) {
 function animateScenery(dt) {
     if (!scenery) return;
     scenery.clouds.rotation.y += dt * 0.004;   // the clouds drift across the sky
-    if ((scenery.drawT = (scenery.drawT || 0) + dt) > 0.5) { scenery.drawT = 0; drawJumbotrons(); }
+    if ((scenery.drawT = (scenery.drawT || 0) + dt) > 0.5) { scenery.drawT = 0; drawJumbotrons(); updateSunset(); }
+}
+// Sunset games: kicked off in the late afternoon, the sky goes from blue to orange and pink at
+// halftime to night by the fourth quarter — the sun sinks and reddens, the stadium lights come
+// on, and the city's office windows light up one by one
+const SKY_DAY = new THREE.Color(0x87ceeb), SKY_DUSK = new THREE.Color(0xf0905e), SKY_NIGHT = new THREE.Color(0x0b1026);
+function updateSunset() {
+    if (!weather || !weather.dusk || weather.night || ['MENU', 'MATCHUP'].includes(GAME_STATE) || !scenery) return;
+    const u = THREE.MathUtils.clamp((Math.min(currentQuarter, 4) - 1 + (120 - gameTime) / 120) / 4, 0, 1);   // 0 at kickoff → 1 at the final whistle
+    const sky = u < 0.55 ? SKY_DAY.clone().lerp(SKY_DUSK, u / 0.55) : SKY_DUSK.clone().lerp(SKY_NIGHT, (u - 0.55) / 0.45);
+    scene.background = sky; if (scene.fog) scene.fog.color.copy(sky);
+    const lightsOn = u > 0.68;
+    lightTowers.forEach(t => { t.visible = lightsOn; });
+    hemiLight.intensity = THREE.MathUtils.lerp(0.6, 0.45, u);
+    if (lightsOn) { dirLight.color.setHex(0xfff2dd); dirLight.intensity = 0.95; dirLight.position.set(0, 100, 0); }
+    else { dirLight.color.copy(new THREE.Color(0xffffff).lerp(new THREE.Color(0xffa060), u / 0.68)); dirLight.intensity = THREE.MathUtils.lerp(0.8, 0.6, u / 0.68); dirLight.position.set(50, 100 - u * 70, 50); }
+    // The sun goes down behind the city, getting redder
+    scenery.sun.visible = u < 0.82;
+    scenery.sun.position.y = THREE.MathUtils.lerp(230, 15, Math.min(1, u / 0.8));
+    scenery.sun.children[0].material.color.copy(new THREE.Color(0xfff6d0).lerp(new THREE.Color(0xff6a2a), Math.min(1, u / 0.7)));
+    const e = THREE.MathUtils.smoothstep(u, 0.45, 0.9);
+    scenery.buildings.forEach(b => b.material.emissive.setRGB(e, 0.886 * e, 0.66 * e));
+    scenery.clouds.visible = u < 0.9;
+    scenery.clouds.material.color.copy(new THREE.Color(0xffffff).lerp(new THREE.Color(0xffb08a), Math.min(1, u / 0.6)));
 }
 
 // Merge non-indexed copies of simple geometries into one BufferGeometry (positions + normals)
@@ -3612,12 +3635,14 @@ function pickWeather() {
     const r = Math.random();
     const kind = r < 0.6 ? 'clear' : r < 0.75 ? 'rain' : r < 0.87 ? 'snow' : 'wind';
     const windSpeed = kind === 'wind' ? 12 + Math.random() * 13 : Math.random() * 7;
-    weather = { kind, night: Math.random() < 0.4, wind: Math.round(windSpeed) * (Math.random() < 0.5 ? -1 : 1) };
+    const night = Math.random() < 0.4;
+    weather = { kind, night, dusk: !night && kind !== 'rain' && kind !== 'snow' && Math.random() < 0.22,   // a late-afternoon kick that ends under the lights
+                wind: Math.round(windSpeed) * (Math.random() < 0.5 ? -1 : 1) };
 }
 
 function weatherText() {
     const wind = Math.abs(weather.wind) >= 3 ? ` · WIND ${Math.abs(weather.wind)} MPH ${weather.wind > 0 ? '→' : '←'}` : '';
-    return `${WEATHER_ICONS[weather.kind]}${weather.night ? ' · NIGHT GAME' : ''}${wind}`;
+    return `${WEATHER_ICONS[weather.kind]}${weather.night ? ' · NIGHT GAME' : weather.dusk ? ' · SUNSET GAME' : ''}${wind}`;
 }
 
 // Kick difficulty from the conditions (multiplies the meter's green zone)
