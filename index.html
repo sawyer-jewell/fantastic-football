@@ -52,6 +52,20 @@
         .standings-row.me { color: #ffcc00; }
         .standings-row.cut { border-bottom: 3px solid #e31837; }
         .stats-head { color: #ffcc00; padding: 10px 10px 4px; }
+        #roster-list { width: min(980px, 96vw); }
+        .roster-group { color: #ffcc00; font-size: 0.8rem; margin: 14px 0 8px; letter-spacing: 2px; }
+        .roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+        .pcard { background: rgba(0, 20, 40, 0.92); border: 3px solid #fff; padding: 10px 12px; box-shadow: 4px 4px 0 #000; font-size: 0.55rem; line-height: 1.7; }
+        .pcard-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+        .pcard-pos { background: #ffcc00; color: #000; padding: 2px 6px; font-size: 0.55rem; }
+        .pcard-name { font-size: 0.7rem; color: #fff; flex: 1; }
+        .pcard-stars { color: #ffcc00; font-size: 0.7rem; letter-spacing: 1px; font-family: sans-serif; }
+        .pcard-age { color: #aaa; }
+        .rbar { display: grid; grid-template-columns: 92px 1fr 26px; gap: 6px; align-items: center; margin-top: 3px; }
+        .rbar-track { height: 8px; background: #333; border: 1px solid #555; }
+        .rbar-fill { height: 100%; background: linear-gradient(90deg, #e31837, #ffcc00 50%, #00ff88); }
+        .pcard-line { color: #00ff88; margin-top: 6px; }
+        .pcard-career { color: #8ab; }
         #slot-list { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; max-width: 900px; }
         .slot-card { width: 250px; min-height: 170px; border: 4px solid #555; background: rgba(0, 20, 40, 0.9); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; box-shadow: 6px 6px 0 #000; }
         .slot-n { color: #aaa; font-size: 0.65rem; letter-spacing: 2px; }
@@ -214,6 +228,7 @@
                 <button class="btn-retro" style="background:#e31837; font-size:0.7rem; padding:10px 20px;" onclick="openChallenges()">CHALLENGES</button>
             </div>
             <div style="display:flex; gap:15px; flex-wrap:wrap; justify-content:center; margin-top:5px;">
+                <button class="btn-retro" style="background:#34a853; font-size:0.7rem; padding:10px 20px;" onclick="openRoster()">ROSTER</button>
                 <button class="btn-retro" style="background:#444; font-size:0.7rem; padding:10px 20px;" onclick="openSettings()">⚙ SETTINGS</button>
                 <button class="btn-retro" style="background:#2a6f97; font-size:0.7rem; padding:10px 20px;" onclick="openSaveSelect()">SWITCH SAVE</button>
             </div>
@@ -224,6 +239,14 @@
             <h1>FANTASTIC<br>FOOTBALL</h1>
             <div class="stats-head" style="font-size:1.1rem; margin-bottom:12px;">SELECT YOUR SAVE</div>
             <div id="slot-list"></div>
+        </div>
+
+        <!-- Your starters: star ratings, skills, ages and stat lines -->
+        <div id="roster-screen" class="menu hidden">
+            <h1 style="font-size:2rem;">ROSTER</h1>
+            <div id="roster-team" class="stats-head" style="margin-bottom:6px;"></div>
+            <div id="roster-list"></div>
+            <button class="btn-retro" onclick="closeInfoScreen('roster-screen')">BACK TO MENU</button>
         </div>
 
         <!-- New save: pick your team -->
@@ -557,16 +580,28 @@ let flagMeshes = [];    // yellow flags lying on the field
 // Your skill players: name + ratings (50–99) + XP, keyed by formation slot
 let roster = null;
 let lastLevelUps = []; // rating gains from the game that just ended
-const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];
-const SLOT_RATINGS = { QB: ['arm', 'accuracy'], RB: ['speed'], WR1: ['speed', 'hands'], WR2: ['speed', 'hands'], SLOT: ['speed', 'hands'], TE: ['speed', 'hands'] };
-const SLOT_NUMBERS = { QB: 1, WR1: 11, WR2: 6, SLOT: 14, TE: 88, RB: 22 };
+const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
+const DEF_SLOTS = ['DL', 'LB', 'CB1', 'CB2', 'S'];               // your defensive starters
+const ALL_SLOTS = [...ROSTER_SLOTS, 'K', ...DEF_SLOTS];
+const SLOT_RATINGS = {
+    QB: ['arm', 'accuracy', 'speed'], RB: ['speed', 'power', 'hands'],
+    WR1: ['speed', 'hands', 'routes'], WR2: ['speed', 'hands', 'routes'], SLOT: ['speed', 'hands', 'routes'], TE: ['speed', 'hands', 'routes'],
+    K: ['power', 'accuracy'],
+    DL: ['speed', 'rush', 'tackle'], LB: ['speed', 'tackle', 'cover'], CB1: ['speed', 'cover', 'hands'], CB2: ['speed', 'cover', 'hands'], S: ['speed', 'cover', 'tackle'],
+};
+const RATING_NAMES = { arm: 'ARM', accuracy: 'ACCURACY', speed: 'SPEED', power: 'POWER', hands: 'HANDS', routes: 'ROUTES', rush: 'PASS RUSH', tackle: 'TACKLING', cover: 'COVERAGE' };
+const SLOT_NUMBERS = { QB: 1, WR1: 11, WR2: 6, SLOT: 14, TE: 88, RB: 22, K: 4, DL: 94, LB: 58, CB1: 7, CB2: 21, S: 28 };   // the Eagles'
+const SLOT_ROLE = { QB: 'QB', RB: 'RB', TE: 'TE', WR1: 'WR', WR2: 'WR', SLOT: 'WR', K: 'K', DL: 'DL', LB: 'LB', CB1: 'CB', CB2: 'CB', S: 'FS' };
+const SLOT_PICK = { QB: ['QB', 0], RB: ['RB', 0], TE: ['TE', 0], WR1: ['WR', 0], WR2: ['WR', 1], SLOT: ['WR', 2], K: ['K', 0],
+                    DL: ['DL', 0], LB: ['LB', 1], CB1: ['CB', 0], CB2: ['CB', 1], S: ['FS', 0] };   // which of a team's numbers
+const DEF_SLOT_SPOT = { DL: 0, LB: 5, CB1: 7, CB2: 8, S: 10 };   // where each lines up in DRONE_DEFENSE
 const PLAYER_NAME_MAP = {
     'QB1':'HURTS','WR11':'A.BROWN','WR6':'J.SMITH','WR14':'D.SMITH',
     'TE88':'GOEDERT','RB22':'SANDERS','OL60':'KELCE','OL63':'MAILATA',
     'OL69':'JURGENS','OL78':'JOHNSON','OL70':'SEUMALO',
     'LB55':'GRAHAM','LB58':'SWEAT','LB50':'GERRY',
     'CB7':'BRADBERRY','CB21':'SLAY','FS28':'GARDNER','SS6':'AVERY',
-    'DL94':'REDDICK','DL98':'DAVIS','DL99':'COX','DL91':'CARTER'
+    'DL94':'REDDICK','DL98':'DAVIS','DL99':'COX','DL91':'CARTER','K4':'ELLIOTT'
 };
 
 let challengeMode = null; // the challenge being played (not part of the season), see CHALLENGES
@@ -811,33 +846,76 @@ function generateSchedule() {
     updateMenuUI();
 }
 
-// ─── ROSTER: RATINGS & PROGRESSION ──────────────────────────────────────────
-// Your six skill players. Speed changes how fast they run, hands how often they drop the ball,
-// the QB's arm caps throw power (deep-ball range) and accuracy how close throws land to the aim.
-// Players earn XP from their stats; every 100 XP raises a rating by 1 (max 99).
-// Formation slots map to players.offense[0..5] (ROSTER_SLOTS etc. are with the globals before init()).
+// ─── ROSTER: RATINGS, STATS & PROGRESSION ───────────────────────────────────
+// Your starters: the six on offense, the kicker, and five on defense (ALL_SLOTS etc. are with the
+// globals before init()). Every rating does something on the field:
+//   speed: how fast he runs              hands: drops (and, for DBs, how big the pick window is)
+//   arm / accuracy: throw zip and aim    routes: how much separation his cuts make
+//   power (RB): breaking tackles         power / accuracy (K): field goal range and green zone
+//   rush (DL): getting off blocks        tackle: how far he can reach a ball carrier
+//   cover: how fast he reads and breaks on a route
+// Players earn XP from their stats; every 100 XP raises a rating by 1 (max 99). Each one keeps a
+// season and a career stat line, and has an age and a 1–5 star rating.
+
+function newPlayerLine() {   // (a declaration: the placeholder roster is built at startup, before this line runs)
+    return { gp: 0, cmp: 0, att: 0, pyd: 0, ptd: 0, pint: 0, car: 0, ryd: 0, rtd: 0, rec: 0, yds: 0, td: 0,
+             tkl: 0, sk: 0, int: 0, ff: 0, fgm: 0, fga: 0 };
+}
+
+function makeRosterPlayer(slot, tr, taken) {
+    const first = ['J.', 'M.', 'D.', 'A.', 'T.', 'C.', 'K.', 'R.', 'B.', 'L.', 'S.', 'N.'];
+    const role = SLOT_ROLE[slot];
+    let num = SLOT_NUMBERS[slot], name = '';
+    if (tr) {
+        const [r, i] = SLOT_PICK[slot];
+        num = r === 'K' ? 3 : tr.nums[r][i];
+        name = tr.names[r + num] || '';
+    } else name = PLAYER_NAME_MAP[(role === 'FS' ? 'FS' : role) + num] || '';
+    if (!name) { const pool = LAST_NAMES.filter(n => !taken.has(n)); name = `${first[Math.floor(Math.random() * first.length)]} ${pool[Math.floor(Math.random() * pool.length)]}`; }
+    taken.add(name);
+    const p = { name, num, age: 22 + Math.floor(Math.random() * 9), xp: 0, season: newPlayerLine(), career: newPlayerLine() };
+    SLOT_RATINGS[slot].forEach(k => { p[k] = 66 + Math.floor(Math.random() * 16); });
+    return p;
+}
 
 function newRoster() {
-    const first = ['J.', 'M.', 'D.', 'A.', 'T.', 'C.', 'K.', 'R.', 'B.', 'L.', 'S.', 'N.'];
-    const last = ['SMITH', 'JOHNSON', 'WILLIAMS', 'BROWN', 'JONES', 'DAVIS', 'MILLER', 'WILSON', 'MOORE', 'TAYLOR', 'JACKSON', 'HARRIS',
-                  'MARTIN', 'THOMPSON', 'WHITE', 'LEWIS', 'WALKER', 'HALL', 'ALLEN', 'YOUNG', 'KING', 'WRIGHT', 'HILL', 'SCOTT', 'GREEN', 'CARTER'];
-    const r = {};
     // Any team but the Eagles: numbers and names from that team's generated roster
-    const tr = MY_TEAM.id === 'PHI' ? null : teamRoster(MY_TEAM.id);
-    ROSTER_SLOTS.forEach(slot => {
-        const role = { QB: 'QB', RB: 'RB', TE: 'TE' }[slot] || 'WR';
-        const num = tr ? tr.nums[role][{ WR1: 0, WR2: 1, SLOT: 2 }[slot] || 0] : SLOT_NUMBERS[slot];
-        // The name on his jersey when there is one (the Eagles roster, or the team's), otherwise a made-up one
-        const onJersey = tr ? tr.names[role + num] : PLAYER_NAME_MAP[role + num];
-        const p = { name: onJersey || `${first[Math.floor(Math.random() * first.length)]} ${last.splice(Math.floor(Math.random() * last.length), 1)[0]}`,
-                    num, xp: 0, season: { rec: 0, yds: 0, td: 0 } };
-        SLOT_RATINGS[slot].forEach(k => { p[k] = 68 + Math.floor(Math.random() * 17); });
-        r[slot] = p;
+    const tr = MY_TEAM.id === 'PHI' ? null : teamRoster(MY_TEAM.id), taken = new Set();
+    const r = {};
+    ALL_SLOTS.forEach(slot => { r[slot] = makeRosterPlayer(slot, tr, taken); });
+    return r;
+}
+
+// Saves from before the full roster: add the kicker and defense, the new ratings, ages and stat lines
+function ensureRoster(r) {
+    const tr = MY_TEAM.id === 'PHI' ? null : teamRoster(MY_TEAM.id), taken = new Set(Object.values(r).map(p => p.name));
+    ALL_SLOTS.forEach(slot => {
+        if (!r[slot]) { r[slot] = makeRosterPlayer(slot, tr, taken); return; }
+        const p = r[slot];
+        SLOT_RATINGS[slot].forEach(k => { if (p[k] == null) p[k] = 66 + Math.floor(Math.random() * 16); });
+        if (p.age == null) p.age = 23 + Math.floor(Math.random() * 7);
+        p.season = { ...newPlayerLine(), ...(p.season || {}) };
+        p.career = { ...newPlayerLine(), ...(p.career || {}) };
     });
     return r;
 }
 
+// 1–5 stars (in halves) from his ratings
+function starRating(p, slot) {
+    const ks = SLOT_RATINGS[slot], avg = ks.reduce((s, k) => s + p[k], 0) / ks.length;
+    return Math.max(1, Math.min(5, Math.round((avg - 52) / 8 * 2) / 2));
+}
+const starsText = n => '★'.repeat(Math.floor(n)) + (n % 1 ? '½' : '') + '☆'.repeat(5 - Math.ceil(n));
+
 const speedFactor = rating => 0.88 + (rating - 50) / 49 * 0.2; // 50 → 0.88×, 99 → 1.08×
+// The other ratings' effects, ~1 at a rating of 75
+const routeFactor  = r => 0.55 + (r - 50) / 90;          // separation from a cut: 50 → 0.55, 99 → 1.09
+const tackleFactor = r => 0.88 + (r - 60) / 160;         // reach on a ball carrier: 60 → 0.88, 99 → 1.12
+const coverFactor  = r => 1.3 - (r - 50) / 90;           // read delay: 50 → 1.3×, 99 → 0.76×
+const rushFactor   = r => 1.4 - (r - 50) / 70;           // time a block holds him: 50 → 1.4×, 99 → 0.7×
+const ballHawk     = r => 0.8 + (r - 60) / 100;          // pick window: 60 → 0.8×, 99 → 1.19×
+const breakChance  = r => Math.max(0, r - 62) / 260;     // per tackle try: 75 → 5%, 99 → 14%
+const rosterRating = (slot, k) => roster && roster[slot] ? roster[slot][k] : 75;
 
 // Put the roster's ratings onto the players who just lined up
 function applyRosterToFormation() {
@@ -848,21 +926,40 @@ function applyRosterToFormation() {
         if (roster[slot].speed) { p.baseSpeed *= speedFactor(roster[slot].speed); p.speed = p.baseSpeed; }
     });
 }
+// Your defensive starters in a drive you play on defense (def is in DRONE_DEFENSE order)
+function applyRosterToDefense(def) {
+    if (!roster) return;
+    DEF_SLOTS.forEach(slot => {
+        const d = def[DEF_SLOT_SPOT[slot]]; if (!d) return;
+        d.rosterSlot = slot; d.rating = roster[slot];
+        d.baseSpeed *= speedFactor(roster[slot].speed); d.speed = d.baseSpeed;
+    });
+}
 
 // The meter always goes all the way up; a stronger arm just makes every throw zip in a little faster
 const maxPassPower = () => 1;
 const armFactor = () => roster ? 0.9 + (roster.QB.arm - 50) / 49 * 0.15 : 1;   // arm 50 → 0.9×, 99 → 1.05×
 
-// After a game: hand out XP from stats, level up ratings
+// This game's line for a roster player (rolled into his season and career when the game ends)
+function creditPlayer(slot, key, n = 1) {
+    if (!slot) return;
+    const by = gameStats.byPlayer || (gameStats.byPlayer = {});
+    const l = by[slot] || (by[slot] = newPlayerLine());
+    l[key] += n;
+}
+
+// After a game: everyone who played gets the game; XP from what he did; level up ratings
 function developPlayers() {
     lastLevelUps = [];
     if (!roster) return;
-    const xp = {
-        QB: gameStats.passYds / 10 + gameStats.passTD * 15 - gameStats.int * 5,
-        RB: gameStats.rushYds / 5 + gameStats.rushTD * 15,
-    };
-    ['WR1', 'WR2', 'SLOT', 'TE'].forEach(s => { const g = (gameStats.byReceiver || {})[s] || { rec: 0, yds: 0, td: 0 }; xp[s] = g.rec * 2 + g.yds / 5 + g.td * 15; });
-    ROSTER_SLOTS.forEach(slot => {
+    const by = gameStats.byPlayer || {}, g = s => by[s] || newPlayerLine();
+    const xp = {};
+    ALL_SLOTS.forEach(s => {
+        const l = g(s);
+        xp[s] = l.pyd / 10 + l.ptd * 15 - l.pint * 5 + l.ryd / 5 + l.rtd * 15 + l.rec * 2 + l.yds / 5 + l.td * 15
+              + l.tkl * 8 + l.sk * 20 + l.int * 25 + l.ff * 20 + l.fgm * 12;
+    });
+    ALL_SLOTS.forEach(slot => {
         const p = roster[slot];
         p.xp += Math.max(0, xp[slot] || 0);
         while (p.xp >= 100) {
@@ -870,18 +967,19 @@ function developPlayers() {
             const keys = SLOT_RATINGS[slot].filter(k => p[k] < 99);
             if (!keys.length) break;
             const k = keys[Math.floor(Math.random() * keys.length)];
-            lastLevelUps.push(`${p.name} (${slot}) ${k.toUpperCase()} ${p[k]} → ${p[k] + 1}`);
+            lastLevelUps.push(`${p.name} (${slot}) ${RATING_NAMES[k]} ${p[k]} → ${p[k] + 1}`);
             p[k]++;
         }
     });
 }
 
-// Offseason: everyone develops a little; season stat lines reset
+// Offseason: everyone a year older; young players develop a little; season stat lines reset
 function offseasonDevelopment() {
-    ROSTER_SLOTS.forEach(slot => {
+    ALL_SLOTS.forEach(slot => {
         const p = roster[slot];
-        SLOT_RATINGS[slot].forEach(k => { p[k] = Math.min(99, p[k] + Math.floor(Math.random() * 3)); });
-        p.season = { rec: 0, yds: 0, td: 0 };
+        p.age++;
+        SLOT_RATINGS[slot].forEach(k => { p[k] = Math.min(99, p[k] + (p.age <= 27 ? Math.floor(Math.random() * 3) : 0)); });
+        p.season = newPlayerLine();
     });
 }
 
@@ -970,7 +1068,7 @@ function applySaveData(d) {
     // Saves from the 19-team league: the 13 teams added since join with a record that matches the weeks played
     allTeams().forEach(t => { if (!league[t.id]) { const g = Math.max(0, currentWeek - 2); const w = Math.round(g * Math.random()); league[t.id] = { w, l: g - w, t: 0, rating: 60 + Math.random() * 30 }; } });
     seasonStats = { ...newStatLine(), ...d.seasonStats }; careerStats = { ...newStatLine(), ...d.careerStats }; records = d.records; career = d.career;
-    roster = d.roster || newRoster(); // saves from before the roster existed get a fresh one
+    roster = d.roster ? ensureRoster(d.roster) : newRoster(); // saves from before the roster existed get a fresh one
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
@@ -1161,6 +1259,37 @@ function finishChallenge() {
 }
 
 function closeInfoScreen(id) { document.getElementById(id).classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); }
+// ROSTER: a card per starter — position, number and name, age, stars, each skill as a bar, and his
+// season and career stat lines
+const SLOT_LABEL = { QB: 'QB', RB: 'RB', WR1: 'WR', WR2: 'WR', SLOT: 'SLOT', TE: 'TE', K: 'K', DL: 'DL', LB: 'LB', CB1: 'CB', CB2: 'CB', S: 'S' };
+function playerLineText(slot, l) {
+    if (slot === 'QB') return `${l.cmp}/${l.att} ${l.pyd} YDS ${l.ptd} TD ${l.pint} INT · ${l.car} CAR ${l.ryd} YDS`;
+    if (slot === 'RB') return `${l.car} CAR ${l.ryd} YDS ${l.rtd} TD · ${l.rec} REC ${l.yds} YDS`;
+    if (slot === 'K') return `FG ${l.fgm}/${l.fga}`;
+    if (DEF_SLOTS.includes(slot)) return `${l.tkl} TKL ${l.sk} SACK ${l.int} INT ${l.ff} FF`;
+    return `${l.rec} REC ${l.yds} YDS ${l.td} TD`;
+}
+const ratingColor = v => v >= 90 ? '#00e5ff' : v >= 80 ? '#00ff88' : v >= 70 ? '#ffcc00' : '#e31837';
+function rosterCardHTML(slot) {
+    const p = roster[slot];
+    const bars = SLOT_RATINGS[slot].map(k => `<div class="rbar"><span>${slot === 'K' && k === 'power' ? 'KICK POWER' : RATING_NAMES[k]}</span>
+        <div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span></div>`).join('');
+    return `<div class="pcard" style="border-color:${MY_TEAM.color === '#101820' ? '#a5acaf' : MY_TEAM.color};">
+        <div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
+        <div class="pcard-age">AGE ${p.age}</div>${bars}
+        <div class="pcard-line">SEASON (${p.season.gp} GP): ${playerLineText(slot, p.season)}</div>
+        <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div></div>`;
+}
+function renderRoster() {
+    const group = (title, slots) => `<div class="roster-group">${title}</div><div class="roster-grid">${slots.map(rosterCardHTML).join('')}</div>`;
+    document.getElementById('roster-team').innerText = `${MY_TEAM.id} ${MY_TEAM.name} · SEASON ${career.seasons}`;
+    document.getElementById('roster-list').innerHTML = group('OFFENSE', ROSTER_SLOTS) + group('SPECIAL TEAMS', ['K']) + group('DEFENSE', DEF_SLOTS);
+}
+function openRoster() {
+    renderRoster();
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('roster-screen').classList.remove('hidden');
+}
 function openSettings() { updateDifficultyButtons(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
 
 // League table; the red line marks the playoff cut (top 8)
@@ -1186,14 +1315,8 @@ function openStats() {
         line('PASSING', `${s.comp}/${s.att} · ${s.passYds} YDS · ${s.passTD} TD · ${s.int} INT`) +
         line('RUSHING', `${s.rushAtt} CAR · ${s.rushYds} YDS · ${s.rushTD} TD`) +
         line('SACKED', s.sacks) + line('FIELD GOALS', `${s.fgMade}/${s.fgAtt}`) + line('LONGEST PLAY', `${s.long} YDS`);
-    const rosterRows = roster ? ROSTER_SLOTS.map(slot => {
-        const p = roster[slot];
-        const ratings = SLOT_RATINGS[slot].map(k => `${k.slice(0, 3).toUpperCase()} ${p[k]}`).join(' ');
-        const seasonLine = ['QB', 'RB'].includes(slot) ? '' : ` · ${p.season.rec} REC ${p.season.yds} YDS ${p.season.td} TD`;
-        return line(`#${p.num} ${p.name} (${slot})`, `${ratings}${seasonLine}`);
-    }).join('') : '';
     document.getElementById('stats-list').innerHTML =
-        `<div class="stats-head">ROSTER</div>` + rosterRows +
+        // (your players' ratings and stat lines are on the ROSTER screen)
         block(`SEASON ${career.seasons}`, seasonStats) +
         block('CAREER', careerStats) +
         `<div class="stats-head">SINGLE-GAME RECORDS</div>` +
@@ -1582,10 +1705,10 @@ function teamRoster(teamId) {
 
 // Name on a player's back. Your team ('offense' side is always you): your skill players' names from
 // the save's roster, then the real Eagles names when you're the Eagles, else your team's generated roster.
-function slotRole(slot) { return { QB: 'QB', RB: 'RB', TE: 'TE' }[slot] || 'WR'; }
+function slotRole(slot) { return SLOT_ROLE[slot]; }
 function jerseyName(team, role, number) {
     if (team === 'offense') {
-        const slot = roster && ROSTER_SLOTS.find(s => roster[s] && String(roster[s].num) === String(number) && slotRole(s) === role);
+        const slot = roster && ALL_SLOTS.find(s => roster[s] && String(roster[s].num) === String(number) && slotRole(s) === role);
         if (slot) return roster[slot].name;
         if (MY_TEAM.id === 'PHI') return PLAYER_NAME_MAP[role + number] || '';
         return teamRoster(MY_TEAM.id).names[role + number] || '';
@@ -2945,7 +3068,7 @@ class Player {
                     if (this.group.position.z < lineOfScrimmageZ) {
                         activeReceiver = this; GAME_STATE = 'POST_CATCH'; targetedReceiver = null;
                         attachBallToCarrier(this);
-                        if (playStat && !playStat.thrown) playStat.kind = 'run'; // scramble counts as a rush
+                        if (playStat && !playStat.thrown) { playStat.kind = 'run'; playStat.rusher = 'QB'; } // scramble counts as a rush
                         brainNoteScramble();
                         document.getElementById('instructions').innerText = "QB SCRAMBLE! (SHIFT TO SPRINT)"; document.getElementById('instructions').classList.remove('hidden');
                         document.getElementById('stamina-bar').classList.remove('hidden');
@@ -3023,7 +3146,7 @@ class Player {
                     // Never aim past the back of the end zone or out of bounds (he'd run in place against it)
                     let target = this.route[this.routeIndex].clone(); target.z = Math.max(target.z, -116); target.x = THREE.MathUtils.clamp(target.x, -SIDELINE_X + 3, SIDELINE_X - 3);
                     let dir = new THREE.Vector3().subVectors(target, this.group.position); dir.y = 0;
-                    if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8; }); } }
+                    if (dir.length() < 0.5) { this.routeIndex++; if(this.routeIndex < this.route.length) { this.cutBurstTimer = 1.5; players.defense.forEach(d => { if (d.targetPlayer === this) d.stunTimer = 0.8 * (this.rating && this.rating.routes ? routeFactor(this.rating.routes) : 1); }); } }
                     else {
                         dir.normalize();
                         this.group.position.addScaledVector(dir, actualPlayerSpeed * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed;
@@ -3248,7 +3371,7 @@ class Player {
             const ladderGrace = hookLadder && ((hookLadder.catcher === this && hookLadder.phase === 'trail' && hookLadder.t < 0.45) || (hookLadder.trailer === this && hookLadder.phase === 'pitch'));   // nobody tackles the trailer while the pitch is in the air
             if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN' && !ladderGrace) { // no tackles during TD celebration or in end zone
                 players.defense.forEach(d => {
-                    if(d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
+                    if (!(d.brokeUntil > performance.now()) && d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
                         if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
                             if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
                         } else if (GAME_STATE === 'POST_CATCH' && !d.engagedNow && cpuHitStickFromFront(this, d)) {
@@ -3257,6 +3380,10 @@ class Player {
                             const dir = this.group.position.clone().sub(d.group.position).setY(0).normalize();
                             if (Math.random() < 0.1) { popHelmet(this, dir); triggerTackle(this, d, "HIT STICK! FUMBLE! LOST BALL."); }
                             else triggerTackle(this, d, "HIT STICK! TACKLED");
+                        } else if (GAME_STATE === 'POST_CATCH' && this.rating && this.rating.power && Math.random() < breakChance(this.rating.power)) {
+                            // A back with power runs through it: the would-be tackler bounces off
+                            d.brokeUntil = performance.now() + 900; d.stunTimer = 1.1; this.cutBurstTimer = 0.8;
+                            sfxHit(0.7); flashBanner('BROKE THE TACKLE!', 900);
                         } else triggerTackle(this, d, "TACKLED");
                     }
                 });
@@ -4487,7 +4614,7 @@ function snapBall() {
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
-    playStat = isTwoPointAttempt ? null : { kind: isRunPlay ? 'run' : 'pass', los: lineOfScrimmageZ, thrown: false, completed: false };
+    playStat = isTwoPointAttempt ? null : { kind: isRunPlay ? 'run' : 'pass', los: lineOfScrimmageZ, thrown: false, completed: false, rusher: currentPlay === 'sneak' ? 'QB' : 'RB' };
     while(routeLinesGroup.children.length > 0) routeLinesGroup.remove(routeLinesGroup.children[0]);
 
     // Assign each DL a unique rush lane, speed, and stagger delay every snap
@@ -4812,7 +4939,7 @@ function onMouseDown(e) {
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
         if (targetedReceiver) startHookLadder(targetedReceiver);   // the trailer breaks on the throw
         qb.throwTimer = 0.55; // trigger throw animation
-        if (playStat) { playStat.thrown = true; gameStats.att++; }
+        if (playStat) { playStat.thrown = true; gameStats.att++; creditPlayer('QB', 'att'); }
         brainNoteThrow(qb, passTarget, targetedReceiver); // the defense remembers where and to whom
     }
 }
@@ -5086,7 +5213,7 @@ function updateBallPhysics(dt) {
             }
             if (dist < interceptRange && Math.abs((p.group.position.y + 1.5) - ball.position.y) < 2.0) {
                 attachBallToCarrier(p); // defender carries the ball in tucked position
-                targetedReceiver = null; triggerBoo(); if (playStat) gameStats.int++;
+                targetedReceiver = null; triggerBoo(); if (playStat) { gameStats.int++; creditPlayer('QB', 'pint'); }
                 if (isTwoPointAttempt) handlePlayResult("INTERCEPTED", p.group.position.z);
                 else startIntReturn(p); // he tries to take it back
             }
@@ -5106,8 +5233,10 @@ function updateBallPhysics(dt) {
 // nothing at 65+ yards. Difficulty widens (easy) or narrows (hard) it.
 function kickGreenWidth(yards) {
     if (yards >= 65) return 0;
+    yards *= 1 - (rosterRating('K', 'power') - 75) / 300;   // a big leg plays a long kick like a shorter one
     const u = THREE.MathUtils.clamp((65 - yards) / 47, 0, 1);
-    return Math.min(0.6, 0.42 * Math.pow(u, 0.9) * diff().kickZone * weatherKickFactor());
+    const acc = 0.8 + (rosterRating('K', 'accuracy') - 55) / 110;   // and an accurate one gets a wider green zone
+    return Math.min(0.6, 0.42 * Math.pow(u, 0.9) * diff().kickZone * weatherKickFactor() * acc);
 }
 
 // Did the meter stop inside the green zone? (indicator is 10px of a 440px bar, drawn at pos·96%)
@@ -5246,7 +5375,7 @@ function startKickAnim(isGood, spotZ, isFieldGoal) {
     xpAnimHolder.group.rotation.y = Math.PI;
 
     // Kicker lines up a few steps back
-    xpAnimKicker = new Player(-1, kickSpotZ + 7, 'offense', 'QB', '3', isUserHome, currentOpponent);
+    xpAnimKicker = new Player(-1, kickSpotZ + 7, 'offense', 'K', String(roster ? roster.K.num : 3), isUserHome, currentOpponent);
     xpAnimKicker.group.rotation.y = Math.PI;
     buildKickUnits(kickSpotZ);   // both units on the field
 
@@ -5261,7 +5390,7 @@ function startKickAnim(isGood, spotZ, isFieldGoal) {
 // opponent takes over at the spot of the kick, but no worse than their own 20.
 function finishFieldGoal(good) {
     document.getElementById('instructions').classList.add('hidden');
-    gameStats.fgAtt++; if (good) gameStats.fgMade++;
+    gameStats.fgAtt++; if (good) gameStats.fgMade++; creditPlayer('K', 'fga'); if (good) creditPlayer('K', 'fgm');
     if (good && currentQuarter === OT_QUARTER) { endOvertimeWith(`FIELD GOAL!\n${MY_TEAM.id} WINS IN OVERTIME!`); return; }
     if (good) { finalizeTouchdown(); return; }
     if (pendingQuarterEnd) { _triggerQuarterTransition(); return; }
@@ -5977,9 +6106,11 @@ let droneSimPlay = null; // the play being acted out, see startDronePlay
 
 function buildDroneTeams(L) {
     droneSimPlayers.forEach(p => scene.remove(p.group));
-    const seen = {};  // their offense in their own numbers; your defense in the Eagles' (so the names match)
+    const seen = {};  // their offense in their own numbers; your defense in yours (your starters from the roster, so the names match)
     const off = DRONE_OFFENSE.map(([role]) => new Player(0, L, 'defense', role, oppNum(role, (seen[role] = (seen[role] ?? -1) + 1), 0), isUserHome, currentOpponent));
-    const def = DRONE_DEFENSE.map(([role], i) => new Player(0, L, 'offense', role, myNum(role, DRONE_DEFENSE.slice(0, i).filter(([r]) => r === role).length, [94, 98, 99, 91, 55, 58, 50, 7, 21, 6, 28][i]), isUserHome, currentOpponent));
+    const starter = i => { const s = DEF_SLOTS.find(s => DEF_SLOT_SPOT[s] === i); return s && roster ? String(roster[s].num) : null; };
+    const def = DRONE_DEFENSE.map(([role], i) => new Player(0, L, 'offense', role, starter(i) || myNum(role, DRONE_DEFENSE.slice(0, i).filter(([r]) => r === role).length, [94, 98, 99, 91, 55, 58, 50, 7, 21, 6, 28][i]), isUserHome, currentOpponent));
+    applyRosterToDefense(def);
     droneSimPlayers = [...off, ...def];
     placeDroneFormation(L);
 }
@@ -6248,7 +6379,7 @@ function resolveHitStick(P, contact) {
         P.carrier = null; P.loose = { t: 0 }; updateDefHints(null);
         // Both of you go down; you pop back up to chase the loose ball
         startTackleFall(c, ctrl, () => { startRise(ctrl, ctrl.group.position.z + 10); startRise(c, c.group.position.z - 10); });
-        gameStats.ff = (gameStats.ff || 0) + 1;
+        gameStats.ff = (gameStats.ff || 0) + 1; creditPlayer(ctrl.rosterSlot, 'ff');
         flashBanner('HIT STICK! FUMBLE!', 1500);
         return;
     }
@@ -6390,6 +6521,9 @@ function startLiveDefensePlay(down, toGo, onDone) {
     def.forEach(d => {
         d.dShed = (0.6 + Math.random() * 1.4) * ddiff().aiBlock; d.dRead = 0.25 + Math.random() * 0.35; d.dHeld = false; // dShed: how long your teammates stay blocked
         d.userShed = (0.5 + Math.random() * 0.6) * ddiff().block; // how long a block holds you if you're controlling him
+        // Your starters' ratings: a pass rusher gets off blocks sooner, a cover man reads routes quicker
+        if (d.rating && d.rating.rush) { d.dShed *= rushFactor(d.rating.rush); d.userShed *= rushFactor(d.rating.rush); }
+        if (d.rating && d.rating.cover) d.dRead *= coverFactor(d.rating.cover);
     });
     dp = { kind, play, L, off, def, qb: off[0], rb: off[1], carrier: null, phase: 'presnap', t: 0, onDone, offSkill, side: rbSide,
            holeX: [-3.6, -1.2, 1.2, 3.6][Math.floor(Math.random() * 4)], thrown: false, target: null, nextRead: 1.0, ended: false };
@@ -6657,13 +6791,14 @@ function updateDefensePlay(dt) {
     // ── Tackles, sacks, sideline, end zone ──
     if (c && !P.ended && !isFalling(c)) {
         // Your reach is a touch longer than the AI's on ball carriers, but not on the QB
-        const reach = d => d === ctrl && c !== qb ? 1.6 : 1.45;
+        const reach = d => (d === ctrl && c !== qb ? 1.6 : 1.45) * (d.rating && d.rating.tackle ? tackleFactor(d.rating.tackle) : 1);
         // (easy: your teammates can't sack him before he's had his 3 seconds after you were shown his target — you still can)
         const holdsForHint = d => P.planned && !P.thrown && c === qb && d !== ctrl && t < 3.25; // (his throw check comes every 0.15 s)
         const tackler = P.def.find(d => !isFalling(d) && !d.dHeld && !(d.hitStun > 0) && !(d === ctrl && P.hitStick) && !holdsForHint(d) && d.group.position.distanceTo(c.group.position) < reach(d));
         if (tackler) {
             const mine = tackler === ctrl, sack = c === qb && !P.thrown && P.kind === 'pass';
             if (mine) { if (sack) gameStats.defSacks++; else gameStats.tkl++; }
+            creditPlayer(tackler.rosterSlot, sack ? 'sk' : 'tkl');   // your starters' own stat lines (theirs too when a teammate makes it)
             if (sack) { document.getElementById('instructions').innerText = mine ? 'SACK BY YOU!' : 'SACKED!'; document.getElementById('instructions').classList.remove('hidden'); triggerCheer(); }
             startTackleFall(c, tackler, () => setTimeout(() => startRise(tackler, tackler.group.position.z + 10), Math.random() * 700)); // the tackler gets back up (in his own time)
             const downZ = () => c.group.position.z;
@@ -6733,7 +6868,7 @@ function updatePickRings(P) {
     const ctrl = P.ctrl, remain = P.arriveAt - P.t;
     if (!P.ring && ctrl && !isFalling(ctrl) && remain < 1.0 && remain > 0.2 &&
         Math.hypot(ctrl.group.position.x - P.catchPt.x, ctrl.group.position.z - P.catchPt.z) < 4.5) {
-        P.ring = { start: remain, done: false, win: ddiff().pickWindow };
+        P.ring = { start: remain, done: false, win: ddiff().pickWindow * (ctrl.rating && ctrl.rating.hands ? ballHawk(ctrl.rating.hands) : 1) };   // ball hawks get a bigger window
         document.getElementById('instructions').innerText = 'F WHEN THE RINGS MEET!';
         document.getElementById('instructions').classList.remove('hidden');
     }
@@ -6753,7 +6888,7 @@ function tryPickTiming() {
         // Dead on: he jumps the route and takes it
         ctrl.group.position.set(ball.position.x, 0, ball.position.z);
         ball.velocity = null;
-        gameStats.defInt++; triggerCheer(); sfxCatch();
+        gameStats.defInt++; creditPlayer(ctrl.rosterSlot, 'int'); triggerCheer(); sfxCatch();
         flashBanner('INTERCEPTED BY YOU!', 1400);
         startDefReturn(P, ctrl, 'INTERCEPTED BY YOU!');
     } else if (near && miss <= P.ring.win * 2.2) {
@@ -7289,7 +7424,7 @@ function simFieldGoal(asTimeExpires) {
     const dist = Math.round((simDrive.z + 100) / 2) + 17;
     const good = Math.random() < (dist < 30 ? 0.97 : dist < 40 ? 0.9 : dist < 50 ? 0.78 : 0.6);
     if (good) addScore(t.side, 3);
-    if (t.isOff) { gameStats.fgAtt++; if (good) gameStats.fgMade++; }
+    if (t.isOff) { gameStats.fgAtt++; if (good) gameStats.fgMade++; creditPlayer('K', 'fga'); if (good) creditPlayer('K', 'fgm'); }
     simLog(`${simStamp()} <span class="${t.cls}">${t.off}</span> — ${dist}-yd field goal is ${good ? 'GOOD! +3' : 'NO GOOD.'} ${simScoreStr()}`);
     // Make → kickoff to the other team's 25; miss → their ball at the spot of the kick, no worse than their 20
     if (!asTimeExpires) simChangePossession(t.other, good ? 50 : Math.min(60, -(simDrive.z + 14)));
@@ -7427,7 +7562,7 @@ function stopSim(forceEnd = false) {
 }
 
 // ─── STATS ───────────────────────────────────────────────────────────────────
-function statCatch(p) { sfxCatch(); if (playStat && !playStat.completed) { playStat.completed = true; playStat.receiver = p && p.rosterSlot; gameStats.comp++; } }
+function statCatch(p) { sfxCatch(); if (playStat && !playStat.completed) { playStat.completed = true; playStat.receiver = p && p.rosterSlot; gameStats.comp++; creditPlayer('QB', 'cmp'); } }
 
 // Credit the yards of the play that just ended (endZ = where it was down, td = it scored)
 function finishPlayStat(endZ, td) {
@@ -7436,9 +7571,13 @@ function finishPlayStat(endZ, td) {
     const yds = Math.round((s.los - endZ) / 2);
     if (s.kind === 'pass' && s.completed) {
         gameStats.passYds += yds; if (td) gameStats.passTD++;
+        creditPlayer('QB', 'pyd', yds); if (td) creditPlayer('QB', 'ptd');
         if (s.receiver) creditReceiver(s.receiver, yds, td);
     }
-    else if (s.kind === 'run') { gameStats.rushAtt++; gameStats.rushYds += yds; if (td) gameStats.rushTD++; }
+    else if (s.kind === 'run') {
+        gameStats.rushAtt++; gameStats.rushYds += yds; if (td) gameStats.rushTD++;
+        const who = s.rusher || 'RB'; creditPlayer(who, 'car'); creditPlayer(who, 'ryd', yds); if (td) creditPlayer(who, 'rtd');
+    }
     else return;
     gameStats.long = Math.max(gameStats.long, yds);
 }
@@ -7448,20 +7587,25 @@ function creditReceiver(slot, yds, td) {
     const by = gameStats.byReceiver || (gameStats.byReceiver = {});
     const r = by[slot] || (by[slot] = { rec: 0, yds: 0, td: 0 });
     r.rec++; r.yds += yds; if (td) r.td++;
+    creditPlayer(slot, 'rec'); creditPlayer(slot, 'yds', yds); if (td) creditPlayer(slot, 'td');
 }
 
 // Same bookkeeping for your team's plays in SIM GAME
 function recordSimPlay(play, td) {
     const d = play.desc, s = gameStats;
     if (d.includes('sacked')) s.sacks++;
-    else if (d.includes('INTERCEPT')) { s.att++; s.int++; }
-    else if (d.includes('incomplete')) s.att++;
+    else if (d.includes('INTERCEPT')) { s.att++; s.int++; creditPlayer('QB', 'att'); creditPlayer('QB', 'pint'); }
+    else if (d.includes('incomplete')) { s.att++; creditPlayer('QB', 'att'); }
     else if (d.includes('Pass complete')) {
         s.att++; s.comp++; s.passYds += play.yards; if (td) s.passTD++; s.long = Math.max(s.long, play.yards);
+        creditPlayer('QB', 'att'); creditPlayer('QB', 'cmp'); creditPlayer('QB', 'pyd', play.yards); if (td) creditPlayer('QB', 'ptd');
         const r = Math.random(); // spread the catches around the receivers
         creditReceiver(r < 0.32 ? 'WR1' : r < 0.6 ? 'WR2' : r < 0.82 ? 'SLOT' : 'TE', play.yards, td);
     }
-    else if (!play.turnover) { s.rushAtt++; s.rushYds += play.yards; if (td) s.rushTD++; s.long = Math.max(s.long, play.yards); }
+    else if (!play.turnover) {
+        s.rushAtt++; s.rushYds += play.yards; if (td) s.rushTD++; s.long = Math.max(s.long, play.yards);
+        creditPlayer('RB', 'car'); creditPlayer('RB', 'ryd', play.yards); if (td) creditPlayer('RB', 'rtd');
+    }
 }
 
 const statSummary = s => `PASS ${s.comp}/${s.att} ${s.passYds} YDS ${s.passTD} TD ${s.int} INT  ·  RUSH ${s.rushAtt}-${s.rushYds} ${s.rushTD} TD` +
@@ -7473,8 +7617,10 @@ function finalizeGameStats() {
     [seasonStats, careerStats].forEach(t => Object.keys(t).forEach(k => {
         t[k] = k === 'long' ? Math.max(t[k], gameStats[k]) : t[k] + gameStats[k];
     }));
-    if (roster && gameStats.byReceiver) Object.entries(gameStats.byReceiver).forEach(([slot, g]) => {
-        const s = roster[slot].season; s.rec += g.rec; s.yds += g.yds; s.td += g.td;
+    // Each starter's line for this game goes into his season and career (everyone gets the game played)
+    if (roster) ALL_SLOTS.forEach(slot => {
+        const g = (gameStats.byPlayer || {})[slot], p = roster[slot];
+        [p.season, p.career].forEach(t => { t.gp++; if (g) Object.keys(g).forEach(k => { if (k !== 'gp') t[k] += g[k]; }); });
     });
     developPlayers();
     lastNewRecords = [];
