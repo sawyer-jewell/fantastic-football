@@ -69,6 +69,9 @@
         .rbar-fill { height: 100%; background: linear-gradient(90deg, #e31837, #ffcc00 50%, #00ff88); }
         .pcard-line { color: #00ff88; margin-top: 6px; }
         .pcard-career { color: #8ab; }
+        .pbackup { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed #345; color: #9ab; font-size: 0.5rem; }
+        .pbackup .pcard-stars { font-size: 0.55rem; }
+        .inj { color: #ff5a6e; }
         .draft-pick { font-size: 0.6rem; padding: 8px 12px; margin-top: 8px; width: 100%; background: #34a853; }
         #draft-team { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: min(1000px, 96vw); margin-bottom: 10px; }
         .dteam { font-size: 0.45rem; padding: 4px 6px; border: 2px solid #444; background: rgba(0,20,40,0.9); color: #aaa; white-space: nowrap; }
@@ -382,6 +385,13 @@
             <div id="roster-team" class="stats-head" style="margin-bottom:6px;"></div>
             <div id="roster-list"></div>
             <button class="btn-retro" onclick="closeInfoScreen('roster-screen')">BACK TO MENU</button>
+        </div>
+
+        <!-- The offseason: awards, re-signing, free agency (the rookie draft has its own screen) -->
+        <div id="offseason-screen" class="menu hidden">
+            <h1 id="off-title" style="font-size:1.8rem;">OFFSEASON</h1>
+            <div id="off-body" style="display:flex; flex-direction:column; align-items:center;"></div>
+            <div id="off-buttons" style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;"></div>
         </div>
 
         <!-- The draft: starting draft for a new save, rookie draft every offseason -->
@@ -732,6 +742,11 @@ let flagMeshes = [];    // yellow flags lying on the field
 let roster = null;
 let lastLevelUps = []; // rating gains from the game that just ended
 let credits = 0;       // coaching credits to spend on upgrades (part of the save), see awardCredits
+let bench = null;      // a backup at every roster spot (slot → player), see ensureFranchise
+let hallOfFame = [];   // retired greats: { name, slot, seasons, line, stars }
+let awardHistory = []; // { season, mvp, opoy, dpoy, roty, proBowl: [names] }
+const SALARY_CAP = 100; // $M for all 24 players
+const BENCH_RESERVE = 18; // $M the starting draft leaves for the twelve backups
 const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
 const DEF_SLOTS = ['DL', 'LB', 'CB1', 'CB2', 'S'];               // your defensive starters
 const ALL_SLOTS = [...ROSTER_SLOTS, 'K', ...DEF_SLOTS];
@@ -1145,13 +1160,13 @@ function developPlayers() {
 // Offseason: everyone a year older; young players develop a little, 30-somethings start to slip
 // (faster past 33); season stat lines reset
 function offseasonDevelopment() {
-    ALL_SLOTS.forEach(slot => {
-        const p = roster[slot];
+    ALL_SLOTS.forEach(slot => [roster[slot], bench && bench[slot]].filter(Boolean).forEach(p => {   // starters and backups
         p.age++;
         const change = () => p.age <= 27 ? Math.floor(Math.random() * 3) : p.age >= 33 ? -(1 + Math.floor(Math.random() * 3)) : p.age >= 30 ? -Math.floor(Math.random() * 3) : 0;
         SLOT_RATINGS[slot].forEach(k => { p[k] = Math.max(45, Math.min(99, p[k] + change())); });
         p.season = newPlayerLine();
-    });
+    }));
+    if (bench) retirements();   // then the old-timers hang it up (see FRANCHISE)
 }
 
 // ─── THE DRAFT ───────────────────────────────────────────────────────────────
@@ -1220,6 +1235,10 @@ function renderDraft() {
     document.getElementById('draft-sub').innerText = D.kind === 'start'
         ? `ROUND ${D.round + 1} OF ${D.rounds} · PICK YOUR ${SLOT_LABEL[ALL_SLOTS[D.round]]}`
         : `ROUND ${D.round + 1} · PICK #${D.round * allTeams().length + D.pick} OVERALL · TAKE ONE OR PASS`;
+    // Starting draft: everyone you pick has a salary, and the team has to fit under the cap (with room
+    // left for the backups); picks you can't afford are greyed out
+    const startCap = i => ALL_SLOTS.reduce((s, sl, k) => s + (k === D.round && i != null ? salaryFor(D.board[i].p, sl) : salaryFor(roster[sl], sl)), 0) + BENCH_RESERVE;
+    if (D.kind === 'start') document.getElementById('draft-sub').innerText += ` · CAP ${money(startCap(null))} / ${money(SALARY_CAP)}`;
     document.getElementById('draft-board').innerHTML = D.board.map((pr, i) => {
         const p = pr.p, slot = pr.slot, cur = roster[slot];
         const bars = SLOT_RATINGS[slot].map(k => {
@@ -1229,10 +1248,12 @@ function renderDraft() {
         }).join('');
         const stars = pr.hidden.length ? '?' : starsText(starRating(p, slot));
         const note = pr.own ? `YOUR ${MY_TEAM.name}` : pr.tag || '';
-        const vs = D.kind === 'rookie' ? `<div class="pcard-career">REPLACES #${cur.num} ${cur.name} ${starsText(starRating(cur, slot))} (AGE ${cur.age})</div>` : '';
+        const vs = D.kind === 'rookie' ? `<div class="pcard-career">TAKES THE JOB FROM #${cur.num} ${cur.name} ${starsText(starRating(cur, slot))} (AGE ${cur.age}), WHO BECOMES THE BACKUP</div>` : '';
         return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos ${slot === 'K' ? 'pos-st' : DEF_SLOTS.includes(slot) ? 'pos-def' : 'pos-off'}">${SLOT_LABEL[slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${stars}</span></div>
             <div class="pcard-age">AGE ${p.age}${note ? ' · ' + note : ''}</div>${bars}${vs}
-            <button class="btn-retro draft-pick" onclick="draftPick(${i})">${D.kind === 'start' && pr.own ? 'KEEP HIM' : 'DRAFT HIM'}</button></div>`;
+            ${D.kind === 'start' ? `<div class="pcard-career">${money(salaryFor(p, slot))} A YEAR</div>` : ''}
+            ${D.kind === 'start' && startCap(i) > SALARY_CAP ? '<button class="btn-retro draft-pick" disabled style="background:#333;">OVER THE CAP</button>'
+              : `<button class="btn-retro draft-pick" onclick="draftPick(${i})">${D.kind === 'start' && pr.own ? 'KEEP HIM' : 'DRAFT HIM'}</button>`}</div>`;
     }).join('');
     document.getElementById('draft-pass').classList.toggle('hidden', D.kind === 'start');
     // Your whole team across the top: done spots checked, this round's spot lit, new rookies marked
@@ -1248,7 +1269,11 @@ function draftPick(i) {
     const pr = draft.board[i];
     if (!pr.own) {
         const old = roster[pr.slot];
-        pr.p.num = old.num;   // he takes the number of the man he replaces
+        // He starts; the man he replaces becomes the backup (and the old backup is released)
+        if (!bench) bench = {};
+        pr.p.num = draft.kind === 'start' ? old.num : freeNumber(pr.slot);
+        if (draft.kind === 'rookie') { giveContract(pr.p, pr.slot, true); pr.p.rookieYear = career.seasons + 1; }
+        bench[pr.slot] = old;
         roster[pr.slot] = pr.p; draft.picked.add(pr.slot);
         flashBanner(`${pr.p.name} · ${SLOT_LABEL[pr.slot]}${pr.hidden.length ? ` · ${RATING_NAMES[pr.hidden[0]]} ${pr.p[pr.hidden[0]]}` : ''}`, 1600);
     }
@@ -1263,6 +1288,281 @@ function finishDraft() {
     document.getElementById('draft-screen').classList.add('hidden');
     D.onDone();
 }
+
+// ─── FRANCHISE: CONTRACTS, BACKUPS, INJURIES, AWARDS ─────────────────────────
+// Every spot has a starter (roster) and a backup (bench). Everyone has a contract: a salary in $M,
+// set by how good he is, and the years left. The 24 salaries together have to fit under the cap
+// (SALARY_CAP). Starters get hurt now and then (out for a few weeks): his backup starts until
+// he's healthy, and then whichever of them is better gets the job back. In the offseason:
+//   AWARDS → RE-SIGN (expiring contracts: pay him or let him go) → ROOKIE DRAFT → FREE AGENCY,
+// then everyone ages, and the old-timers retire (the great ones into the Hall of Fame).
+
+const ROLE_NUMBERS = { QB: [1, 19], RB: [20, 49], WR: [10, 19, 80, 89], TE: [80, 89, 40, 49], K: [1, 19], DL: [90, 99, 50, 79], LB: [40, 59], CB: [20, 39], FS: [20, 49] };
+function freeNumber(slot) {
+    const used = new Set(ALL_SLOTS.flatMap(s => [roster[s] && roster[s].num, bench && bench[s] && bench[s].num]).filter(Boolean).map(Number));
+    const r = ROLE_NUMBERS[SLOT_ROLE[slot]];
+    for (let tries = 0; tries < 60; tries++) {
+        const k = Math.floor(Math.random() * (r.length / 2)) * 2, n = r[k] + Math.floor(Math.random() * (r[k + 1] - r[k] + 1));
+        if (!used.has(n)) return n;
+    }
+    for (let n = 1; n < 100; n++) if (!used.has(n)) return n;
+    return 99;
+}
+// A new player at slot: ratings around base, age in [a0, a1]
+function genPlayer(slot, base, a0, a1) {
+    const first = ['J.', 'M.', 'D.', 'A.', 'T.', 'C.', 'K.', 'R.', 'B.', 'L.', 'S.', 'N.', 'E.', 'Z.'];
+    const taken = new Set(ALL_SLOTS.flatMap(s => [roster[s] && roster[s].name, bench && bench[s] && bench[s].name]));
+    let name;
+    do { name = `${first[Math.floor(Math.random() * first.length)]} ${LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)]}`; } while (taken.has(name));
+    const p = { name, num: freeNumber(slot), age: a0 + Math.floor(Math.random() * (a1 - a0 + 1)), xp: 0, season: newPlayerLine(), career: newPlayerLine() };
+    SLOT_RATINGS[slot].forEach(k => { p[k] = Math.max(48, Math.min(97, Math.round(base + (Math.random() - 0.5) * 14))); });
+    return p;
+}
+
+// What he's worth a year: 1★ ≈ $1M, 3★ ≈ $4M, 5★ ≈ $10.6M; a bit less past 31
+function salaryFor(p, slot) {
+    const s = starRating(p, slot);
+    return Math.round((0.6 + 0.4 * s * s) * (p.age > 31 ? 0.8 : 1) * 10) / 10;
+}
+function giveContract(p, slot, rookie) {
+    p.salary = rookie ? Math.round((0.8 + Math.random() * 0.7) * 10) / 10 : salaryFor(p, slot);
+    p.years = rookie ? 3 : 1 + Math.floor(Math.random() * 4);
+}
+function capUsed() { return Math.round(ALL_SLOTS.reduce((s, k) => s + (roster[k].salary || 0) + (bench[k] ? bench[k].salary || 0 : 0), 0) * 10) / 10; }
+const money = v => `$${v.toFixed(1)}M`;
+
+// Every save: a backup at each spot, a contract for everyone, the fields injuries and awards use
+function ensureFranchise() {
+    if (!bench) bench = {};
+    ALL_SLOTS.forEach(slot => {
+        if (!bench[slot]) bench[slot] = genPlayer(slot, 62, 22, 29);
+        [roster[slot], bench[slot]].forEach(p => {
+            if (p.salary == null) giveContract(p, slot, false);
+            if (p.injury == null) p.injury = 0;
+            if (p.peak == null) p.peak = starRating(p, slot);
+            if (p.awards == null) p.awards = 0;
+            p.season = { ...newPlayerLine(), ...(p.season || {}) };
+            p.career = { ...newPlayerLine(), ...(p.career || {}) };
+        });
+    });
+    // Over the cap (an old save, a big draft)? The backups take less until it fits
+    let guard = 0;
+    while (capUsed() > SALARY_CAP && guard++ < 40) {
+        const s = ALL_SLOTS.filter(k => bench[k].salary > 0.8).sort((a, b) => bench[b].salary - bench[a].salary)[0];
+        if (!s) break;
+        bench[s].salary = Math.max(0.8, Math.round((bench[s].salary - 0.5) * 10) / 10);
+    }
+}
+
+// Swap a starter and his backup (also the ROSTER screen's SWAP button)
+function swapStarter(slot, quiet) {
+    const a = roster[slot], b = bench[slot];
+    if (!b || b.injury > 0) { if (!quiet) flashBanner(`${b ? b.name : 'NOBODY'} IS HURT`, 900); return false; }
+    roster[slot] = b; bench[slot] = a;
+    if (!quiet) { saveSeason(); renderRoster(); }
+    return true;
+}
+
+// ─── Injuries ───
+// A carrier you tackle, a man who makes a tackle: now and then he's hurt for 1–6 weeks
+function maybeInjure(slot, chance) {
+    if (!slot || !roster || challengeMode || Math.random() >= chance) return;
+    const p = roster[slot];
+    if (p.injury > 0) return;
+    const weeks = 1 + Math.floor(Math.pow(Math.random(), 1.8) * 6);
+    p.injury = weeks;
+    // What he did before he got hurt stays his (the rest of the game goes to his backup)
+    const g = gameStats.byPlayer && gameStats.byPlayer[slot];
+    if (g) { [p.season, p.career].forEach(t => { t.gp++; Object.keys(g).forEach(k => { if (k !== 'gp') t[k] += g[k]; }); }); delete gameStats.byPlayer[slot]; }
+    gameInjuries.push(`${p.name} (${SLOT_LABEL[slot]}) ${weeks} WK`);
+    flashBanner(`INJURY: ${p.name} OUT ${weeks} ${weeks === 1 ? 'WEEK' : 'WEEKS'}`, 2200);
+    swapStarter(slot, true);   // his backup's in
+    bench[slot].wasStarter = true;   // he gets the job back when he's healthy (if he's still the better man)
+}
+let gameInjuries = [];   // who got hurt in the game being played (for the box score)
+
+// After every week: everyone heals a week, and a healthy starter who's better than his fill-in gets his job back
+function weekPassed() {
+    if (!roster || !bench) return;
+    const back = [];
+    ALL_SLOTS.forEach(slot => {
+        [roster[slot], bench[slot]].forEach(p => { if (p.injury > 0) p.injury--; });
+        const st = roster[slot], bk = bench[slot];
+        if (bk.injury === 0 && st.injury === 0 && bk.wasStarter && starRating(bk, slot) > starRating(st, slot)) {
+            roster[slot] = bk; bench[slot] = st; bk.wasStarter = false; back.push(bk.name);
+        }
+    });
+    if (back.length) flashBanner(`BACK FROM INJURY: ${back.join(', ')}`, 2200);
+}
+// A sim game can hurt someone too
+function simInjuries() { if (Math.random() < 0.18) maybeInjure(ALL_SLOTS[Math.floor(Math.random() * ALL_SLOTS.length)], 1); }
+
+// ─── The offseason ───
+// Awards first (from your players' seasons), then each step in its own screen
+function openOffseason() {
+    // Contracts run down a year; this season's honors
+    ALL_SLOTS.forEach(s => [roster[s], bench[s]].forEach(p => { p.years--; p.peak = Math.max(p.peak || 0, starRating(p, s)); }));
+    const aw = seasonAwards();
+    awardHistory.push(aw);
+    showOffseason('SEASON ' + career.seasons + ' AWARDS', awardsHTML(aw), [['CONTINUE ▶', 'openResign()']]);
+}
+
+function seasonAwards() {
+    const l = (s) => roster[s].season, score = s => {
+        const v = l(s);
+        return v.pyd / 25 + v.ptd * 4 - v.pint * 2 + v.ryd / 10 + v.rtd * 6 + v.yds / 10 + v.td * 6 + v.tkl * 1.2 + v.sk * 5 + v.int * 6 + v.ff * 4 + v.fgm * 2;
+    };
+    const best = slots => slots.slice().sort((a, b) => score(b) - score(a))[0];
+    const winPct = (myRecord.w + myRecord.t / 2) / Math.max(1, myRecord.w + myRecord.l + myRecord.t);
+    const off = best(ROSTER_SLOTS), def = best(DEF_SLOTS), all = best(ALL_SLOTS);
+    const rook = ALL_SLOTS.filter(s => roster[s].rookieYear === career.seasons).sort((a, b) => score(b) - score(a))[0];
+    // Pro Bowl: a big season, or a star who played most of it
+    const pb = ALL_SLOTS.filter(s => {
+        const v = l(s);
+        return v.pyd >= 3500 || v.ptd >= 28 || v.ryd >= 1000 || v.yds >= 900 || v.sk >= 8 || v.int >= 5 || v.tkl >= 80 || v.fgm >= 25 ||
+               (starRating(roster[s], s) >= 4.5 && v.gp >= 10);
+    });
+    const name = s => s ? `${roster[s].name} (${SLOT_LABEL[s]})` : null;
+    const aw = {
+        season: career.seasons,
+        mvp: winPct >= 0.7 && score(all) >= 120 ? name(all) : null,          // league MVP takes a winner and a monster year
+        opoy: score(off) >= 90 ? name(off) : null,
+        dpoy: score(def) >= 70 ? name(def) : null,
+        roty: rook && score(rook) >= 35 ? name(rook) : null,
+        teamMvp: name(all),
+        proBowl: pb.map(name),
+    };
+    // Honors pay: a credit per Pro Bowler, more for the big ones
+    const bonus = pb.length + (aw.mvp ? 5 : 0) + (aw.opoy ? 3 : 0) + (aw.dpoy ? 3 : 0) + (aw.roty ? 2 : 0);
+    credits += bonus; aw.credits = bonus;
+    [aw.mvp, aw.opoy, aw.dpoy, aw.roty, ...aw.proBowl].filter(Boolean).forEach(n => { const s = ALL_SLOTS.find(k => name(k) === n); if (s) roster[s].awards++; });
+    return aw;
+}
+function awardsHTML(aw) {
+    const row = (label, v) => `<div class="schedule-row"><span>${label}</span> <span style="color:${v ? '#ffcc00' : '#667'};">${v || '—'}</span></div>`;
+    return `<div class="panel" style="text-align:left;">` +
+        row('🏆 LEAGUE MVP', aw.mvp) + row('OFFENSIVE PLAYER OF THE YEAR', aw.opoy) + row('DEFENSIVE PLAYER OF THE YEAR', aw.dpoy) +
+        row('ROOKIE OF THE YEAR', aw.roty) + row('TEAM MVP', aw.teamMvp) +
+        `<div class="panel-title" style="margin-top:14px;">PRO BOWL (${aw.proBowl.length})</div>` +
+        `<div style="font-size:0.6rem; line-height:2; margin-top:6px;">${aw.proBowl.length ? aw.proBowl.join(' · ') : 'NOBODY THIS YEAR'}</div>` +
+        `<div class="pcard-line" style="margin-top:12px;">🏈 +${aw.credits} COACHING CREDITS FOR THE HONORS</div></div>`;
+}
+
+// Expiring contracts: what each one wants now; pay him or let him go (his backup steps up, or a
+// cheap young player fills the bench)
+let resignList = [];
+function openResign() {
+    resignList = [];
+    ALL_SLOTS.forEach(slot => ['starter', 'backup'].forEach(kind => {
+        const p = kind === 'starter' ? roster[slot] : bench[slot];
+        if (p.years <= 0) resignList.push({ slot, kind, p, ask: Math.round(salaryFor(p, slot) * (p.season.gp >= 10 ? 1.1 : 1) * 10) / 10, done: false });
+    }));
+    if (!resignList.length) { openOffseasonDraft(); return; }
+    renderResign();
+}
+function renderResign() {
+    const cards = resignList.map((r, i) => {
+        const p = r.p, after = capUsed() - p.salary + r.ask;
+        return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[r.slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${starsText(starRating(p, r.slot))}</span></div>
+            <div class="pcard-age">AGE ${p.age} · ${r.kind === 'starter' ? 'STARTER' : 'BACKUP'} · WAS ${money(p.salary)}</div>
+            <div class="pcard-line">ASKING ${money(r.ask)} A YEAR, 3 YEARS</div>
+            ${r.done ? `<div class="pcard-career">${r.done}</div>` : `<div style="display:flex; gap:6px;">
+              <button class="btn-retro draft-pick" ${after > SALARY_CAP ? 'disabled style="background:#333;"' : ''} onclick="resignPlayer(${i}, true)">RE-SIGN</button>
+              <button class="btn-retro draft-pick" style="background:#7a1c2a;" onclick="resignPlayer(${i}, false)">LET HIM GO</button></div>`}</div>`;
+    }).join('');
+    showOffseason('RE-SIGN YOUR PLAYERS', `<div class="stats-head">CONTRACTS ARE UP · CAP ${money(capUsed())} / ${money(SALARY_CAP)}</div><div class="roster-grid" style="width:min(1000px,96vw);">${cards}</div>`,
+        [['ON TO THE DRAFT ▶', 'finishResign()']]);
+}
+function resignPlayer(i, keep) {
+    const r = resignList[i];
+    if (keep) { r.p.salary = r.ask; r.p.years = 3; r.done = 'RE-SIGNED ✓'; }
+    else {
+        r.done = 'GONE';
+        if (r.kind === 'starter') { roster[r.slot] = bench[r.slot]; bench[r.slot] = genPlayer(r.slot, 60, 22, 24); giveContract(bench[r.slot], r.slot, true); }
+        else { bench[r.slot] = genPlayer(r.slot, 60, 22, 24); giveContract(bench[r.slot], r.slot, true); }
+    }
+    renderResign();
+}
+function finishResign() {
+    // Anyone you didn't decide on walks
+    resignList.forEach((r, i) => { if (!r.done) resignPlayer(i, false); });
+    openOffseasonDraft();
+}
+function openOffseasonDraft() {
+    hideOffseason();
+    openDraft('rookie', () => openFreeAgency());
+}
+
+// Free agency: veterans other teams let go. Sign one and he starts; your starter moves to the
+// bench and your old backup is released
+let faPool = [];
+function openFreeAgency() {
+    faPool = [];
+    for (let i = 0; i < 8; i++) {
+        const slot = ALL_SLOTS[Math.floor(Math.random() * ALL_SLOTS.length)];
+        const p = genPlayer(slot, 70 + Math.random() * 14, 26, 32);
+        giveContract(p, slot, false);
+        faPool.push({ slot, p, signed: false });
+    }
+    renderFreeAgency();
+}
+function renderFreeAgency() {
+    const cards = faPool.map((f, i) => {
+        const p = f.p, cur = roster[f.slot], room = SALARY_CAP - capUsed() + bench[f.slot].salary;
+        const bars = SLOT_RATINGS[f.slot].map(k => `<div class="rbar"><span>${RATING_NAMES[k]}</span><div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span><span></span></div>`).join('');
+        return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[f.slot]}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${starsText(starRating(p, f.slot))}</span></div>
+            <div class="pcard-age">AGE ${p.age} · WANTS ${money(p.salary)} × ${p.years} YRS</div>${bars}
+            <div class="pcard-career">YOUR STARTER: ${cur.name} ${starsText(starRating(cur, f.slot))}</div>
+            ${f.signed ? '<div class="pcard-line">SIGNED ✓</div>' : `<button class="btn-retro draft-pick" ${p.salary > room ? 'disabled style="background:#333;"' : ''} onclick="signFreeAgent(${i})">${p.salary > room ? 'NO CAP ROOM' : 'SIGN HIM'}</button>`}</div>`;
+    }).join('');
+    showOffseason('FREE AGENCY', `<div class="stats-head">CAP ${money(capUsed())} / ${money(SALARY_CAP)}</div><div class="roster-grid" style="width:min(1000px,96vw);">${cards}</div>`,
+        [['START THE NEW SEASON ▶', 'finishOffseason()']]);
+}
+function signFreeAgent(i) {
+    const f = faPool[i];
+    if (f.p.salary > SALARY_CAP - capUsed() + bench[f.slot].salary) return;
+    bench[f.slot] = roster[f.slot]; roster[f.slot] = f.p; f.signed = true;
+    flashBanner(`SIGNED ${f.p.name}`, 1200);
+    renderFreeAgency();
+}
+function finishOffseason() {
+    hideOffseason();
+    startNewSeason();
+    updateMenuUI(); showOnly('main-menu');
+    const hof = hallOfFame.filter(h => h.inducted === career.seasons).map(h => h.name);
+    if (lastRetired.length) flashBanner(`RETIRED: ${lastRetired.join(', ')}${hof.length ? ' · HALL OF FAME: ' + hof.join(', ') : ''}`, 3500);
+}
+
+// Retirement (in the new-season aging): 35+, or 33+ now and then. Great careers go to the Hall of Fame.
+let lastRetired = [];
+function retirements() {
+    const gone = [];
+    ALL_SLOTS.forEach(slot => ['starter', 'backup'].forEach(kind => {
+        const p = kind === 'starter' ? roster[slot] : bench[slot];
+        if (!(p.age >= 35 || (p.age >= 33 && Math.random() < 0.35))) return;
+        gone.push(p.name);
+        const c = p.career;
+        if (c.gp >= 34 && ((p.peak || 0) >= 4.5 || p.awards >= 3 || c.pyd >= 15000 || c.ryd >= 6000 || c.yds >= 6000 || c.sk >= 40 || c.int >= 25)) {
+            hallOfFame.push({ name: p.name, slot, team: MY_TEAM.id, inducted: career.seasons, gp: c.gp, line: playerLineText(slot, c), stars: p.peak, awards: p.awards });
+        }
+        const young = genPlayer(slot, 60, 22, 23); giveContract(young, slot, true);
+        if (kind === 'starter') { roster[slot] = bench[slot]; bench[slot] = young; } else bench[slot] = young;
+    }));
+    lastRetired = gone;
+    return gone;
+}
+
+// The offseason screens share one panel
+function showOffseason(title, html, buttons) {
+    ['main-menu', 'save-select', 'team-select'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    const el = document.getElementById('offseason-screen');
+    el.classList.remove('hidden');
+    document.getElementById('off-title').innerText = title;
+    document.getElementById('off-body').innerHTML = html;
+    document.getElementById('off-buttons').innerHTML = buttons.map(([label, fn]) => `<button class="btn-retro" onclick="${fn}">${label}</button>`).join('');
+    el.scrollTop = 0;
+}
+function hideOffseason() { document.getElementById('offseason-screen').classList.add('hidden'); }
 
 // ─── LEAGUE, PLAYOFFS & SAVING ───────────────────────────────────────────────
 // (Plain function declarations: the season is loaded/created at startup, before this point runs.)
@@ -1340,7 +1640,7 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, credits, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
@@ -1351,6 +1651,8 @@ function applySaveData(d) {
     seasonStats = { ...newStatLine(), ...d.seasonStats }; careerStats = { ...newStatLine(), ...d.careerStats }; records = d.records; career = d.career;
     roster = d.roster ? ensureRoster(d.roster) : newRoster(); // saves from before the roster existed get a fresh one
     credits = d.credits ?? 4;   // older saves start with a few to try it out
+    bench = d.bench || null; hallOfFame = d.hallOfFame || []; awardHistory = d.awardHistory || [];
+    ensureFranchise();   // backups and contracts for saves from before them
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
@@ -1380,7 +1682,7 @@ function startFreshSave() {
     records = { passYds: 0, passTD: 0, rushYds: 0, long: 0 };
     career = { seasons: 1, titles: 0, playoffApps: 0, w: 0, l: 0, t: 0 };
     seasonPhase = 'regular'; playoffs = null;
-    roster = newRoster(); credits = 5;
+    roster = newRoster(); credits = 5; bench = null; hallOfFame = []; awardHistory = [];
     newLeague(); generateSchedule();
 }
 
@@ -1452,7 +1754,7 @@ function pickTeam(id) {
     startFreshSave();
     saveSeason();
     // Then the starting draft: build your roster spot by spot, and on to the menu
-    openDraft('start', () => { saveSeason(); updateMenuUI(); showOnly('main-menu'); });
+    openDraft('start', () => { ensureFranchise(); saveSeason(); updateMenuUI(); showOnly('main-menu'); });
 }
 
 
@@ -1578,9 +1880,16 @@ function rosterCardHTML(slot) {
     }).join('');
     return `<div class="pcard">
         <div class="pcard-top"><span class="pcard-pos ${slot === 'K' ? 'pos-st' : DEF_SLOTS.includes(slot) ? 'pos-def' : 'pos-off'}">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
-        <div class="pcard-age">AGE ${p.age}</div>${bars}
+        <div class="pcard-age">AGE ${p.age}${p.salary != null ? ` · ${money(p.salary)} × ${p.years} YR${p.years === 1 ? '' : 'S'}` : ''}${p.injury > 0 ? ` · <span class="inj">🚑 OUT ${p.injury} WK</span>` : ''}</div>${bars}
         <div class="pcard-line">SEASON (${p.season.gp} GP): ${playerLineText(slot, p.season)}</div>
-        <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div></div>`;
+        <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div>${backupHTML(slot)}</div>`;
+}
+// His backup, under each card: who he is, his contract, and a SWAP button to start him instead
+function backupHTML(slot) {
+    const b = bench && bench[slot];
+    if (!b) return '';
+    return `<div class="pbackup"><span>BACKUP #${b.num} ${b.name} <span class="pcard-stars">${starsText(starRating(b, slot))}</span> · AGE ${b.age} · ${money(b.salary)}${b.injury > 0 ? ` · <span class="inj">🚑 ${b.injury} WK</span>` : ''}</span>
+        <button class="up-btn" ${b.injury > 0 ? 'disabled' : ''} onclick="swapStarter('${slot}')" title="Start ${b.name} instead">SWAP</button></div>`;
 }
 // ─── COACHING CREDITS ───
 // Earned every game (like Retro Bowl): a win, each touchdown, a big play, every takeaway your defense
@@ -1609,7 +1918,8 @@ function upgradeRating(slot, k) {
 
 function renderRoster() {
     const group = (title, slots) => `<div class="roster-group">${title}</div><div class="roster-grid">${slots.map(rosterCardHTML).join('')}</div>`;
-    document.getElementById('roster-team').innerHTML = `${MY_TEAM.id} ${MY_TEAM.name} · SEASON ${career.seasons} · <span style="color:#00ff88;">🏈 ${credits} COACHING CREDITS</span>`;
+    document.getElementById('roster-team').innerHTML = `${MY_TEAM.id} ${MY_TEAM.name} · SEASON ${career.seasons} · <span style="color:#00ff88;">🏈 ${credits} COACHING CREDITS</span>` +
+        (bench ? ` · <span style="color:${capUsed() > SALARY_CAP ? '#ff5a6e' : '#88ccff'};">CAP ${money(capUsed())} / ${money(SALARY_CAP)}</span>` : '');
     document.getElementById('roster-list').innerHTML = group('OFFENSE', ROSTER_SLOTS) + group('SPECIAL TEAMS', ['K']) + group('DEFENSE', DEF_SLOTS);
 }
 function openRoster() {
@@ -1649,7 +1959,14 @@ function openStats() {
         `<div class="stats-head">SINGLE-GAME RECORDS</div>` +
         line('PASSING YARDS', records.passYds) + line('PASSING TDS', records.passTD) + line('RUSHING YARDS', records.rushYds) + line('LONGEST PLAY', `${records.long} YDS`) +
         `<div class="stats-head">FRANCHISE</div>` +
-        line('SEASONS', career.seasons) + line('CAREER RECORD', recStr(career)) + line('PLAYOFF TRIPS', career.playoffApps) + line('SUPER BOWL TITLES', career.titles + (career.titles ? ' 🏆'.repeat(Math.min(career.titles, 5)) : ''));
+        line('SEASONS', career.seasons) + line('CAREER RECORD', recStr(career)) + line('PLAYOFF TRIPS', career.playoffApps) + line('SUPER BOWL TITLES', career.titles + (career.titles ? ' 🏆'.repeat(Math.min(career.titles, 5)) : '')) +
+        `<div class="stats-head">HALL OF FAME</div>` +
+        (hallOfFame.length ? hallOfFame.map(h => line(`${h.name} (${SLOT_LABEL[h.slot]}) · CLASS OF SEASON ${h.inducted}`, `${h.gp} GP · ${h.line}`)).join('')
+                           : line('NOBODY YET', 'GREAT CAREERS GET IN WHEN THEY RETIRE')) +
+        `<div class="stats-head">AWARDS</div>` +
+        (awardHistory.length ? awardHistory.slice().reverse().map(a => line(`SEASON ${a.season}`,
+            [a.mvp && 'MVP ' + a.mvp, a.opoy && 'OPOY ' + a.opoy, a.dpoy && 'DPOY ' + a.dpoy, a.roty && 'ROTY ' + a.roty, `${a.proBowl.length} PRO BOWLERS`].filter(Boolean).join(' · '))).join('')
+                             : line('NONE YET', 'HANDED OUT AFTER EACH SEASON'));
 }
 
 function openSchedule() {
@@ -1671,7 +1988,7 @@ function closeSchedule() { document.getElementById('schedule-screen').classList.
 function openMatchupScreen() {
     if(!audioCtx) initAudio();
     // Season over: the rookie draft first, then the new season
-    if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openDraft('rookie', () => { startNewSeason(); updateMenuUI(); showOnly('main-menu'); }); return; }
+    if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openOffseason(); return; }   // awards, re-signing, the draft, free agency
 
     if (seasonPhase === 'playoffs') {
         // Higher seed hosts
@@ -1684,6 +2001,7 @@ function openMatchupScreen() {
             simLeagueWeek([MY_TEAM.id]);
             currentWeek++;
             if (currentWeek > 18) startPostseason();
+            weekPassed();   // injuries heal over the bye too
             saveSeason(); updateMenuUI(); return;
         }
         currentOpponent = match.opp;
@@ -3769,6 +4087,7 @@ class Player {
  * GAME LOGIC
  */
 function startGame() {
+    gameInjuries = [];
     if(musicInterval) clearInterval(musicInterval);
     if(menuPlayerModel) scene.remove(menuPlayerModel.group);
     document.getElementById('matchup-screen').classList.add('hidden');
@@ -4084,6 +4403,7 @@ function cpuHitStickFromFront(carrier, d) {
 function triggerTackle(ballCarrier, tackler, message) {
     // Two defenders arriving on the same frame used to tackle him twice (two results, two downs)
     if (GAME_STATE === 'TACKLED' || GAME_STATE === 'GETTING_UP' || isFalling(ballCarrier)) return;
+    if (ballCarrier.team === 'offense') maybeInjure(ballCarrier.rosterSlot, 0.012);   // now and then a hit costs him a few weeks
     // A wet ball comes loose more often
     if (message === 'TACKLED' && weather.kind === 'rain' && Math.random() < 0.04) message = 'FUMBLE! LOST BALL.';
     GAME_STATE = 'TACKLED';
@@ -7135,6 +7455,7 @@ function updateDefensePlay(dt) {
             const mine = tackler === ctrl, sack = c === qb && !P.thrown && P.kind === 'pass';
             if (mine) { if (sack) gameStats.defSacks++; else gameStats.tkl++; }
             creditPlayer(tackler.rosterSlot, sack ? 'sk' : 'tkl');   // your starters' own stat lines (theirs too when a teammate makes it)
+            maybeInjure(tackler.rosterSlot, 0.005);
             if (sack) { document.getElementById('instructions').innerText = mine ? 'SACK BY YOU!' : 'SACKED!'; document.getElementById('instructions').classList.remove('hidden'); triggerCheer(); }
             startTackleFall(c, tackler, () => setTimeout(() => startRise(tackler, tackler.group.position.z + 10), Math.random() * 700)); // the tackler gets back up (in his own time)
             const downZ = () => c.group.position.z;
@@ -8014,6 +8335,7 @@ function recordSeasonGame(isWin, isLoss) {
         recordResult(MY_TEAM.id, currentOpponent.id, isWin ? 1 : isLoss ? -1 : 0);
         simLeagueWeek([MY_TEAM.id, currentOpponent.id]);
     }
+    simInjuries();   // the bumps and bruises of a whole game (on top of the hits you saw)
     const earned = awardCredits(isWin, isLoss, wasPlayoffs);
     document.getElementById('bs-title').innerText = title;
     document.getElementById('bs-stats').innerText = statSummary(gameStats) + (gameStats.long ? `  ·  LONG ${gameStats.long}` : '');
@@ -8021,6 +8343,7 @@ function recordSeasonGame(isWin, isLoss) {
         lastNewRecords.length ? 'NEW RECORD! ' + lastNewRecords.join(' · ') : '',
         lastLevelUps.length ? '📈 ' + lastLevelUps.join(' · ') : '',
         `🏈 COACHING CREDITS +${earned.total} (${earned.why.join(', ')}) · ${credits} TO SPEND ON YOUR ROSTER`,
+        gameInjuries.length ? `🚑 INJURIES: ${gameInjuries.join(" · ")} (THE BACKUPS ARE IN)` : "",
     ].filter(Boolean).join('\n');
     if (seasonPhase === 'champion') launchConfetti();
     saveSeason();
@@ -8030,6 +8353,7 @@ function advanceWeek() {
     document.getElementById('box-score-screen').classList.add('hidden');
     document.querySelectorAll('.confetti').forEach(c => c.remove());
     if (challengeMode) { challengeMode = null; goToMainMenu(); updateMenuUI(); openChallenges(); return; }
+    weekPassed();   // a week of healing (and anyone back from injury reclaims his spot)
     if (seasonPhase === 'regular') {
         currentWeek++;
         if (currentWeek > 18) startPostseason();
