@@ -573,6 +573,11 @@
                 <button class="diff-btn" data-dlevel="hard" onclick="setDefDifficulty('hard')" title="Blocks hold longer, their offense is quicker">HARD</button>
             </div>
             <div class="diff-row" style="margin-top:8px;">
+                <span>COMMENTARY VOICE</span>
+                <button class="diff-btn" data-voice="on" onclick="setVoice(true)">ON</button>
+                <button class="diff-btn" data-voice="off" onclick="setVoice(false)">OFF</button>
+            </div>
+            <div class="diff-row" style="margin-top:8px;">
                 <span style="color:#ff4fd8;">FANTASTIC</span>
                 <button class="diff-btn fantastic-btn" id="fantastic-btn" onclick="toggleFantastic()" title="Hall of Fame on both sides of the ball. Locks offense and defense difficulty while it's on.">OFF</button>
             </div>
@@ -2012,6 +2017,7 @@ function onGuestData(m) {
         document.getElementById('scoreboard').classList.toggle('hidden', !m.inGame);
         m.ids.forEach(([id, text, shown]) => {
             const el = document.getElementById(id); if (!el) return;
+            if (id === 'commentary' && shown && text && text !== net.lastCall) { net.lastCall = text; speakLine(text); }   // the booth, out loud, on your screen too
             if (el.innerText !== text) el.innerText = text;
             if (id === 'instructions' || id === 'commentary') el.classList.toggle('hidden', !shown);
             if (id === 'quarter-break-text') document.getElementById('quarter-break').classList.toggle('hidden', !shown);
@@ -2501,9 +2507,34 @@ function openBracket() {
 // touchdown, pick), with the players' names.
 const pick = a => a[Math.floor(Math.random() * a.length)];
 function nameOf(p) { return p ? (jerseyName(p.team, p.role, p.number) || `#${p.number}`) : ''; }
+// The booth, out loud: every call is spoken in the browser's own voice (no downloads), a newer
+// call cutting off an older one. Settings → COMMENTARY VOICE turns it off; muting the game does too.
+function voiceOn() {
+    if (voiceOn.v == null) { try { voiceOn.v = localStorage.getItem('ff-voice') !== 'off'; } catch (e) { voiceOn.v = true; } }
+    return voiceOn.v;
+}
+function setVoice(on) {
+    voiceOn.v = on;
+    try { localStorage.setItem('ff-voice', on ? 'on' : 'off'); } catch (e) {}
+    document.querySelectorAll('[data-voice]').forEach(b => b.classList.toggle('active', (b.dataset.voice === 'on') === on));
+    if (!on && window.speechSynthesis) speechSynthesis.cancel();
+}
+function speakLine(text) {
+    if (!voiceOn() || isMuted || !window.speechSynthesis) return;
+    const line = String(text).replace(/<[^>]*>/g, '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
+    if (!line) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(line.charAt(0) + line.slice(1).toLowerCase());   // sentence case reads more naturally than ALL CAPS
+    const voices = speechSynthesis.getVoices(), en = voices.filter(v => /^en(-|_)US/i.test(v.lang));
+    u.voice = en.find(v => /male|david|guy|daniel|alex/i.test(v.name)) || en[0] || voices[0] || null;
+    u.rate = 1.12; u.pitch = 0.95; u.volume = 1;
+    if (/TOUCHDOWN|INTERCEPT|PICKED|FUMBLE|SACK|BOOM/i.test(line)) { u.rate = 1.2; u.pitch = 1.1; }   // the big ones, with some excitement
+    speechSynthesis.speak(u);
+}
 function commentate(text, ms = 3200) {
     const el = document.getElementById('commentary');
     if (!el) return;
+    speakLine(text);
     el.innerHTML = `<span class="mic">🎙️</span> ${text}`;
     el.classList.remove('hidden'); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
     clearTimeout(commentaryTimer);
@@ -3155,7 +3186,7 @@ function openRoster() {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('roster-screen').classList.remove('hidden');
 }
-function openSettings() { updateDifficultyButtons(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
+function openSettings() { updateDifficultyButtons(); setVoice(voiceOn()); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
 
 // League table; the red line marks the playoff cut (top 8)
 function openStandings() {
@@ -3365,7 +3396,7 @@ function sfxHut() {
 function toggleAudio() {
     if(!audioCtx) initAudio();
     isMuted = !isMuted;
-    if(isMuted) { audioCtx.suspend(); document.getElementById('btn-mute').innerText = "UNMUTE AUDIO"; document.getElementById('btn-mute').style.background = "#e31837"; } 
+    if(isMuted) { audioCtx.suspend(); if (window.speechSynthesis) speechSynthesis.cancel(); document.getElementById('btn-mute').innerText = "UNMUTE AUDIO"; document.getElementById('btn-mute').style.background = "#e31837"; } 
     else { audioCtx.resume(); document.getElementById('btn-mute').innerText = "MUTE AUDIO"; document.getElementById('btn-mute').style.background = "#444"; }
 }
 
