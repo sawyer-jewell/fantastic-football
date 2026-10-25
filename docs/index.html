@@ -61,7 +61,10 @@
         .pcard-name { font-size: 0.7rem; color: #fff; flex: 1; }
         .pcard-stars { color: #ffcc00; font-size: 0.7rem; letter-spacing: 1px; font-family: sans-serif; }
         .pcard-age { color: #aaa; }
-        .rbar { display: grid; grid-template-columns: 92px 1fr 26px; gap: 6px; align-items: center; margin-top: 3px; }
+        .rbar { display: grid; grid-template-columns: 92px 1fr 24px 44px; gap: 6px; align-items: center; margin-top: 3px; }
+        .up-btn { font-family: "Press Start 2P", monospace; font-size: 0.5rem; padding: 3px 2px; background: #34a853; color: #fff; border: 2px solid #fff; cursor: pointer; text-align: center; }
+        .up-btn:disabled { background: #333; color: #777; border-color: #555; cursor: not-allowed; }
+        .up-btn.max { background: #00a3b5; border-color: #fff; cursor: default; }
         .rbar-track { height: 8px; background: #333; border: 1px solid #555; }
         .rbar-fill { height: 100%; background: linear-gradient(90deg, #e31837, #ffcc00 50%, #00ff88); }
         .pcard-line { color: #00ff88; margin-top: 6px; }
@@ -580,6 +583,7 @@ let flagMeshes = [];    // yellow flags lying on the field
 // Your skill players: name + ratings (50–99) + XP, keyed by formation slot
 let roster = null;
 let lastLevelUps = []; // rating gains from the game that just ended
+let credits = 0;       // coaching credits to spend on upgrades (part of the save), see awardCredits
 const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
 const DEF_SLOTS = ['DL', 'LB', 'CB1', 'CB2', 'S'];               // your defensive starters
 const ALL_SLOTS = [...ROSTER_SLOTS, 'K', ...DEF_SLOTS];
@@ -1059,7 +1063,7 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, credits, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
@@ -1069,6 +1073,7 @@ function applySaveData(d) {
     allTeams().forEach(t => { if (!league[t.id]) { const g = Math.max(0, currentWeek - 2); const w = Math.round(g * Math.random()); league[t.id] = { w, l: g - w, t: 0, rating: 60 + Math.random() * 30 }; } });
     seasonStats = { ...newStatLine(), ...d.seasonStats }; careerStats = { ...newStatLine(), ...d.careerStats }; records = d.records; career = d.career;
     roster = d.roster ? ensureRoster(d.roster) : newRoster(); // saves from before the roster existed get a fresh one
+    credits = d.credits ?? 4;   // older saves start with a few to try it out
     seasonSchedule.length = 0;
     d.seasonSchedule.forEach(g => seasonSchedule.push({ ...g, opp: g.opp ? teamById(g.opp) : null }));
 }
@@ -1098,7 +1103,7 @@ function startFreshSave() {
     records = { passYds: 0, passTD: 0, rushYds: 0, long: 0 };
     career = { seasons: 1, titles: 0, playoffApps: 0, w: 0, l: 0, t: 0 };
     seasonPhase = 'regular'; playoffs = null;
-    roster = newRoster();
+    roster = newRoster(); credits = 5;
     newLeague(); generateSchedule();
 }
 
@@ -1181,7 +1186,7 @@ function updateMenuUI() {
         eliminated: 'ELIMINATED FROM THE PLAYOFFS',
         missed:     `MISSED THE PLAYOFFS (#${rank})`,
     }[seasonPhase];
-    document.getElementById('team-record-display').innerText = `${MY_TEAM.id} ${MY_TEAM.name} | ${recStr(myRecord)}${status ? ' | ' + status : ''}`;
+    document.getElementById('team-record-display').innerText = `${MY_TEAM.id} ${MY_TEAM.name} | ${recStr(myRecord)}${status ? ' | ' + status : ''} | ${credits} CREDITS`;
     const playBtn = document.getElementById('btn-play');
     if (seasonPhase === 'playoffs') {
         playBtn.innerText = `PLAY ${PLAYOFF_ROUNDS[playoffs.round]}`;
@@ -1272,17 +1277,47 @@ function playerLineText(slot, l) {
 const ratingColor = v => v >= 90 ? '#00e5ff' : v >= 80 ? '#00ff88' : v >= 70 ? '#ffcc00' : '#e31837';
 function rosterCardHTML(slot) {
     const p = roster[slot];
-    const bars = SLOT_RATINGS[slot].map(k => `<div class="rbar"><span>${slot === 'K' && k === 'power' ? 'KICK POWER' : RATING_NAMES[k]}</span>
-        <div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span></div>`).join('');
+    const bars = SLOT_RATINGS[slot].map(k => {
+        const cost = upgradeCost(p[k]);
+        const btn = cost === Infinity ? '<span class="up-btn max">MAX</span>'
+            : `<button class="up-btn" ${credits < cost ? 'disabled' : ''} onclick="upgradeRating('${slot}', '${k}')" title="Raise ${RATING_NAMES[k]} to ${p[k] + 1}">+ ${cost}</button>`;
+        return `<div class="rbar"><span>${slot === 'K' && k === 'power' ? 'KICK POWER' : RATING_NAMES[k]}</span>
+        <div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span>${btn}</div>`;
+    }).join('');
     return `<div class="pcard" style="border-color:${MY_TEAM.color === '#101820' ? '#a5acaf' : MY_TEAM.color};">
         <div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
         <div class="pcard-age">AGE ${p.age}</div>${bars}
         <div class="pcard-line">SEASON (${p.season.gp} GP): ${playerLineText(slot, p.season)}</div>
         <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div></div>`;
 }
+// ─── COACHING CREDITS ───
+// Earned every game (like Retro Bowl): a win, each touchdown, a big play, every takeaway your defense
+// makes, and more in the playoffs. Spent on the ROSTER screen to raise one skill by 1 — the higher
+// the skill already is, the more it costs (1 credit in the 60s up to 5 in the 90s).
+function upgradeCost(v) { return v >= 99 ? Infinity : 1 + Math.max(0, Math.floor((v - 60) / 8)); }
+function awardCredits(isWin, isLoss, playoffGame) {
+    const why = [], add = (n, label) => { if (n > 0) { why.push(`${label} +${n}`); total += n; } };
+    let total = 0;
+    add(isWin ? 3 : 1, isWin ? 'WIN' : isLoss ? 'GAME' : 'TIE');
+    add(Math.min(4, gameStats.passTD + gameStats.rushTD), 'TDS');
+    add(gameStats.long >= 40 ? 1 : 0, 'BIG PLAY');
+    add(Math.min(3, (gameStats.defInt || 0) + (gameStats.ff || 0)), 'TAKEAWAYS');
+    add(playoffGame && isWin ? 3 : 0, 'PLAYOFF WIN');
+    add(seasonPhase === 'champion' ? 5 : 0, 'CHAMPIONS');
+    credits += total;
+    return { total, why };
+}
+function upgradeRating(slot, k) {
+    const p = roster[slot], cost = upgradeCost(p[k]);
+    if (credits < cost) { flashBanner('NOT ENOUGH CREDITS', 900); return; }
+    credits -= cost; p[k]++;
+    saveSeason(); renderRoster();
+    flashBanner(`${p.name} ${RATING_NAMES[k]} ${p[k]}`, 900);
+}
+
 function renderRoster() {
     const group = (title, slots) => `<div class="roster-group">${title}</div><div class="roster-grid">${slots.map(rosterCardHTML).join('')}</div>`;
-    document.getElementById('roster-team').innerText = `${MY_TEAM.id} ${MY_TEAM.name} · SEASON ${career.seasons}`;
+    document.getElementById('roster-team').innerHTML = `${MY_TEAM.id} ${MY_TEAM.name} · SEASON ${career.seasons} · <span style="color:#00ff88;">🏈 ${credits} COACHING CREDITS</span>`;
     document.getElementById('roster-list').innerHTML = group('OFFENSE', ROSTER_SLOTS) + group('SPECIAL TEAMS', ['K']) + group('DEFENSE', DEF_SLOTS);
 }
 function openRoster() {
@@ -7678,11 +7713,13 @@ function recordSeasonGame(isWin, isLoss) {
         recordResult(MY_TEAM.id, currentOpponent.id, isWin ? 1 : isLoss ? -1 : 0);
         simLeagueWeek([MY_TEAM.id, currentOpponent.id]);
     }
+    const earned = awardCredits(isWin, isLoss, wasPlayoffs);
     document.getElementById('bs-title').innerText = title;
     document.getElementById('bs-stats').innerText = statSummary(gameStats) + (gameStats.long ? `  ·  LONG ${gameStats.long}` : '');
     document.getElementById('bs-records').innerText = [
         lastNewRecords.length ? 'NEW RECORD! ' + lastNewRecords.join(' · ') : '',
         lastLevelUps.length ? '📈 ' + lastLevelUps.join(' · ') : '',
+        `🏈 COACHING CREDITS +${earned.total} (${earned.why.join(', ')}) · ${credits} TO SPEND ON YOUR ROSTER`,
     ].filter(Boolean).join('\n');
     if (seasonPhase === 'champion') launchConfetti();
     saveSeason();
