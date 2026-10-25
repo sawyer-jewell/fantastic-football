@@ -345,6 +345,30 @@
         .bt.tbd { color: #556; }
         .bseed { background: #ffcc00; color: #000; padding: 1px 4px; }
         .brec { margin-left: auto; color: #8ab; font-size: 0.45rem; }
+        /* My playbook */
+        .cp-wrap { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+        .cp-side { width: 230px; } .cp-main { width: auto; }
+        #cp-board { width: min(440px, 88vw); height: auto; border: 3px solid #fff; box-shadow: 4px 4px 0 #000; cursor: crosshair; image-rendering: pixelated; display: block; }
+        .cp-item { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 0.5rem; padding: 7px 0; border-bottom: 1px dashed #345; }
+        .cp-item.on { color: #ffcc00; }
+        .tile-grid { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 620px) { .tile-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        /* Create-a-player */
+        .edit-btn { margin-left: 6px; padding: 2px 5px; }
+        .le-input { font-family: 'Press Start 2P', monospace; font-size: 0.6rem; background: #001a33; color: #fff; border: 2px solid #fff; padding: 6px; margin-left: 8px; text-transform: uppercase; }
+        .le-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+        .le-swatch { width: 30px; height: 30px; border: 3px solid #333; cursor: pointer; box-shadow: 2px 2px 0 #000; }
+        .le-swatch.active { border-color: #ffcc00; transform: translateY(-2px); }
+        .lface { position: relative; width: 120px; height: 150px; }
+        .lf-helmet { position: absolute; left: 18px; top: 4px; width: 84px; height: 62px; border-radius: 42px 42px 10px 10px; border: 4px solid; box-sizing: border-box; }
+        .lf-head { position: absolute; left: 28px; top: 34px; width: 64px; height: 56px; border-radius: 10px 10px 24px 24px; border: 3px solid #000; box-sizing: border-box; overflow: hidden; }
+        .lf-eye { position: absolute; top: 18px; height: 8px; background: #111; }
+        .lf-eye.bars { left: 8px; width: 16px; box-shadow: 26px 0 0 #111; }
+        .lf-eye.smear { left: 6px; width: 46px; height: 10px; border-radius: 6px; opacity: 0.85; }
+        .lf-eye.slash { left: 8px; width: 18px; transform: rotate(-20deg); box-shadow: 26px 6px 0 #111; }
+        .lf-jersey { position: absolute; left: 14px; top: 94px; width: 92px; height: 52px; border: 3px solid #000; box-sizing: border-box; color: #fff; font-size: 1rem; text-align: center; line-height: 46px; text-shadow: 2px 2px 0 #000; }
+
         /* The broadcast: commentary line, the red flag, crunch time */
         #commentary { position: absolute; left: 20px; bottom: 26px; max-width: min(520px, 60vw); z-index: 55; pointer-events: none;
                       background: rgba(0, 10, 24, 0.88); border: 2px solid rgba(255, 255, 255, 0.5); border-left: 6px solid #ffcc00;
@@ -398,6 +422,8 @@
                     <button class="tile" onclick="openRoster()"><span class="ti">🏈</span>ROSTER<span id="roster-badge" class="badge hidden">0</span></button>
                     <button class="tile" onclick="openStats()"><span class="ti">📊</span>STATS</button>
                     <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
+                    <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
+                    <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🏆</span>BRACKET</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -434,6 +460,50 @@
             <div id="draft-team"></div>
             <div id="draft-board" class="roster-grid" style="width:min(1000px, 96vw);"></div>
             <button id="draft-pass" class="btn-retro hidden" style="background:#444; margin-top:12px;" onclick="draftPass()">PASS ON THIS PICK</button>
+        </div>
+
+        <!-- My playbook: draw your own pass plays -->
+        <div id="playbook-editor" class="menu hidden">
+            <h1 style="font-size:1.8rem;">MY PLAYBOOK</h1>
+            <div class="cp-wrap">
+                <div class="panel cp-side">
+                    <div class="panel-title">SAVED PLAYS</div>
+                    <div id="cp-list"></div>
+                    <button class="btn-retro" style="background:#2a6f97; font-size:0.55rem; padding:8px 10px;" onclick="newCustomPlay()">+ NEW PLAY</button>
+                </div>
+                <div class="panel cp-main">
+                    <div class="panel-title">PICK A PLAYER, THEN CLICK THE FIELD TO DRAW HIS ROUTE</div>
+                    <div id="cp-select" class="le-row" style="margin:10px 0;"></div>
+                    <canvas id="cp-board" width="440" height="380" onclick="cpClick(event)"></canvas>
+                    <div class="le-row" style="margin-top:8px; align-items:center;">
+                        <button class="diff-btn" onclick="cpUndo()">UNDO POINT</button>
+                        <button class="diff-btn" onclick="cpClear()">CLEAR ROUTE</button>
+                        <input id="cp-name" class="le-input" maxlength="16" placeholder="PLAY NAME">
+                        <button class="btn-retro" style="background:#34a853; font-size:0.6rem; padding:8px 12px; margin:0;" onclick="saveCustomPlay()">SAVE PLAY</button>
+                    </div>
+                    <div id="cp-msg" style="font-size:0.55rem; color:#ffcc00; margin-top:8px; min-height:1em;"></div>
+                </div>
+            </div>
+            <button class="btn-retro" onclick="closeInfoScreen('playbook-editor')">BACK TO MENU</button>
+        </div>
+
+        <!-- Create-a-player: name, number, skin tone, eye black -->
+        <div id="look-editor" class="menu hidden" style="z-index:120;">
+            <h1 style="font-size:1.6rem;">EDIT PLAYER</h1>
+            <div class="panel" style="display:flex; gap:24px; flex-wrap:wrap; align-items:center; justify-content:center;">
+                <div id="le-face" class="lface"></div>
+                <div style="display:flex; flex-direction:column; gap:12px; font-size:0.6rem;">
+                    <label>NAME <input id="le-name" class="le-input" maxlength="14" oninput="renderLookEditor()"></label>
+                    <label>NUMBER <input id="le-num" class="le-input" type="number" min="0" max="99" style="width:70px;" oninput="renderLookEditor()"></label>
+                    <div>SKIN TONE<div id="le-skins" class="le-row"></div></div>
+                    <div>EYE BLACK<div id="le-eyes" class="le-row"></div></div>
+                    <div id="le-msg" style="color:#ff5a6e;"></div>
+                </div>
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="btn-retro" style="background:#34a853;" onclick="saveLook()">SAVE</button>
+                <button class="btn-retro" style="background:#444;" onclick="document.getElementById('look-editor').classList.add('hidden')">CANCEL</button>
+            </div>
         </div>
 
         <!-- New save: pick your team -->
@@ -646,6 +716,7 @@
                 <div class="play-card" onclick="selectPlay('flea')" onmouseenter="previewPlay('flea')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">FLEA FLICKER</div>
                 <div class="play-card" onclick="selectPlay('hookladder')" onmouseenter="previewPlay('hookladder')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">HOOK &amp; LADDER</div>
                 <div class="play-card" onclick="selectPlay('philly')" onmouseenter="previewPlay('philly')" onmouseleave="clearRoutePreview()" style="border-color:#b46cff;">PHILLY SPECIAL</div>
+                <div id="custom-plays" style="display:contents;"></div>
                 <div class="play-divider" style="color:#00ccff;">SPECIAL TEAMS</div>
                 <div class="play-card" onclick="selectPlay('fieldgoal')" style="border-color:#00ccff;">FIELD GOAL</div>
                 <div class="play-card" onclick="selectPlay('fakefg')" onmouseenter="previewPlay('fakefg')" onmouseleave="clearRoutePreview()" style="border-color:#00ccff;">FAKE FG</div>
@@ -803,6 +874,9 @@ let commentaryTimer = null;   // hides the play-by-play line, see commentate
 let lastSnap = null;          // down and spot at the snap (for a replay challenge)
 let challengeable = null;     // { kind, z, odds }: the last play, if you could challenge it, see throwChallengeFlag
 let challengesLeft = 2;       // red flags per game
+let chantClock = 0;           // seconds until the crowd's next chant, see updateChants
+let customPlays = [];         // your own pass plays [{ id, name, routes }] (part of the save), see MY PLAYBOOK
+let cpEdit = null;            // the play on the chalkboard
 const SALARY_CAP = 100; // $M for all 24 players
 const BENCH_RESERVE = 18; // $M the starting draft leaves for the twelve backups
 const ROSTER_SLOTS = ['QB', 'WR1', 'WR2', 'SLOT', 'TE', 'RB'];   // the six on offense, in formation order (players.offense[0..5])
@@ -1333,6 +1407,7 @@ function draftPick(i) {
         if (draft.kind === 'rookie') { giveContract(pr.p, pr.slot, true); pr.p.rookieYear = career.seasons + 1; }
         bench[pr.slot] = old;
         roster[pr.slot] = pr.p; draft.picked.add(pr.slot);
+        if (draft.kind === 'start') old.num = freeNumber(pr.slot);   // the man he replaced keeps playing, in a different number
         flashBanner(`${pr.p.name} · ${SLOT_LABEL[pr.slot]}${pr.hidden.length ? ` · ${RATING_NAMES[pr.hidden[0]]} ${pr.p[pr.hidden[0]]}` : ''}`, 1600);
     }
     draft.round++;
@@ -1394,6 +1469,7 @@ function ensureFranchise() {
     if (!bench) bench = {};
     ALL_SLOTS.forEach(slot => {
         if (!bench[slot]) bench[slot] = genPlayer(slot, 62, 22, 29);
+        if (Number(bench[slot].num) === Number(roster[slot].num)) bench[slot].num = freeNumber(slot);   // no two of yours in the same number
         [roster[slot], bench[slot]].forEach(p => {
             if (p.salary == null) giveContract(p, slot, false);
             if (p.injury == null) p.injury = 0;
@@ -1754,8 +1830,8 @@ function callTackle(carrier, tackler, message) {
     else if (/HIT STICK/.test(message)) commentate(pick([`BOOM! ${t} LAYS ${c} OUT!`, `WHAT A HIT BY ${t}!`]));
     else commentate(pick([`${c} BROUGHT DOWN BY ${t} AT ${at}.`, `${t} MAKES THE STOP AT ${at}.`, `${c} GETS TO ${at} BEFORE ${t} TAKES HIM DOWN.`]));
 }
-function callTouchdown(p) { commentate(pick([`TOUCHDOWN ${MY_TEAM.name}! ${nameOf(p)} TAKES IT IN!`, `HE'S IN! ${nameOf(p)} SCORES!`, `${nameOf(p)}... TOUCHDOWN!`]), 4200); }
-function callPick(d) { commentate(pick([`INTERCEPTED! ${nameOf(d)} JUMPS THE ROUTE!`, `PICKED OFF BY ${nameOf(d)}!`]), 3600); }
+function callTouchdown(p) { sfxFanfare(); commentate(pick([`TOUCHDOWN ${MY_TEAM.name}! ${nameOf(p)} TAKES IT IN!`, `HE'S IN! ${nameOf(p)} SCORES!`, `${nameOf(p)}... TOUCHDOWN!`]), 4200); }
+function callPick(d) { sfxSadTrombone(); commentate(pick([`INTERCEPTED! ${nameOf(d)} JUMPS THE ROUTE!`, `PICKED OFF BY ${nameOf(d)}!`]), 3600); }
 
 // ── Replay challenges ──
 // After an incomplete pass or a spot that's just short of the line to gain, you can throw the red
@@ -1833,6 +1909,124 @@ function updateCrunchTime() {
     if (sb) sb.classList.toggle('crunch', on);
     if (on && GAME_STATE === 'PLAY' && !crunchTime.cheered) { crunchTime.cheered = true; crowdReact(true, 0.5); }
     if (GAME_STATE !== 'PLAY') crunchTime.cheered = false;
+}
+
+// ─── MY PLAYBOOK: DRAW YOUR OWN PASS PLAYS ───────────────────────────────────
+// A top-down chalkboard of the base formation: pick a receiver, click to drop up to four route
+// points for him (the line goes from where he lines up through each point), name the play and save
+// it. Saved plays show up under MY PLAYS in the in-game playbook (up to 8 per save), and the
+// defense learns your tendencies with them like any other call.
+const CUSTOM_MAX = 8, CUSTOM_POINTS = 4;
+const CP_SPOTS = { WR1: [-18, 0], WR2: [18, 0], SLOT: [-11, 0], TE: [8, 0], RB: [0, 9] };   // base formation (x, depth behind the LOS)
+const CP_COLORS = { WR1: '#ffcc00', WR2: '#00e5ff', SLOT: '#ff5a6e', TE: '#00ff88', RB: '#ff9a4a' };
+
+function registerCustomPlays() {
+    customPlays.forEach(cp => {
+        const key = 'custom:' + cp.id;
+        const deepest = Math.min(0, ...Object.values(cp.routes).flat().map(p => p[1]));
+        PLAY_CATEGORY[key] = deepest < -36 ? 'deep' : deepest < -18 ? 'middle' : 'short';
+        PLAY_NAMES[key] = cp.name;
+    });
+    const box = document.getElementById('custom-plays');
+    if (!box) return;
+    box.innerHTML = customPlays.length
+        ? `<div class="play-divider" style="color:#00ff88;">MY PLAYS</div>` + customPlays.map(cp => `<div class="play-card" style="border-color:#00ff88;" onclick="selectPlay('custom:${cp.id}')" onmouseenter="previewPlay('custom:${cp.id}')" onmouseleave="clearRoutePreview()">${cp.name}</div>`).join('')
+        : '';
+}
+// The routes for a custom play, in the same order as getRoutesForPlay (WR1, WR2, SLOT, TE)
+function customRoutes(playType, los) {
+    const cp = customPlays.find(c => 'custom:' + c.id === playType);
+    if (!cp) return null;
+    return ['WR1', 'WR2', 'SLOT', 'TE'].map(s => (cp.routes[s] || []).map(([x, dz]) => new THREE.Vector3(x, 0, los + dz)));
+}
+function customRbRoute(playType, los) {
+    const cp = customPlays.find(c => 'custom:' + c.id === playType);
+    return cp && cp.routes.RB && cp.routes.RB.length ? cp.routes.RB.map(([x, dz]) => new THREE.Vector3(x, 0, los + dz)) : null;
+}
+
+function openPlaybookEditor() {
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('playbook-editor').classList.remove('hidden');
+    newCustomPlay();
+}
+function newCustomPlay() {
+    cpEdit = { id: Date.now().toString(36), name: '', routes: { WR1: [], WR2: [], SLOT: [], TE: [], RB: [] }, sel: 'WR1' };
+    document.getElementById('cp-name').value = '';
+    renderPlaybookEditor();
+}
+function loadCustomPlay(id) {
+    const cp = customPlays.find(c => c.id === id);
+    cpEdit = { id: cp.id, name: cp.name, routes: JSON.parse(JSON.stringify(cp.routes)), sel: 'WR1' };
+    document.getElementById('cp-name').value = cp.name;
+    renderPlaybookEditor();
+}
+function deleteCustomPlay(id) {
+    customPlays = customPlays.filter(c => c.id !== id);
+    registerCustomPlays(); saveSeason(); renderPlaybookEditor();
+}
+function cpSelect(slot) { cpEdit.sel = slot; renderPlaybookEditor(); }
+function cpUndo() { cpEdit.routes[cpEdit.sel].pop(); renderPlaybookEditor(); }
+function cpClear() { cpEdit.routes[cpEdit.sel] = []; renderPlaybookEditor(); }
+function saveCustomPlay() {
+    const msg = document.getElementById('cp-msg');
+    const name = document.getElementById('cp-name').value.toUpperCase().replace(/[^A-Z0-9 &'!\-]/g, '').trim().slice(0, 16);
+    if (!name) { msg.innerText = 'GIVE THE PLAY A NAME'; return; }
+    if (!Object.values(cpEdit.routes).some(r => r.length)) { msg.innerText = 'DRAW AT LEAST ONE ROUTE'; return; }
+    const i = customPlays.findIndex(c => c.id === cpEdit.id);
+    if (i < 0 && customPlays.length >= CUSTOM_MAX) { msg.innerText = `YOUR PLAYBOOK IS FULL (${CUSTOM_MAX}) — DELETE ONE FIRST`; return; }
+    const play = { id: cpEdit.id, name, routes: cpEdit.routes };
+    if (i >= 0) customPlays[i] = play; else customPlays.push(play);
+    registerCustomPlays(); saveSeason();
+    msg.innerText = `SAVED "${name}" — IT'S UNDER MY PLAYS IN YOUR PLAYBOOK`;
+    cpEdit = { ...play, routes: JSON.parse(JSON.stringify(play.routes)), sel: cpEdit.sel };
+    renderPlaybookEditor();
+}
+
+// Field units ↔ chalkboard pixels: x −50…50 across, depth +12 (behind the line) to −70 (35 yds) down
+const CP_W = 440, CP_H = 380;
+const cpX = x => (x + 50) / 100 * CP_W, cpY = dz => (dz - 12) / -82 * CP_H;
+function cpClick(e) {
+    const c = e.currentTarget, r = c.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (CP_W / r.width), py = (e.clientY - r.top) * (CP_H / r.height);
+    const x = Math.round(px / CP_W * 100 - 50), dz = Math.round(12 - py / CP_H * 82);
+    const route = cpEdit.routes[cpEdit.sel];
+    if (route.length >= CUSTOM_POINTS) { document.getElementById('cp-msg').innerText = `UP TO ${CUSTOM_POINTS} POINTS A ROUTE — UNDO TO CHANGE IT`; return; }
+    route.push([Math.max(-47, Math.min(47, x)), Math.max(-68, Math.min(10, dz))]);
+    document.getElementById('cp-msg').innerText = '';
+    renderPlaybookEditor();
+}
+function renderPlaybookEditor() {
+    const c = document.getElementById('cp-board'), g = c.getContext('2d');
+    g.fillStyle = '#2f7a2a'; g.fillRect(0, 0, CP_W, CP_H);
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 1;
+    for (let dz = 10; dz >= -70; dz -= 10) { g.beginPath(); g.moveTo(0, cpY(dz)); g.lineTo(CP_W, cpY(dz)); g.stroke(); }
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = '9px "Press Start 2P", monospace';
+    for (let y = 5; y <= 35; y += 5) g.fillText(`${y}`, 4, cpY(-y * 2) - 3);
+    g.strokeStyle = '#3b82ff'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, cpY(0)); g.lineTo(CP_W, cpY(0)); g.stroke();   // line of scrimmage
+    // The line and the QB
+    [-5, -2.5, 0, 2.5, 5].forEach(x => { g.fillStyle = '#ccc'; g.fillRect(cpX(x) - 5, cpY(0) + 4, 10, 10); });
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(cpX(0), cpY(5), 7, 0, Math.PI * 2); g.fill();
+    // Each receiver and his route
+    Object.entries(CP_SPOTS).forEach(([slot, [x0, d0]]) => {
+        const pts = [[x0, d0], ...cpEdit.routes[slot]], col = CP_COLORS[slot], sel = cpEdit.sel === slot;
+        if (pts.length > 1) {
+            g.strokeStyle = col; g.lineWidth = sel ? 4 : 3; g.beginPath();
+            pts.forEach(([x, dz], i) => i ? g.lineTo(cpX(x), cpY(dz)) : g.moveTo(cpX(x), cpY(dz))); g.stroke();
+            const [ax, az] = pts[pts.length - 1], [bx, bz] = pts[pts.length - 2];
+            const ang = Math.atan2(cpY(az) - cpY(bz), cpX(ax) - cpX(bx));
+            g.fillStyle = col; g.beginPath(); g.moveTo(cpX(ax), cpY(az));
+            g.lineTo(cpX(ax) - 12 * Math.cos(ang - 0.45), cpY(az) - 12 * Math.sin(ang - 0.45));
+            g.lineTo(cpX(ax) - 12 * Math.cos(ang + 0.45), cpY(az) - 12 * Math.sin(ang + 0.45)); g.fill();
+        }
+        g.fillStyle = col; g.strokeStyle = sel ? '#fff' : '#000'; g.lineWidth = sel ? 3 : 2;
+        g.beginPath(); g.arc(cpX(x0), cpY(d0), 9, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = '#000'; g.font = '7px "Press Start 2P", monospace'; g.fillText(slot === 'SLOT' ? 'S' : slot.slice(0, 2), cpX(x0) - 7, cpY(d0) + 3);
+    });
+    document.getElementById('cp-select').innerHTML = Object.keys(CP_SPOTS).map(s =>
+        `<button class="diff-btn ${cpEdit.sel === s ? 'active' : ''}" style="border-color:${CP_COLORS[s]};" onclick="cpSelect('${s}')">${s} (${cpEdit.routes[s].length}/${CUSTOM_POINTS})</button>`).join('');
+    document.getElementById('cp-list').innerHTML = customPlays.length
+        ? customPlays.map(cp => `<div class="cp-item ${cp.id === cpEdit.id ? 'on' : ''}"><span>${cp.name}</span><span><button class="up-btn" onclick="loadCustomPlay('${cp.id}')">EDIT</button> <button class="up-btn" style="background:#7a1c2a;" onclick="deleteCustomPlay('${cp.id}')">✕</button></span></div>`).join('')
+        : '<div class="cp-item" style="color:#889;">NO PLAYS YET — DRAW ONE!</div>';
 }
 
 // ─── LEAGUE, PLAYOFFS & SAVING ───────────────────────────────────────────────
@@ -1921,7 +2115,7 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, customPlays, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
@@ -1935,6 +2129,7 @@ function applySaveData(d) {
     bench = d.bench || null; hallOfFame = d.hallOfFame || []; awardHistory = d.awardHistory || [];
     if (d.rivals) rivals = d.rivals; else initRivals();
     rivalWins = d.rivalWins || 0;
+    customPlays = d.customPlays || []; registerCustomPlays();
     if (d.seasonGoals && d.seasonGoals.length) seasonGoals = d.seasonGoals; else newSeasonGoals();
     ensureFranchise();   // backups and contracts for saves from before them
     seasonSchedule.length = 0;
@@ -1967,7 +2162,7 @@ function startFreshSave() {
     career = { seasons: 1, titles: 0, playoffApps: 0, w: 0, l: 0, t: 0 };
     seasonPhase = 'regular'; playoffs = null;
     roster = newRoster(); credits = 5; bench = null; hallOfFame = []; awardHistory = [];
-    initRivals(); newSeasonGoals();
+    initRivals(); newSeasonGoals(); customPlays = []; registerCustomPlays();
     newLeague(); generateSchedule();
 }
 
@@ -2166,16 +2361,57 @@ function rosterCardHTML(slot) {
     }).join('');
     return `<div class="pcard">
         <div class="pcard-top"><span class="pcard-pos ${slot === 'K' ? 'pos-st' : DEF_SLOTS.includes(slot) ? 'pos-def' : 'pos-off'}">${SLOT_LABEL[slot]}</span><span class="pcard-name">#${p.num} ${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
-        <div class="pcard-age">AGE ${p.age}${p.salary != null ? ` · ${money(p.salary)} × ${p.years} YR${p.years === 1 ? '' : 'S'}` : ''}${p.injury > 0 ? ` · <span class="inj">🚑 OUT ${p.injury} WK</span>` : ''}</div>${bars}
+        <div class="pcard-age">AGE ${p.age}${p.salary != null ? ` · ${money(p.salary)} × ${p.years} YR${p.years === 1 ? '' : 'S'}` : ''}${p.injury > 0 ? ` · <span class="inj">🚑 OUT ${p.injury} WK</span>` : ''}<button class="up-btn edit-btn" onclick="openLookEditor('${slot}', 'starter')" title="Name, number and look">EDIT</button></div>${bars}
         <div class="pcard-line">SEASON (${p.season.gp} GP): ${playerLineText(slot, p.season)}</div>
         <div class="pcard-career">CAREER (${p.career.gp} GP): ${playerLineText(slot, p.career)}</div>${backupHTML(slot)}</div>`;
 }
+// ─── CREATE-A-PLAYER ───
+// EDIT on a roster card: his name, jersey number, skin tone and eye black (the game draws him that
+// way from then on — see playerLook)
+let lookEdit = null;   // { p, slot, skin, eyeBlack }
+function openLookEditor(slot, which) {
+    const p = which === 'bench' ? bench[slot] : roster[slot];
+    const base = playerLook(MY_TEAM.id, SLOT_ROLE[slot], p.num);
+    lookEdit = { p, slot, skin: (p.look && p.look.skin) || base.skin, eyeBlack: p.look ? p.look.eyeBlack : base.eyeBlack };
+    document.getElementById('le-name').value = p.name;
+    document.getElementById('le-num').value = p.num;
+    document.getElementById('le-skins').innerHTML = MODEL_SKIN_TONES.map(c => `<button class="le-swatch" style="background:${c};" onclick="lookEdit.skin='${c}'; renderLookEditor()"></button>`).join('');
+    document.getElementById('le-eyes').innerHTML = [['EyeBlack_Bars', 'BARS'], ['EyeBlack_Smear', 'SMEAR'], ['EyeBlack_Slash', 'SLASH'], [null, 'NONE']]
+        .map(([k, label]) => `<button class="diff-btn le-eye" data-eye="${k}" onclick="lookEdit.eyeBlack=${k ? `'${k}'` : 'null'}; renderLookEditor()">${label}</button>`).join('');
+    document.getElementById('le-msg').innerText = '';
+    document.getElementById('look-editor').classList.remove('hidden');
+    renderLookEditor();
+}
+function renderLookEditor() {
+    const L = lookEdit;
+    document.querySelectorAll('.le-swatch').forEach((b, i) => b.classList.toggle('active', MODEL_SKIN_TONES[i] === L.skin));
+    document.querySelectorAll('.le-eye').forEach(b => b.classList.toggle('active', String(L.eyeBlack) === b.dataset.eye));
+    // A little face: skin, helmet in your colors, and the eye black he'd wear
+    const eye = L.eyeBlack === 'EyeBlack_Bars' ? '<div class="lf-eye bars"></div>' : L.eyeBlack === 'EyeBlack_Smear' ? '<div class="lf-eye smear"></div>' : L.eyeBlack === 'EyeBlack_Slash' ? '<div class="lf-eye slash"></div>' : '';
+    document.getElementById('le-face').innerHTML = `<div class="lf-helmet" style="background:${MY_TEAM.helmet}; border-color:${MY_TEAM.color};"></div><div class="lf-head" style="background:${L.skin};">${eye}</div>
+        <div class="lf-jersey" style="background:${MY_TEAM.color};">${document.getElementById('le-num').value || ''}</div>`;
+}
+function saveLook() {
+    const L = lookEdit, msg = document.getElementById('le-msg');
+    const name = document.getElementById('le-name').value.toUpperCase().replace(/[^A-Z .'\-]/g, '').trim().slice(0, 14);
+    const num = parseInt(document.getElementById('le-num').value, 10);
+    if (name.length < 2) { msg.innerText = 'NAME IS TOO SHORT'; return; }
+    if (!(num >= 0 && num <= 99)) { msg.innerText = 'NUMBER MUST BE 0–99'; return; }
+    const taken = ALL_SLOTS.flatMap(s => [roster[s], bench && bench[s]]).some(o => o && o !== L.p && Number(o.num) === num);
+    if (taken) { msg.innerText = `#${num} IS TAKEN`; return; }
+    L.p.name = name; L.p.num = num; L.p.look = { skin: L.skin, eyeBlack: L.eyeBlack };
+    saveSeason();
+    document.getElementById('look-editor').classList.add('hidden');
+    lookEdit = null;
+    renderRoster();
+}
+
 // His backup, under each card: who he is, his contract, and a SWAP button to start him instead
 function backupHTML(slot) {
     const b = bench && bench[slot];
     if (!b) return '';
     return `<div class="pbackup"><span>BACKUP #${b.num} ${b.name} <span class="pcard-stars">${starsText(starRating(b, slot))}</span> · AGE ${b.age} · ${money(b.salary)}${b.injury > 0 ? ` · <span class="inj">🚑 ${b.injury} WK</span>` : ''}</span>
-        <button class="up-btn" ${b.injury > 0 ? 'disabled' : ''} onclick="swapStarter('${slot}')" title="Start ${b.name} instead">SWAP</button></div>`;
+        <span style="display:flex; gap:4px;"><button class="up-btn" onclick="openLookEditor('${slot}', 'bench')">EDIT</button><button class="up-btn" ${b.injury > 0 ? 'disabled' : ''} onclick="swapStarter('${slot}')" title="Start ${b.name} instead">SWAP</button></span></div>`;
 }
 // ─── COACHING CREDITS ───
 // Earned every game (like Retro Bowl): a win, each touchdown, a big play, every takeaway your defense
@@ -2421,21 +2657,75 @@ function toggleAudio() {
     else { audioCtx.resume(); document.getElementById('btn-mute').innerText = "MUTE AUDIO"; document.getElementById('btn-mute').style.background = "#444"; }
 }
 
+// The menu theme: a 4-bar chiptune loop — square-wave lead, triangle bass, noise hi-hats and a
+// kick — that plays on the menus (and the matchup and pause screens), 8th notes at ~128 BPM
+const MENU_THEME = {
+    // MIDI notes per 8th note (0 = rest): a fight-song-ish lead over I–vi–IV–V in C
+    lead: [72, 0, 76, 79, 76, 0, 72, 74,  76, 0, 77, 76, 74, 0, 72, 0,  69, 0, 72, 76, 74, 72, 69, 67,  71, 0, 74, 77, 79, 0, 0, 0],
+    bass: [48, 48, 55, 48, 45, 45, 52, 45,  41, 41, 48, 41, 43, 43, 50, 43,  48, 48, 55, 48, 45, 45, 52, 45,  41, 41, 48, 41, 43, 43, 47, 50],
+};
+const midiHz = n => 440 * Math.pow(2, (n - 69) / 12);
+function chipNote(time, hz, dur, type, vol) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.setValueAtTime(hz, time);
+    g.gain.setValueAtTime(vol, time); g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    o.connect(g); g.connect(audioCtx.destination); o.start(time); o.stop(time + dur + 0.02);
+}
 function playMenuMusic() {
     if(!audioCtx) return;
+    clearInterval(musicInterval);
     let step = 0;
     musicInterval = setInterval(() => {
         if(GAME_STATE !== 'MENU' && GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MATCHUP') { clearInterval(musicInterval); return; }
-        let time = audioCtx.currentTime;
-        if(step % 8 === 0 || step === 10) {
-            let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
-            osc.type = 'square'; osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.frequency.setValueAtTime(step === 10 ? 110 : 82.41, time); 
-            gain.gain.setValueAtTime(0.1, time); gain.gain.setTargetAtTime(0, time + 0.1, 0.2);
-            osc.start(time); osc.stop(time + 0.5);
-        }
-        step = (step + 1) % 16;
-    }, 150); 
+        if (isMuted) return;
+        const time = audioCtx.currentTime + 0.02, s = step % 32;
+        if (MENU_THEME.lead[s]) chipNote(time, midiHz(MENU_THEME.lead[s]), 0.2, 'square', 0.045);
+        chipNote(time, midiHz(MENU_THEME.bass[s]), 0.22, 'triangle', 0.12);
+        if (s % 4 === 0) sfxTone(0.12, 120, 45, 0.18, 'sine', 0.02);              // kick on the beat
+        if (s % 2 === 1) sfxNoise(0.03, 'highpass', 7000, 0.7, 0.05, 0.02);      // hi-hat on the off-beat
+        step++;
+    }, 234);
+}
+// A brass fanfare for a touchdown (a rising arpeggio and a held chord); a quick two-note jingle for
+// a field goal; a sad slide for a turnover
+function sfxFanfare() {
+    if (!sfxOn()) return;
+    const t = audioCtx.currentTime;
+    [60, 64, 67, 72].forEach((n, i) => chipNote(t + i * 0.11, midiHz(n), 0.18, 'sawtooth', 0.06));
+    [72, 76, 79].forEach(n => chipNote(t + 0.48, midiHz(n), 0.9, 'square', 0.045));
+}
+function sfxFieldGoalJingle() {
+    if (!sfxOn()) return;
+    const t = audioCtx.currentTime;
+    chipNote(t, midiHz(79), 0.16, 'square', 0.05); chipNote(t + 0.16, midiHz(84), 0.4, 'square', 0.05);
+}
+function sfxSadTrombone() {
+    if (!sfxOn()) return;
+    sfxTone(0.35, 220, 200, 0.07, 'sawtooth'); sfxTone(0.35, 200, 185, 0.07, 'sawtooth', 0.38); sfxTone(0.7, 185, 150, 0.07, 'sawtooth', 0.76);
+}
+// Crowd chants: "DE-FENSE!" (two voices, low then high, and two claps) while you're on defense at
+// home, and a clap-clap-clapclapclap in crunch time
+function chantDefense() {
+    if (!sfxOn()) return;
+    const ct = audioCtx.currentTime;
+    for (let i = 0; i < 10; i++) {
+        spawnVoice(ct + Math.random() * 0.05, 140 + Math.random() * 60, 0.03, 500, 1000, 0.35);
+        spawnVoice(ct + 0.42 + Math.random() * 0.05, 190 + Math.random() * 70, 0.03, 600, 1200, 0.45);
+    }
+    [0.95, 1.25].forEach(d => sfxNoise(0.05, 'bandpass', 1500, 1, 0.18, d));
+}
+function chantClaps() {
+    if (!sfxOn()) return;
+    [0, 0.3, 0.6, 0.75, 0.9].forEach(d => sfxNoise(0.05, 'bandpass', 1400 + Math.random() * 300, 1, 0.16, d));
+}
+function updateChants(dt) {
+    chantClock -= dt;
+    if (chantClock > 0) return;
+    const onDefenseHome = isUserHome && GAME_STATE === 'DEFENSE' && dp && dp.phase === 'presnap';
+    const crunch = typeof crunchTime === 'function' && crunchTime() && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP');
+    if (onDefenseHome) { chantDefense(); chantClock = 2.6; }
+    else if (crunch) { chantClaps(); chantClock = 2.2; }
+    else chantClock = 0.5;
 }
 // Spawn a single "voice" — a sawtooth oscillator filtered by two bandpass
 // resonators tuned to vocal formants. Vibrato adds a human warble. Multiple
@@ -3517,6 +3807,11 @@ function bakedMaterials() {
 
 // A deterministic stream of randoms for one player, so the same guy looks the same every play
 function playerLook(teamId, role, number) {
+    // One of yours you've customized (EDIT on the Roster screen) looks the way you made him
+    if (teamId === MY_TEAM.id && roster) {
+        const mine = ALL_SLOTS.flatMap(s => [roster[s], bench && bench[s]]).find(p => p && p.look && String(p.num) === String(number));
+        if (mine) return { skin: mine.look.skin, eyeBlack: mine.look.eyeBlack };
+    }
     const rnd = seededRandom(`${teamId}-${role}-${number}`);
     const skin = MODEL_SKIN_TONES[Math.floor(rnd() * MODEL_SKIN_TONES.length)];
     let pick = rnd() * 100, eyeBlack = null;
@@ -5392,6 +5687,7 @@ function applyFormation(playType, los) {
 
 function getRoutesForPlay(playType, los) {
     playType = TRICK_ROUTES[playType] || playType;
+    const custom = customRoutes(playType, los); if (custom) return custom;   // one you drew (MY PLAYBOOK)
     // All routes: WRs release STRAIGHT upfield first (stay on their X), then make a sharp cut.
     // WR1=x-18, WR2=x+18, slot=x-11, TE=x+8
     if (playType === 'slant') return [
@@ -5551,6 +5847,7 @@ function selectPlay(playType) {
     if (playType === 'flea') players.offense[5].route = [new THREE.Vector3(1, 0, los + 4.5), new THREE.Vector3(2, 0, los + 1)];
     if (playType === 'philly') players.offense[5].route = [new THREE.Vector3(1.2, 0, los + 4.5), new THREE.Vector3(9, 0, los + 3.5)];   // toss right...
     if (playType === 'hookladder') players.offense[5].route = [new THREE.Vector3(-4, 0, los + 3), new THREE.Vector3(-6, 0, los + 1)];   // stays in to block the backside
+    const myRb = customRbRoute(playType, los); if (myRb) players.offense[5].route = myRb;
     const formName = playType === 'fakefg' ? null : applyFormation(playType, los);
     if (playType === 'fakefg') {
         // Field goal look: QB lines up as the kicker, the back kneels as the holder, receivers tight as wings
@@ -9139,7 +9436,7 @@ function animate() {
             if ((ball.velocity && ball.position.y <= 0.3) || xpAnimElapsed > 5) {
                 if (ball.velocity) { ball.velocity = null; ball.position.y = 0.3; }
                 xpAnimPhase = 'result'; xpAnimElapsed = 0;
-                if (xpAnimResult) { addScore('off', kickIsFieldGoal ? 3 : 1); triggerCheer(); }
+                if (xpAnimResult) { addScore('off', kickIsFieldGoal ? 3 : 1); triggerCheer(); sfxFieldGoalJingle(); }
                 else { triggerBoo(); }
             }
 
@@ -9280,7 +9577,7 @@ function animate() {
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
         updateTdCam(dt); updateEmotes(dt);
     }
-    updateChallengeButton(); updateCrunchTime();
+    updateChallengeButton(); updateCrunchTime(); updateChants(dt);
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     renderer.render(scene, camera);
