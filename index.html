@@ -453,6 +453,7 @@
                     <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
                     <button class="tile" onclick="openOnline()"><span class="ti">🌐</span>ONLINE</button>
                     <button class="tile" onclick="openBeAPro()"><span class="ti">🌟</span>BE A PRO</button>
+                    <button class="tile" onclick="openPractice()"><span class="ti">🎯</span>PRACTICE</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -1168,6 +1169,7 @@ let walkout = null;   // the pre-game run out of the tunnel (startWalkout)
 let p2 = { on: false, ctrl: null, ring: null };   // a second player on the same keyboard (see TWO PLAYERS)
 let net = null;   // online play: { role: 'host' | 'guest', peer, conn, ... } (see ONLINE)
 let pro = null;   // a Be a Pro game in progress (see BE A PRO)
+let practice = null;   // a practice drill in progress (see PRACTICE)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1587,7 +1589,7 @@ function swapStarter(slot, quiet) {
 // ─── Injuries ───
 // A carrier you tackle, a man who makes a tackle: now and then he's hurt for 1–6 weeks
 function maybeInjure(slot, chance) {
-    if (!slot || !roster || challengeMode || matchOn() || pro || Math.random() >= chance) return;
+    if (!slot || !roster || challengeMode || matchOn() || pro || practice || Math.random() >= chance) return;
     const p = roster[slot];
     if (p.injury > 0) return;
     const weeks = 1 + Math.floor(Math.pow(Math.random(), 1.8) * 6);
@@ -1846,6 +1848,176 @@ function updateP2(dt) {
         if (show && hint.innerText !== matchDefensePrompt()) hint.innerText = matchDefensePrompt();
         document.body.classList.toggle('net-def', matchDefending('host'));
     } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+}
+
+// ─── PRACTICE ────────────────────────────────────────────────────────────────
+// Drills between games, each with a best score and coaching credits for doing well:
+//  QB TARGETS — 10 throws at hoops floating downfield (some sliding side to side); the normal aim
+//               and Q/E power, more points for far ones and moving ones.
+//  FIELD GOAL LADDER — start at 20 yards, 5 more after every make; two misses and you're done.
+//  THE GAUNTLET — a back against a field of defenders who come at you as you get close; every
+//               move you have (juke, spin, stiff-arm, hurdle), 70 yards to the end zone.
+const DRILLS = [['qb', '🎯', 'QB TARGETS', '10 throws at floating hoops. Far and moving hoops are worth more.'],
+                ['fg', '🦶', 'FIELD GOAL LADDER', 'From 20 yards, +5 after every make. Two misses ends it.'],
+                ['run', '🏃', 'THE GAUNTLET', 'Get past the defenders to the end zone. Juke, spin, stiff-arm, hurdle.']];
+function practiceBests() { try { return JSON.parse(localStorage.getItem('ff-practice') || '{}'); } catch (e) { return {}; } }
+function openPractice() {
+    const b = practiceBests();
+    const cards = DRILLS.map(([k, icon, name, desc]) => `<div class="pcard"><div class="pcard-top"><span style="font-size:1.4rem;">${icon}</span><span class="pcard-name">${name}</span><span class="pcard-stars">${b[k] != null ? 'BEST ' + b[k] + (k === 'fg' ? ' YDS' : k === 'run' ? ' YDS' : '') : ''}</span></div><div class="pcard-age">${desc}</div><button class="btn-retro draft-pick" onclick="startDrill('${k}')">START</button></div>`).join('');
+    showOffseason('PRACTICE', `<div class="roster-grid" style="width:min(1000px,96vw);">${cards}</div>`, [['BACK TO MENU', "hideOffseason(); showOnly('main-menu');"]]);
+}
+function clearPracticeField() {
+    players.offense.concat(players.defense).forEach(p => scene.remove(p.group)); players = { offense: [], defense: [] };
+    tackleFalls = []; riseAnims = []; activeReceiver = null; targetedReceiver = null; ball.velocity = null; detachBallToScene();
+    trajectoryLine.visible = false; landingMarker.visible = false;
+    if (practice && practice.rings) practice.rings.forEach(r => scene.remove(r.m));
+}
+function startDrill(k) {
+    hideOffseason(); ['main-menu', 'save-select', 'team-select'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    if (!audioCtx) initAudio();
+    clearPracticeField();
+    practice = { kind: k, score: 0 };
+    weather = { kind: 'clear', night: false, wind: 0 }; applyWeather();
+    document.getElementById('scoreboard').classList.add('hidden');
+    if (k === 'qb') {
+        lineOfScrimmageZ = 20;
+        const qb = new Player(0, lineOfScrimmageZ + 5, 'offense', 'QB', String(roster ? roster.QB.num : 1), true, NFL_TEAMS[0]);
+        qb.group.rotation.y = Math.PI; players.offense.push(qb);
+        practice.qb = qb; practice.left = 10; practice.rings = [];
+        for (let i = 0; i < 5; i++) practice.rings.push(newPracticeRing());
+        attachBallToQB(qb);
+        passPower = 0.6; document.getElementById('vertical-power-meter').classList.remove('hidden');
+        document.getElementById('vertical-power-fill').style.height = '60%';
+        camera.position.set(0, 7, lineOfScrimmageZ + 20); camera.lookAt(0, 2, lineOfScrimmageZ - 40);
+        GAME_STATE = 'PRACTICE_QB';
+    } else if (k === 'fg') {
+        practice.yards = 20; practice.misses = 0; practice.best = 0;
+        nextPracticeKick();
+    } else {
+        lineOfScrimmageZ = 40;
+        const rb = new Player(0, lineOfScrimmageZ, 'offense', 'RB', String(roster ? roster.RB.num : 22), true, NFL_TEAMS[0]);
+        rb.group.rotation.y = Math.PI; players.offense.push(rb);
+        // Defenders in staggered lanes down the field; each one only comes once you're close
+        for (let i = 0; i < 9; i++) {
+            const z = lineOfScrimmageZ - 16 - i * 14, x = (i % 3 - 1) * 16 + (Math.random() - 0.5) * 10;
+            const d = new Player(x, z, 'defense', 'LB', String(50 + i), true, NFL_TEAMS[0]);
+            d.baseSpeed *= 0.86; d.speed = d.baseSpeed; d.pursueDelay = 1e9;
+            players.defense.push(d);
+        }
+        activeReceiver = rb; rb.autoRun = false; rb.autoRunDir.set(0, 0, -1);
+        attachBallToCarrier(rb); practice.startZ = rb.group.position.z;
+        document.getElementById('stamina-bar').classList.remove('hidden');
+        GAME_STATE = 'POST_CATCH';
+    }
+    practiceHud();
+}
+function newPracticeRing() {
+    const far = Math.random();
+    const m = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.22, 8, 28), new THREE.MeshBasicMaterial({ color: 0xff8a1a }));
+    const moving = Math.random() < 0.4;
+    m.position.set((Math.random() - 0.5) * 50, 2.0 + Math.random() * 1.2, lineOfScrimmageZ - 14 - far * 64);   // about where a pass comes down: aim right at it
+    scene.add(m);
+    return { m, moving, x0: m.position.x, phase: Math.random() * 6, pts: 100 + Math.round(far * 150) + (moving ? 75 : 0) };
+}
+function practiceHud() {
+    const P = practice, el = document.getElementById('instructions');
+    el.classList.remove('hidden');
+    el.innerText = P.kind === 'qb' ? `QB TARGETS · THROWS LEFT ${P.left} · SCORE ${P.score}  ·  Q/E POWER · CLICK TO THROW · ESC QUIT`
+                 : P.kind === 'fg' ? `FIELD GOAL LADDER · ${P.yards} YARDS · MISSES ${P.misses}/2 · LONGEST ${P.best}`
+                 : `THE GAUNTLET · GET TO THE END ZONE · WASD · SHIFT SPRINT · Q JUKE · F SPIN · X STIFF-ARM · SPACE HURDLE · ESC QUIT`;
+}
+// QB targets: aim, power and throw use the game's own rules (throwPlan)
+function practiceThrow() {
+    const P = practice; if (!P || P.kind !== 'qb' || ball.velocity || P.left <= 0) return;
+    const qb = P.qb; detachBallToScene();
+    const from = qb.group.position.clone().add(new THREE.Vector3(0, 2.3, 0)); ball.position.copy(from);
+    const plan = throwPlan(qb.group.position, passTarget), T = plan.t, aim = plan.aim;
+    ball.velocity = new THREE.Vector3((aim.x - from.x) / T, (1.6 - from.y + 15 * T * T) / T, (aim.z - from.z) / T);
+    P.prev = ball.position.clone(); P.left--;
+    qb.throwTimer = 0.55; qb.throwAt = passTarget.clone(); sfxKick();
+    trajectoryLine.visible = false; practiceHud();
+}
+function practiceTick(dt) {
+    const P = practice; if (!P) return;
+    if (P.kind === 'qb' && GAME_STATE === 'PRACTICE_QB') {
+        const qb = P.qb; qb.currentMoveSpeed = 0; qb.animateLimbs(dt);
+        P.rings.forEach(r => { if (r.moving) r.m.position.x = r.x0 + Math.sin(clock.elapsedTime * 1.3 + r.phase) * 8; });
+        if (ball.velocity) {
+            P.prev.copy(ball.position);
+            ball.position.addScaledVector(ball.velocity, dt); ball.velocity.y -= 30 * dt;
+            ball.lookAt(ball.position.clone().add(ball.velocity));
+            // Through a hoop? (crossed its plane inside the ring)
+            P.rings.forEach((r, i) => {
+                const z = r.m.position.z;
+                if ((P.prev.z - z) * (ball.position.z - z) > 0) return;
+                const u = (z - P.prev.z) / ((ball.position.z - P.prev.z) || 1e-6), x = P.prev.x + (ball.position.x - P.prev.x) * u, y = P.prev.y + (ball.position.y - P.prev.y) * u;
+                if (Math.hypot(x - r.m.position.x, y - r.m.position.y) < 2.2) {
+                    P.score += r.pts; flashBanner(`+${r.pts}!`, 700); sfxCatch(); triggerCheer();
+                    scene.remove(r.m); P.rings[i] = newPracticeRing(); practiceHud();
+                }
+            });
+            if (ball.position.y <= 0.2) {
+                ball.velocity = null;
+                if (P.left <= 0) { setTimeout(() => practiceDone(P.score), 900); GAME_STATE = 'PRACTICE_DONE'; }
+                else setTimeout(() => { if (practice === P) { attachBallToQB(qb); } }, 500);
+            }
+        } else {
+            // The same throw preview as a game (red when it's out of his range)
+            const startPos = qb.group.position.clone().add(new THREE.Vector3(0, 2.3, 0));
+            const plan = throwPlan(startPos, passTarget), to = plan.aim, T = plan.t;
+            const vY = (to.y - startPos.y + 15 * T * T) / T, vX = (to.x - startPos.x) / T, vZ = (to.z - startPos.z) / T, pts = [];
+            for (let t = 0; t <= T; t += 0.1) pts.push(startPos.x + vX * t, startPos.y + vY * t - 15 * t * t, startPos.z + vZ * t);
+            pts.push(to.x, to.y, to.z);
+            trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); trajectoryLine.computeLineDistances();
+            trajectoryLine.visible = true;
+            if (plan.tooFar) trajectoryLine.material.color.setRGB(1, 0.15, 0.15); else trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
+        }
+    } else if (P.kind === 'run' && GAME_STATE === 'POST_CATCH' && activeReceiver) {
+        // Each defender wakes up once you're within his range
+        players.defense.forEach(d => { if (d.pursueDelay > 1e8 && d.group.position.distanceTo(activeReceiver.group.position) < 17) d.pursueDelay = 0; });
+    }
+}
+function nextPracticeKick() {
+    const P = practice;
+    lineOfScrimmageZ = GOAL_LINE_Z + 2 * (P.yards - 17);
+    camera.position.set(0, 6, lineOfScrimmageZ + 34); camera.lookAt(0, 4, GOAL_LINE_Z - 10);
+    _showKickScreen('FIELD GOAL LADDER', `${P.yards}-YARD ATTEMPT`, kickGreenWidth(P.yards) > 0 ? 'HIT THE GREEN ZONE' : 'FROM WAY DOWNTOWN...', false, 'PRACTICE_FG', Math.max(0.03, kickGreenWidth(P.yards)));
+    practiceHud();
+}
+function practiceFgResult(good) {
+    const P = practice;
+    if (good) { P.best = P.yards; flashBanner(`${P.yards} YARDS — GOOD!`, 1100); sfxFieldGoalJingle(); triggerCheer(); P.yards += 5; }
+    else { P.misses++; flashBanner(`${P.yards} YARDS — NO GOOD`, 1100); triggerBoo(); }
+    if (P.misses >= 2) setTimeout(() => practiceDone(P.best), 1300);
+    else setTimeout(() => { if (practice === P) nextPracticeKick(); }, 1300);
+}
+function practiceRunEnd(z, td) {
+    const P = practice; if (!P || P.done) return;
+    P.done = true;
+    const yds = Math.max(0, Math.round((P.startZ - (td ? GOAL_LINE_Z : z)) / 2));
+    flashBanner(td ? 'TOUCHDOWN! YOU RAN THE GAUNTLET!' : `DOWN AFTER ${yds} YARDS`, 1500);
+    setTimeout(() => practiceDone(yds + (td ? 30 : 0)), 1600);
+}
+function practiceDone(score) {
+    const P = practice; if (!P) return;
+    const b = practiceBests(), best = b[P.kind] == null || score > b[P.kind];
+    if (best) { b[P.kind] = score; try { localStorage.setItem('ff-practice', JSON.stringify(b)); } catch (e) {} }
+    const earned = P.kind === 'qb' ? Math.floor(score / 400) : P.kind === 'fg' ? Math.max(0, Math.floor((score - 30) / 10)) : Math.floor(score / 25);
+    if (earned > 0 && roster) { credits += earned; saveSeason(); }
+    clearPracticeField(); practice = null;
+    ['instructions', 'vertical-power-meter', 'stamina-bar'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    GAME_STATE = 'MENU';
+    const name = DRILLS.find(d => d[0] === P.kind)[2];
+    showOffseason(name, `<div style="font-size:1.6rem; color:#ffcc00; margin:14px 0;">${score}${P.kind === 'qb' ? ' PTS' : ' YDS'}</div>
+        ${best ? '<div class="stats-head" style="color:#00ff88;">NEW BEST!</div>' : `<div class="stats-head">BEST ${b[P.kind]}</div>`}
+        ${earned > 0 ? `<div class="stats-head">+${earned} COACHING CREDIT${earned === 1 ? '' : 'S'}</div>` : ''}`,
+        [['AGAIN', `startDrill('${P.kind}')`], ['PRACTICE', 'openPractice()'], ['BACK TO MENU', "hideOffseason(); showOnly('main-menu'); updateMenuUI();"]]);
+}
+function quitPractice() {
+    if (!practice) return;
+    clearPracticeField(); practice = null;
+    ['instructions', 'vertical-power-meter', 'stamina-bar', 'extra-point-screen'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    patActive = false; GAME_STATE = 'MENU'; openPractice();
 }
 
 // ─── BE A PRO ────────────────────────────────────────────────────────────────
@@ -6602,6 +6774,7 @@ function updateEasterEgg(dt) {
 }
 
 function triggerTDCelebration(scorer) {
+    if (practice && practice.kind === 'run') { practiceRunEnd(GOAL_LINE_Z, true); return; }   // the Gauntlet: made it
     if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TOUCHDOWN') return;
     // Reaching the end zone on a 2-point try (running or diving) is a conversion, not a TD
     if (isTwoPointAttempt) {
@@ -7159,6 +7332,7 @@ function updateScoreboard() {
 }
 
 function handlePlayResult(msg, finalZ) {
+    if (practice && practice.kind === 'run') { practiceRunEnd(finalZ, false); return; }   // the Gauntlet: brought down
     if (GAME_STATE !== 'WALKOFF') sfxWhistle();
     // After a fumble, briefly drop into WALKOFF so players walk to the sideline
     // before the formation resets. Other play results skip straight through.
@@ -8184,6 +8358,7 @@ function checkInputs(e) {
     if (e.code === 'Slash' && e.type === 'keydown' && !e.repeat && p2.on) { p2Switch(); return; }
     if (e.code === 'Period' && e.type === 'keydown' && !e.repeat && p2.on) { p2HitStick(); return; }   // Player 2 on the keyboard: . hit stick, ; jump
     if (e.code === 'Semicolon' && e.type === 'keydown' && !e.repeat && p2.on) { p2Jump(); return; }
+    if (e.code === 'Escape' && practice && e.type === 'keydown') { quitPractice(); return; }   // leave the drill
     if (e.code === 'Escape' && GAME_STATE !== 'MENU' && e.type === 'keydown') {
         if (GAME_STATE === 'PAUSED') resumeGame(); else { pausedFrom = GAME_STATE; GAME_STATE = 'PAUSED'; document.getElementById('pause-menu').classList.remove('hidden'); }
     }
@@ -8207,7 +8382,7 @@ function checkInputs(e) {
         if (n >= 0 && toggleAudibleMenu.open) { callAudible(n); return; }
         if (n >= 0 && n < 4) { hotRoute(n); return; }
     }
-    if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
+    if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT' || GAME_STATE === 'PRACTICE_FG') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     if (GAME_STATE === 'POST_CATCH' && e.type === 'keydown' && !e.repeat && activeReceiver) {   // ball carrier moves
         if (e.code === 'KeyQ') startCarrierMove(activeReceiver, 'juke');
@@ -8223,7 +8398,7 @@ function checkInputs(e) {
     if (teamCeleb && teamCeleb.phase === 'pick' && e.type === 'keydown' && /^Digit[0-9]$/.test(e.code)) { chooseCelebration((Number(e.code.slice(5)) + 9) % 10); return; }   // celebration wheel: 1–9, 0 = tenth
     if (e.code === 'KeyH' && e.type === 'keydown' && (GAME_STATE === 'PLAYBOOK' || GAME_STATE === 'PRE_SNAP')) toggleHurryUp();
 
-    if ((GAME_STATE === 'PRE_SNAP' || (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending)) && e.type === 'keydown') {   // power can change after the snap too, until he lets it go
+    if ((GAME_STATE === 'PRE_SNAP' || GAME_STATE === 'PRACTICE_QB' || (GAME_STATE === 'PLAY' && !ball.velocity && !handoffPending)) && e.type === 'keydown') {   // power can change after the snap too, until he lets it go
         if (e.code === 'KeyE' || (e.code === 'ArrowUp' && !p2.on))   passPower = Math.min(maxPassPower(), passPower + 0.1); // the QB's arm sets the cap (arrows are Player 2's in 2-player)
         if (e.code === 'KeyQ' || (e.code === 'ArrowDown' && !p2.on))  passPower = Math.max(0.1, passPower - 0.1);
         document.getElementById('vertical-power-fill').style.height = (passPower * 100) + '%';
@@ -8237,7 +8412,7 @@ function onMouseMove(e) {
     if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, false); return; }
     if (matchDefending('host')) return;   // the friend's aiming, not yours
     if (proSkill()) return;   // Be a Pro (RB/WR): the QB aims
-    if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP') {
+    if(GAME_STATE === 'PLAY' || GAME_STATE === 'PRE_SNAP' || GAME_STATE === 'PRACTICE_QB') {
         mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera); const intersects = raycaster.intersectObjects([field, endzoneHome, endzoneDef]);
         if (intersects.length > 0) {
@@ -8248,6 +8423,7 @@ function onMouseMove(e) {
 }
 function onMouseDown(e) {
     if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestMouse(e, true); return; }
+    if (GAME_STATE === 'PRACTICE_QB') { practiceThrow(); return; }
     if (matchDefending('host') && !net.remoteClick) return;   // only the friend's clicks throw for their offense
     if (proSkill() && !pro.aiThrow && GAME_STATE === 'PLAY') return;   // Be a Pro (RB/WR): the QB throws, not you
     if (walkout) { endWalkout(); return; }
@@ -8635,6 +8811,7 @@ function attemptExtraPointKick() {
     if (!patActive) return;
     patActive = false;
     document.getElementById('extra-point-screen').classList.add('hidden');
+    if (GAME_STATE === 'PRACTICE_FG') { practiceFgResult(meterInGreen()); return; }   // the field goal ladder
 
     if (GAME_STATE === 'EXTRA_POINT') {
         startKickAnim(meterInGreen(), XP_SPOT_Z, false);
@@ -11853,7 +12030,7 @@ function animate() {
     }
 
     // PAT / kickoff / punt meter oscillation
-    if ((GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && patActive) {
+    if ((GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT' || GAME_STATE === 'PRACTICE_FG') && patActive) {
         patMeterPos += patMeterDir * 1.4 * dt;
         if (patMeterPos >= 1) { patMeterPos = 1; patMeterDir = -1; }
         if (patMeterPos <= 0) { patMeterPos = 0; patMeterDir =  1; }
@@ -11967,7 +12144,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'KICK_CHOICE' && GAME_STATE !== 'ONLINE_GUEST' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'KICK_CHOICE' && GAME_STATE !== 'ONLINE_GUEST' && GAME_STATE !== 'PRACTICE_QB' && GAME_STATE !== 'PRACTICE_FG' && GAME_STATE !== 'PRACTICE_DONE' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
@@ -12073,7 +12250,7 @@ function animate() {
     if (walkout) updateWalkout(dt);
     if (matchOn()) { net.ecam = [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w]; net.camSwapped = true; }   // the offense's camera, for whoever has the ball (restored next frame under any override)
     applyCameraMode(dt);
-    proTick(dt); proCamera(dt);
+    proTick(dt); proCamera(dt); practiceTick(dt);
     updateP2(dt);
     netHostTick(dt); netGuestTick();
     // Online match, you're on defense: the defense camera, and none of their offense's aiming lines
