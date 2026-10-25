@@ -1091,6 +1091,23 @@ function applyRosterToDefense(def) {
 // The meter always goes all the way up; a stronger arm just makes every throw zip in a little faster
 const maxPassPower = () => 1;
 const armFactor = () => roster ? 0.9 + (roster.QB.arm - 50) / 49 * 0.15 : 1;   // arm 50 → 0.9×, 99 → 1.05×
+// How far he can throw it: more power and a bigger arm reach further. A full-power throw from a
+// 75 arm goes about 60 yards, half power about 37, a flick about 18. Aim past that and the ball
+// comes down short of the spot instead of being lobbed into the sky to get there.
+function throwRange() {
+    const arm = roster ? roster.QB.arm : 75;
+    return (30 + 100 * passPower) * (0.8 + (arm - 50) / 49 * 0.3);
+}
+// The throw to `target` from `from`: where it really lands and how long it's in the air (never
+// more than 3.1 s, so even a deep ball tops out around 18 yards up)
+function throwPlan(from, target) {
+    const flat = new THREE.Vector3(target.x - from.x, 0, target.z - from.z), range = throwRange();
+    const tooFar = flat.length() > range;
+    const aim = tooFar ? new THREE.Vector3(from.x, 0, from.z).addScaledVector(flat.normalize(), range).setY(target.y) : target.clone();
+    const dist = Math.max(1, Math.hypot(aim.x - from.x, aim.z - from.z));
+    const speed = 15 + (passPower * 30) * armFactor();
+    return { aim, t: Math.min(3.1, dist / speed), tooFar };
+}
 
 // This game's line for a roster player (rolled into his season and career when the game ends)
 function creditPlayer(slot, key, n = 1) {
@@ -4610,6 +4627,7 @@ function pickDefScheme() {
 
 function setupFormation() {
     clearFlags();
+    clearKickLeftovers();   // a kick that never finished (quit mid-return, clock ran out) leaves no one behind
     updateScoreboard();
     players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group));
     players = { offense: [], defense: [] }; activeReceiver = null; targetedReceiver = null; ballPastLOSBoostDone = false;
@@ -5247,9 +5265,12 @@ function onMouseDown(e) {
         detachBallToScene(); // ball was parented to QB; reattach to scene with world transform preserved before computing throw
         // The QB's accuracy rating decides how close the ball lands to where you aimed
         const err = roster ? (100 - roster.QB.accuracy) / 25 : 0;
-        const aim = passTarget.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2 * err, 0, (Math.random() - 0.5) * 2 * err));
-        let dist = Math.max(1, qb.group.position.distanceTo(aim)); let throwSpeed = 15 + (passPower * 30) * armFactor(); let timeInAir = dist / throwSpeed;
+        // Out of his range, it comes down short of where you aimed (see throwPlan)
+        const plan = throwPlan(qb.group.position, passTarget);
+        const aim = plan.aim.add(new THREE.Vector3((Math.random() - 0.5) * 2 * err, 0, (Math.random() - 0.5) * 2 * err));
+        const timeInAir = plan.t;
         ball.velocity = new THREE.Vector3((aim.x - ball.position.x) / timeInAir, (aim.y - ball.position.y + 0.5 * 30 * timeInAir * timeInAir) / timeInAir, (aim.z - ball.position.z) / timeInAir);
+        if (plan.tooFar) passTarget.copy(plan.aim);   // receivers play the ball where it's really going
         let minDist = Infinity; players.offense.forEach(p => { if(p.role === 'WR') { let d = p.group.position.distanceTo(passTarget); if(d < minDist) { minDist = d; targetedReceiver = p; } } });
         if(targetedReceiver) { targetedReceiver.cutBurstTimer = 1.0; }
         if (targetedReceiver) startHookLadder(targetedReceiver);   // the trailer breaks on the throw
@@ -8035,6 +8056,7 @@ function launchConfetti() {
 
 function goToMainMenu() {
     clearCheerleaders(); pendingQuarterEnd = false; patActive = false;
+    clearKickLeftovers();
     challengeMode = null; // quitting a challenge just ends it
     droneDownText = null; intRet = null; trickPitch = null; hookLadder = null; teamCeleb = null; fumbleBall = null; updateDefHints(null); hidePickRings();
     if (emoteWheel) { emoteWheel = null; document.getElementById('emote-wheel').classList.add('hidden'); }
@@ -8525,11 +8547,15 @@ function animate() {
     if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
-            let dist = Math.max(1, startPos.distanceTo(passTarget)); trajectoryLine.visible = true; trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
-            let throwSpeed = 15 + (passPower * 30) * armFactor(); passTimeEstimate = dist / throwSpeed;
-            let vY = (passTarget.y - startPos.y + 0.5 * 30 * passTimeEstimate * passTimeEstimate) / passTimeEstimate; let vX = (passTarget.x - startPos.x) / passTimeEstimate; let vZ = (passTarget.z - startPos.z) / passTimeEstimate;
+            // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
+            const plan = throwPlan(startPos, passTarget), to = plan.aim;
+            trajectoryLine.visible = true;
+            if (plan.tooFar) trajectoryLine.material.color.setRGB(1, 0.15, 0.15); else trajectoryLine.material.color.setRGB(1, 1 - passPower, 0);
+            landingMarker.position.set(to.x, 0.2, to.z);
+            passTimeEstimate = plan.t;
+            let vY = (to.y - startPos.y + 0.5 * 30 * passTimeEstimate * passTimeEstimate) / passTimeEstimate; let vX = (to.x - startPos.x) / passTimeEstimate; let vZ = (to.z - startPos.z) / passTimeEstimate;
             let pts = []; for(let t=0; t<=passTimeEstimate; t+=0.1) pts.push(startPos.x + vX * t, startPos.y + vY * t - 0.5 * 30 * t * t, startPos.z + vZ * t);
-            pts.push(passTarget.x, passTarget.y, passTarget.z); trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); trajectoryLine.computeLineDistances();
+            pts.push(to.x, to.y, to.z); trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); trajectoryLine.computeLineDistances();
         } else if (GAME_STATE !== 'PRE_SNAP') { trajectoryLine.visible = false; }
 
         // Dive animation — driven by render-loop dt so it's perfectly smooth
@@ -8610,8 +8636,30 @@ function animate() {
         updateTdCam(dt); updateEmotes(dt);
     }
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
-    else recordReplayFrame(dt);
+    else { recordReplayFrame(dt); keepPlayersOnField(); }
     renderer.render(scene, camera);
+}
+
+// Kick units that never got cleaned up: a kickoff or punt return you quit out of (or the clock ran out
+// on), the extra point's holder and kicker, both lines on your kick, their kick unit
+function clearKickLeftovers() {
+    if (ko) { koAll().forEach(p => p && scene.remove(p.group)); ko = null; if (ctrlRing) ctrlRing.visible = false; }
+    if (xpAnimKicker) { scene.remove(xpAnimKicker.group); xpAnimKicker = null; }
+    if (xpAnimHolder) { scene.remove(xpAnimHolder.group); xpAnimHolder = null; }
+    clearKickUnits();
+    if (oppKick) { oppKick.them.concat(oppKick.us).forEach(p => scene.remove(p.group)); oppKick = null; }
+}
+
+// Nobody runs out the back of an end zone (the end lines are at z = ±120): whoever's on the field
+// right now — the offense and defense, a drive you're watching or defending, a kick, a celebration
+function keepPlayersOnField() {
+    const END = 119.4;
+    const groups = [players.offense, players.defense, droneSimPlayers, ko ? koAll() : null, oppKick ? oppKick.them.concat(oppKick.us) : null,
+                    kickUnits ? kickUnits.line.concat(kickUnits.rush) : null];
+    groups.forEach(list => list && list.forEach(p => {
+        const pos = p && p.group && p.group.position;
+        if (pos && Math.abs(pos.z) > END) pos.z = Math.sign(pos.z) * END;
+    }));
 }
 
 // ─── GOOGLE DRIVE SAVE / LOAD ────────────────────────────────────────────────

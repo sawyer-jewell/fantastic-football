@@ -51,7 +51,7 @@ State transitions are scattered (search for `GAME_STATE =`) — there is no cent
 
 ### Pass mechanics
 
-The trajectory preview, pass power, and actual throw all use the same kinematic equations with gravity `30`. If you change the gravity constant, change it in **both** the trajectory preview block inside `animate()` and `updateBallPhysics`, or the preview will lie to the player.
+The trajectory preview, pass power, and actual throw all use the same kinematic equations with gravity `30`, and both go through `throwPlan` (range from pass power and the QB's arm; out-of-range throws come down short, flight time capped). If you change the gravity constant, change it in **both** the trajectory preview block inside `animate()` and `updateBallPhysics`, or the preview will lie to the player.
 
 ### Sim mode
 
