@@ -580,6 +580,14 @@
                 <button class="diff-btn" data-voice="off" onclick="setVoice(false)">OFF</button>
             </div>
             <div class="diff-row" style="margin-top:8px;">
+                <span>PLAY-BY-PLAY</span>
+                <select id="voice-pbp" onchange="setBoothVoice('pbp', this.value)" style="font-family:'Press Start 2P',monospace; font-size:0.5rem; max-width:220px; padding:6px; background:#001a33; color:#fff; border:2px solid #ffcc00;"></select>
+                <span>COLOR</span>
+                <select id="voice-color" onchange="setBoothVoice('color', this.value)" style="font-family:'Press Start 2P',monospace; font-size:0.5rem; max-width:220px; padding:6px; background:#001a33; color:#fff; border:2px solid #ffcc00;"></select>
+                <button class="diff-btn" onclick="testBooth()">TEST</button>
+            </div>
+            <div style="font-size:0.45rem; color:#889; margin-top:6px; text-align:center;">VOICES WITH "NATURAL", "NEURAL" OR "ONLINE" IN THE NAME SOUND THE MOST HUMAN</div>
+            <div class="diff-row" style="margin-top:8px;">
                 <span style="color:#ff4fd8;">FANTASTIC</span>
                 <button class="diff-btn fantastic-btn" id="fantastic-btn" onclick="toggleFantastic()" title="Hall of Fame on both sides of the ball. Locks offense and defense difficulty while it's on.">OFF</button>
             </div>
@@ -2827,18 +2835,65 @@ function setVoice(on) {
     document.querySelectorAll('[data-voice]').forEach(b => b.classList.toggle('active', (b.dataset.voice === 'on') === on));
     if (!on && window.speechSynthesis) speechSynthesis.cancel();
 }
-function speakLine(text) {
-    if (!voiceOn() || isMuted || !window.speechSynthesis) return;
-    const line = String(text).replace(/<[^>]*>/g, '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
-    if (!line) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(line.charAt(0) + line.slice(1).toLowerCase());   // sentence case reads more naturally than ALL CAPS
-    const voices = speechSynthesis.getVoices(), en = voices.filter(v => /^en(-|_)US/i.test(v.lang));
-    u.voice = en.find(v => /male|david|guy|daniel|alex/i.test(v.name)) || en[0] || voices[0] || null;
-    u.rate = 1.12; u.pitch = 0.95; u.volume = 1;
-    if (/TOUCHDOWN|INTERCEPT|PICKED|FUMBLE|SACK|BOOM/i.test(line)) { u.rate = 1.2; u.pitch = 1.1; }   // the big ones, with some excitement
+// A two-man booth: the play-by-play voice calls it, and now and then the color analyst (a
+// different voice, slower and lower) follows with his take. The most natural-sounding voices on the
+// computer are picked first (the "Natural" / "Neural" / "Online" ones sound far less robotic than
+// the defaults); Settings lets you choose both and test them.
+const ANALYST = {
+    td: ['What a play. That is exactly why you put the ball in his hands.', 'Look at the blocking up front. They opened up a highway for him.', 'You cannot coach that. That is pure want-to.'],
+    pick: ['He stared that receiver down the whole way, and the defense read it.', 'You just cannot throw that ball. Not there, not in this spot.', 'Great break on the ball. He knew exactly what was coming.'],
+    sack: ['He had nowhere to go. The pocket just collapsed on him.', 'That is a game-wrecker right there. He lives in the backfield.'],
+    fumble: ['Ball security. You have to protect the football.', 'That is a back-breaker. You cannot give it away like that.'],
+    hit: ['Oh, he felt that one. They will be talking about that hit all week.', 'That is old-school football right there.'],
+    big: ['This crowd is on its feet now.', 'That is the kind of play that changes a game.'],
+};
+function boothVoices() {
+    if (!window.speechSynthesis) return [];
+    const score = v => (/natural|neural|online/i.test(v.name) ? 10 : 0) + (/google/i.test(v.name) ? 4 : 0) + (/microsoft/i.test(v.name) ? 2 : 0) + (/^en(-|_)US/i.test(v.lang) ? 2 : 0);
+    return speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)).sort((a, b) => score(b) - score(a));
+}
+function boothVoice(role) {
+    const vs = boothVoices(); if (!vs.length) return null;
+    let saved = null; try { saved = localStorage.getItem(role === 'color' ? 'ff-voice-color' : 'ff-voice-pbp'); } catch (e) {}
+    const pick = vs.find(v => v.name === saved);
+    if (pick) return pick;
+    if (role === 'color') return vs.find(v => v !== boothVoice('pbp')) || vs[0];
+    return vs[0];
+}
+function sayAs(role, text) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = boothVoice(role);
+    u.rate = role === 'color' ? 0.98 : 1.06; u.pitch = role === 'color' ? 0.88 : 1.0; u.volume = 1;
+    if (role === 'pbp' && /touchdown|intercept|picked|fumble|sack|boom|unstoppable/i.test(text)) { u.rate = 1.14; u.pitch = 1.08; }   // the big ones, with some lift
     speechSynthesis.speak(u);
 }
+function speakLine(text) {
+    if (!voiceOn() || isMuted || !window.speechSynthesis) return;
+    const raw = String(text).replace(/<[^>]*>/g, '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
+    if (!raw) return;
+    // Sentence case reads like a person talking instead of a robot reading capitals; "..." becomes a beat
+    const line = raw.toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\.\.\./g, ', ');
+    speechSynthesis.cancel();
+    sayAs('pbp', line);
+    const cat = /touchdown/i.test(raw) ? 'td' : /intercept|picked/i.test(raw) ? 'pick' : /sack/i.test(raw) ? 'sack' : /fumble/i.test(raw) ? 'fumble' : /hit|boom|laid|pancake/i.test(raw) ? 'hit' : /!/.test(raw) ? 'big' : null;
+    if (cat && Math.random() < (cat === 'big' ? 0.2 : 0.5)) { const a = ANALYST[cat]; sayAs('color', a[Math.floor(Math.random() * a.length)]); }   // the analyst's take, right after
+}
+function fillVoiceSelects() {
+    const vs = boothVoices();
+    ['pbp', 'color'].forEach(role => {
+        const sel = document.getElementById('voice-' + role); if (!sel) return;
+        const cur = boothVoice(role);
+        sel.innerHTML = vs.length ? vs.map(v => `<option value="${v.name.replace(/"/g, '&quot;')}" ${cur && v.name === cur.name ? 'selected' : ''}>${v.name}</option>`).join('') : '<option>(NO VOICES ON THIS COMPUTER)</option>';
+    });
+}
+function setBoothVoice(role, name) { try { localStorage.setItem(role === 'color' ? 'ff-voice-color' : 'ff-voice-pbp', name); } catch (e) {} }
+function testBooth() {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    sayAs('pbp', 'Hurts drops back, he has time... he fires deep... caught! Touchdown, Eagles!');
+    sayAs('color', ANALYST.td[Math.floor(Math.random() * ANALYST.td.length)]);
+}
+if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => fillVoiceSelects();
 function commentate(text, ms = 3200) {
     const el = document.getElementById('commentary');
     if (!el) return;
@@ -3494,7 +3549,7 @@ function openRoster() {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('roster-screen').classList.remove('hidden');
 }
-function openSettings() { updateDifficultyButtons(); setVoice(voiceOn()); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
+function openSettings() { updateDifficultyButtons(); setVoice(voiceOn()); fillVoiceSelects(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
 
 // League table; the red line marks the playoff cut (top 8)
 function openStandings() {
