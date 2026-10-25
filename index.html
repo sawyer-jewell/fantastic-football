@@ -3761,7 +3761,9 @@ function splitPlayerModel(sceneRoot, byName, nodeSet) {
         parts[side + 'Hand'] = detach(node(side + 'Hand'), isPrimitive);
         parts[side + 'Forearm'] = detach(node(side + 'Forearm'), isPrimitive);
         parts[side + 'UpperArm'] = detach(node(side + 'UpperArm'), c => isPrimitive(c) || c === node('NumberShoulder' + side[0]));
-        parts[side + 'Leg'] = detach(node(side + 'Thigh'), c => isPrimitive(c) || c === node(side + 'Shin'));   // thigh, shin and cleat swing as one
+        // Thigh on the hip, shin and cleat on the knee (0.55 below the hip): legs that really bend
+        parts[side + 'Shin'] = detach(node(side + 'Shin'), c => isPrimitive(c) || c === node(side + 'Cleat'));
+        parts[side + 'Thigh'] = detach(node(side + 'Thigh'), isPrimitive);
     });
     parts.body = detach(node('Body'), c => isPrimitive(c) || ['Neck', 'NumberFront', 'NumberBack', 'NameBack'].some(n => c === node(n)));
     ['Left', 'Right'].forEach(side => {                          // forearm + glove ride the elbow as one piece
@@ -3771,7 +3773,7 @@ function splitPlayerModel(sceneRoot, byName, nodeSet) {
         parts[side + 'Lower'] = lower;
     });
     // Joint spots on the model (feet at y = 0, facing +z)
-    parts.shoulder = new THREE.Vector3(0.6, 1.96, 0); parts.elbow = 0.5; parts.wrist = 0.44; parts.hip = new THREE.Vector3(0.18, 1.12, 0);
+    parts.shoulder = new THREE.Vector3(0.6, 1.96, 0); parts.elbow = 0.5; parts.wrist = 0.44; parts.hip = new THREE.Vector3(0.18, 1.12, 0); parts.knee = 0.55;
     return parts;
 }
 
@@ -4002,6 +4004,7 @@ class Player {
         };
         const la = makeArm(-shoulderX); this.leftUpper = la.upper; this.leftLower = la.lower;
         const ra = makeArm( shoulderX); this.rightUpper = ra.upper; this.rightLower = ra.lower;
+        this.leftWrist = this.leftLower.children[1]; this.rightWrist = this.rightLower.children[1];   // the ball-shaped hands
 
         // Legs (Hinged at top)
         const legW = isLineman ? 0.45 : 0.35;
@@ -4009,6 +4012,11 @@ class Player {
         const legGeo = new THREE.BoxGeometry(legW, 1.1, legW); legGeo.translate(0, -0.45, 0);
         this.leftLeg = new THREE.Mesh(legGeo, pMat); this.leftLeg.position.set(-legGap, 1.0, 0); this.group.add(this.leftLeg);
         this.rightLeg = new THREE.Mesh(legGeo, pMat); this.rightLeg.position.set(legGap, 1.0, 0); this.group.add(this.rightLeg);
+        // (no real knees or spine on the box players: joints the animation can move that carry nothing)
+        this.leftKnee = new THREE.Object3D(); this.leftLeg.add(this.leftKnee); this.rightKnee = new THREE.Object3D(); this.rightLeg.add(this.rightKnee);
+        this.spine = new THREE.Object3D(); this.spine.position.y = 1.0; this.group.add(this.spine); this.spineY = 1.0; this.spineHasArms = false;
+        this.leftAnkle = new THREE.Object3D(); this.leftKnee.add(this.leftAnkle); this.rightAnkle = new THREE.Object3D(); this.rightKnee.add(this.rightAnkle);
+        this.neck = this.head; this.gloves = null;   // (wrists are set with the arms below)
 
         // Helmet details too small to see from the game cameras (facemask bars, eyes, small spheres):
         // hidden on low graphics, which roughly halves the draw calls per player
@@ -4051,13 +4059,19 @@ class Player {
         const nameMat = name ? jerseyArt(name, fill, '#111111', 512, 96, 70) : null;
         const decal = (tpl, decalName, mat) => { const d = new THREE.Mesh(tpl.getObjectByName(decalName).geometry, mat); return d; };
 
+        // The spine: a joint at the hips that carries the body, head and arms, so he can lean into a
+        // sprint, bend at the waist, twist to throw and bank into a cut while the legs stay planted
+        const hipY = P.hip.y;
+        const spine = new THREE.Object3D(); spine.position.set(0, hipY, 0); g.add(spine);
+        this.spine = spine; this.spineY = hipY; this.spineHasArms = true;
+
         // Body: jersey, pads, pants, neck in one piece, with the numbers and name laid on top
         const body = new THREE.Group();
         body.add(mesh(bakePart(P.body, `body|${uk}|${look.skin}`, colorOf, isDecal), matte, true));
         body.add(decal(P.body, 'NumberFront', numMat), decal(P.body, 'NumberBack', numMat));
         if (nameMat) body.add(decal(P.body, 'NameBack', nameMat));
         if (isLineman) body.scale.set(1.16, 1.02, 1.14);                       // big men are wider and thicker
-        g.add(body); this.torso = body;
+        body.position.y = -hipY; spine.add(body); this.torso = body;
 
         // Head: face and his eye black in one piece; the helmet (shell, facemask, stripe) its own piece
         // so a hit stick can knock it off
@@ -4068,40 +4082,123 @@ class Player {
         const shell = mesh(bakePart(helmetTpl, `helmet|${uk}`, colorOf), shiny, true);
         shell.name = 'Helmet'; shell.position.copy(helmetTpl.position);
         head.add(shell);
-        head.position.set(0, 2.55 + (isLineman ? 0.02 : 0), 0);
-        g.add(head); this.head = head; this.helmetShell = shell;
+        head.position.set(0, 2.55 + (isLineman ? 0.02 : 0) - hipY, 0);
+        spine.add(head); this.head = head; this.helmetShell = shell;
 
         // Arms: shoulder → elbow (forearm + glove) on the same joints the game animates
         const wide = isLineman ? 1.12 : 1;
         this.detailMeshes = [];
         const arm = (side, sign) => {
-            const upper = new THREE.Object3D(); upper.position.set(sign * P.shoulder.x * wide, P.shoulder.y, 0); g.add(upper);
+            const upper = new THREE.Object3D(); upper.position.set(sign * P.shoulder.x * wide, P.shoulder.y - hipY, 0); spine.add(upper);
             const up = mesh(bakePart(P[side + 'UpperArm'], `${side}Upper|${uk}|${look.skin}`, colorOf, isDecal), matte);
             const tv = decal(P[side + 'UpperArm'], 'NumberShoulder' + side[0], numMat);   // sleeve number
             up.add(tv); this.detailMeshes.push(tv);
             upper.add(up);
             const lower = new THREE.Object3D(); lower.position.set(0, -P.elbow, 0); upper.add(lower);
-            const fore = mesh(bakePart(P[side + 'Lower'], `${side}Lower|${look.skin}`, colorOf), matte);
+            const fore = mesh(bakePart(P[side + 'Forearm'], `${side}Fore|${look.skin}`, colorOf), matte);
             lower.add(fore);
-            const handSpot = new THREE.Object3D(); handSpot.position.set(0, -P.wrist, 0); lower.add(handSpot);   // lower.children[1]: where the hands are
-            if (isLineman) { up.scale.set(1.15, 1, 1.15); fore.scale.set(1.12, 1, 1.12); }
-            return { upper, lower };
+            // The wrist (lower.children[1], which is also where the hands are) bends on its own; the glove
+            // hangs off it, and up close it's swapped for a hand with real fingers (see setFingerDetail)
+            const wrist = new THREE.Object3D(); wrist.position.set(0, -P.wrist, 0); lower.add(wrist);
+            const glove = mesh(bakePart(P[side + 'Hand'], `${side}Glove|${uk}`, colorOf), matte);
+            wrist.add(glove);
+            if (isLineman) { up.scale.set(1.15, 1, 1.15); fore.scale.set(1.12, 1, 1.12); glove.scale.set(1.1, 1, 1.1); }
+            return { upper, lower, wrist, glove };
         };
         const la = arm('Left', -1), ra = arm('Right', 1);
         this.leftUpper = la.upper; this.leftLower = la.lower; this.rightUpper = ra.upper; this.rightLower = ra.lower;
+        this.leftWrist = la.wrist; this.rightWrist = ra.wrist; this.gloves = { L: la.glove, R: ra.glove };
+        this.gloveColor = colorOf({ name: 'Gloves', color: new THREE.Color('#f2f2f2') });
+        this.neck = head;   // the head turns and nods on the neck
 
-        // Legs: thigh, shin and cleat swing from the hip as one piece
+        // Legs: the thigh swings from the hip, the shin and cleat from the knee
         const leg = (side, sign) => {
             const hip = new THREE.Object3D(); hip.position.set(sign * P.hip.x * (isLineman ? 1.15 : 1), P.hip.y, 0); g.add(hip);
-            const l = mesh(bakePart(P[side + 'Leg'], `${side}Leg|${uk}`, colorOf), matte, true);
-            if (isLineman) l.scale.set(1.18, 1, 1.18);
-            hip.add(l);
-            return hip;
+            const thigh = mesh(bakePart(P[side + 'Thigh'], `${side}Thigh|${uk}`, colorOf), matte, true);
+            const knee = new THREE.Object3D(); knee.position.set(0, -P.knee, 0); hip.add(knee);
+            const shin = mesh(bakePart(P[side + 'Shin'], `${side}Shin|${uk}`, colorOf, o => o.name === side + 'Cleat'), matte, true);
+            // The ankle: the cleat flexes on its own (toe-off, landing, pointing his toes)
+            const cleatTpl = P[side + 'Shin'].getObjectByName(side + 'Cleat');
+            const ankle = new THREE.Object3D(); ankle.position.copy(cleatTpl.position); knee.add(ankle);
+            const cleat = mesh(bakePart(cleatTpl, `${side}Cleat|${uk}`, colorOf), matte, true);
+            if (isLineman) { thigh.scale.set(1.18, 1, 1.18); shin.scale.set(1.12, 1, 1.12); cleat.scale.set(1.1, 1, 1.1); }
+            hip.add(thigh); knee.add(shin); ankle.add(cleat);
+            return { hip, knee, ankle };
         };
-        this.leftLeg = leg('Left', -1); this.rightLeg = leg('Right', 1);
+        const ll = leg('Left', -1), rl = leg('Right', 1);
+        this.leftLeg = ll.hip; this.rightLeg = rl.hip; this.leftKnee = ll.knee; this.rightKnee = rl.knee;
+        this.leftAnkle = ll.ankle; this.rightAnkle = rl.ankle;
+
+        // Body type: built for his position (tall, lean receivers and corners; compact, thick backs;
+        // big tight ends; long-legged quarterbacks; the linemen already bulk up above), plus a little
+        // of his own — so no two players are the same shape. Height scales the whole man; bulk widens
+        // the upper body and the legs.
+        const BUILD = { QB: [1.03, 0.97], RB: [0.95, 1.06], WR: [1.02, 0.92], TE: [1.05, 1.06], OL: [1.03, 1.0], K: [0.96, 0.9],
+                        DL: [1.02, 1.0], LB: [1.0, 1.05], CB: [0.98, 0.91], SS: [0.99, 0.97], FS: [1.0, 0.95] };
+        const rnd = seededRandom(`build-${teamInfo.id}-${role}-${number}`);
+        const [h0, b0] = BUILD[role] || [1, 1];
+        const height = h0 * (0.97 + rnd() * 0.06), bulk = b0 * (0.95 + rnd() * 0.1);
+        g.scale.y = height;
+        spine.scale.set(bulk, 1, bulk);
+        [this.leftLeg, this.rightLeg].forEach(h => h.scale.set(0.5 + 0.5 * bulk, 1, 0.5 + 0.5 * bulk));
+        this.build = { height, bulk };
     }
 
     setDetail(on) { this.detailMeshes.forEach(m => { m.visible = on; }); }
+
+    // ── Fingers ──
+    // Up close (a scorer dancing, a catch on the replay camera) the mitten glove is swapped for a hand
+    // with a palm, four two-jointed fingers and a thumb, all on joints: they curl into a fist on the
+    // run, grip the ball, spread open for a catch, and the dances pose them. Built the first time
+    // they're needed; far away the cheap glove stays (see updateFingerDetail).
+    buildFingers() {
+        if (this.fingers || !this.gloves) return;
+        const mat = new THREE.MeshLambertMaterial({ color: this.gloveColor });
+        const seg = (w, l) => { const g = new THREE.BoxGeometry(w, l, w * 0.85); g.translate(0, -l / 2, 0); return g; };
+        const palmG = new THREE.BoxGeometry(0.15, 0.1, 0.075); palmG.translate(0, -0.06, 0);
+        const proxG = seg(0.033, 0.058), distG = seg(0.03, 0.05), thumbG = seg(0.036, 0.05);
+        this.fingers = {};
+        [['L', this.leftWrist, 1], ['R', this.rightWrist, -1]].forEach(([k, wrist, inward]) => {
+            const hand = new THREE.Group(); hand.visible = false; wrist.add(hand);
+            hand.add(new THREE.Mesh(palmG, mat));
+            const digits = [];
+            [-0.054, -0.018, 0.018, 0.054].forEach((x, i) => {
+                const base = new THREE.Object3D(); base.position.set(x, -0.11, 0.004); hand.add(base);
+                base.add(new THREE.Mesh(proxG, mat));
+                const mid = new THREE.Object3D(); mid.position.set(0, -0.058, 0); base.add(mid);
+                mid.add(new THREE.Mesh(distG, mat));
+                digits.push({ base, mid, len: i === 0 || i === 3 ? 0.85 : 1 });
+            });
+            // Thumb: off the side of the palm toward his body, angled across it
+            const tb = new THREE.Object3D(); tb.position.set(inward * 0.07, -0.035, 0.03); tb.rotation.z = inward * 0.6; hand.add(tb);
+            tb.add(new THREE.Mesh(thumbG, mat));
+            const tm = new THREE.Object3D(); tm.position.set(0, -0.05, 0); tb.add(tm);
+            tm.add(new THREE.Mesh(distG, mat));
+            this.fingers[k] = { hand, digits, thumb: { base: tb, mid: tm, inward }, curl: 0.4, spread: 0 };
+        });
+    }
+    // Close to the camera: fingers on; otherwise the glove
+    setFingerDetail(on) {
+        if (on && !this.fingers) this.buildFingers();
+        if (!this.fingers || this.fingersOn === on) return;
+        this.fingersOn = on;
+        ['L', 'R'].forEach(k => { this.fingers[k].hand.visible = on; this.gloves[k].visible = !on; });
+    }
+    // Ease each hand toward a curl (0 = open flat, 1 = tight fist) and spread (fingers fanned apart)
+    poseFingers(dt, curlL, curlR, spread = 0) {
+        if (!this.fingersOn) return;
+        const k = 1 - Math.exp(-14 * Math.min(dt || 0.016, 0.1));
+        [['L', curlL], ['R', curlR]].forEach(([s, want]) => {
+            const f = this.fingers[s];
+            f.curl += (want - f.curl) * k; f.spread += (spread - f.spread) * k;
+            f.digits.forEach((d, i) => {
+                d.base.rotation.set(f.curl * 1.45 * d.len, 0, (i - 1.5) * 0.12 * f.spread);
+                d.mid.rotation.x = f.curl * 1.6;
+            });
+            f.thumb.mid.rotation.x = f.curl * 0.9;
+            f.thumb.base.rotation.x = f.curl * 0.6;
+        });
+    }
 
     applyArmPose(rUp, rLo, lUp, lLo) {
         this.rightUpper.rotation.copy(rUp); this.rightLower.rotation.copy(rLo);
@@ -4119,7 +4216,7 @@ class Player {
     // Arms hang along local -Y; with Euler XYZ, rz swings the arm sideways and rx pitches it forward/up.
     reachArmsToward(target) {
         this.group.updateMatrixWorld(); // this frame's lookAt hasn't reached matrixWorld yet
-        const local = this.group.worldToLocal(target.clone());
+        const local = (this.spineHasArms ? this.spine : this.group).worldToLocal(target.clone());   // in the space the shoulders live in
         [[this.rightUpper, this.rightLower], [this.leftUpper, this.leftLower]].forEach(([upper, lower]) => {
             const d = local.clone().sub(upper.position).normalize();
             const rx = Math.atan2(-d.z, -d.y);
@@ -4135,6 +4232,13 @@ class Player {
 
     animateLimbs(dt) {
         if (this.emote) return; // dancing: poseEmote sets the limbs
+        // Hands (when the fingers are showing): open and spread for a catch, a grip on the ball,
+        // a loose fist on the run, relaxed standing
+        if (this.fingersOn) {
+            const reaching = this.catchReach && ball.velocity, carrying = this === activeReceiver || (ball.parent === this.group);
+            const c = reaching ? 0.05 : carrying ? 1 : this.currentMoveSpeed > 0.1 ? 0.85 : 0.35;
+            this.poseFingers(dt, c, c, reaching ? 0.8 : 0.1);
+        }
         if (GAME_STATE === 'TACKLED') return;
 
         // Holder on one knee: hips dropped, front foot planted, back knee on the turf, hands out for the snap
@@ -4196,10 +4300,40 @@ class Player {
         const isCarrying  = (this === activeReceiver && GAME_STATE === 'POST_CATCH');
         const isQBHolding = (this.role === 'QB' && GAME_STATE === 'PLAY' && !ball.velocity && this !== activeReceiver);
 
-        if (this.currentMoveSpeed > 0.1 && GAME_STATE !== 'GETTING_UP') {
-            let swingSpeed = (keys['ShiftLeft'] && this.currentMoveSpeed > this.baseSpeed) ? 25 : 18;
-            let swing = Math.sin(clock.getElapsedTime() * (this.cutBurstTimer > 0 ? 25 : swingSpeed)) * 1.0;
-            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
+        // How hard he's turning (for banking into cuts)
+        const fwd = this._fwd || (this._fwd = new THREE.Vector3());
+        fwd.set(0, 0, 1).applyQuaternion(this.group.quaternion);
+        const yaw = Math.atan2(fwd.x, fwd.z);
+        let turn = this._lastYaw == null ? 0 : yaw - this._lastYaw;
+        if (turn > Math.PI) turn -= Math.PI * 2; else if (turn < -Math.PI) turn += Math.PI * 2;
+        this._lastYaw = yaw;
+        this.turnRate = THREE.MathUtils.lerp(this.turnRate || 0, dt > 0 ? turn / dt : 0, 0.15);
+
+        if (this.currentMoveSpeed > 0.1) {
+            // His own stride: the phase runs with his speed (a jog ~1.4 strides a second, a sprint ~2.4),
+            // so nobody runs in step with anybody else. Longer strides and more knee the faster he goes.
+            const spd = this.currentMoveSpeed, sprint = Math.min(1.1, spd / 11), slow = GAME_STATE === 'GETTING_UP';
+            if (this.gaitPhase == null) this.gaitPhase = Math.random() * Math.PI * 2;
+            this.gaitPhase += dt * (slow ? 6 : 4.5 + spd * 0.95) * (this.cutBurstTimer > 0 ? 1.15 : 1);
+            const ph = this.gaitPhase, s = Math.sin(ph), c = Math.cos(ph);
+            const amp = slow ? 0.35 : 0.35 + 0.65 * Math.min(1, sprint);
+            this.leftLeg.rotation.x = -s * amp * 1.05; this.rightLeg.rotation.x = s * amp * 1.05;
+            // The knee folds as the leg swings through, and is nearly straight as the foot lands
+            this.leftKnee.rotation.x = amp * (0.15 + 1.35 * Math.max(0, c));
+            this.rightKnee.rotation.x = amp * (0.15 + 1.35 * Math.max(0, -c));
+            // Upper body: leans into the run, bobs a little each step, shoulders counter the hips,
+            // and banks into a cut
+            this.spine.rotation.x = THREE.MathUtils.lerp(this.spine.rotation.x, slow ? 0.05 : 0.08 + 0.24 * sprint, 0.2);
+            this.spine.rotation.y = 0.14 * s * amp;
+            this.spine.rotation.z = THREE.MathUtils.lerp(this.spine.rotation.z, THREE.MathUtils.clamp(-this.turnRate * 0.07, -0.32, 0.32), 0.2);
+            this.spine.position.y = this.spineY - 0.05 * amp + 0.07 * amp * Math.abs(c);
+            // Ankles: toes push off as the leg drives back, pull up as it swings through to land
+            this.leftAnkle.rotation.x = amp * (0.55 * Math.max(0, -s) - 0.2 * Math.max(0, s));
+            this.rightAnkle.rotation.x = amp * (0.55 * Math.max(0, s) - 0.2 * Math.max(0, -s));
+            // Head stays level and eyes up while the body leans; wrists loose
+            this.neck.rotation.x = -this.spine.rotation.x * 0.75;
+            this.neck.rotation.y = -this.spine.rotation.y * 0.8;
+            this.leftWrist.rotation.x = 0.15 * s; this.rightWrist.rotation.x = -0.15 * s;
             if (isCarrying) {
                 this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
                                   TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
@@ -4207,20 +4341,25 @@ class Player {
                 this.applyArmPose(QB_HOLD_RIGHT_UPPER_ARM_ROTATION, QB_HOLD_RIGHT_LOWER_ARM_ROTATION,
                                   QB_HOLD_LEFT_UPPER_ARM_ROTATION,  QB_HOLD_LEFT_LOWER_ARM_ROTATION);
             } else {
-                // Normal running pump: opposite-sign upper swings, opposite-sign lower bends so both forearms come forward.
-                this.leftUpper.rotation.set(swing, 0, 0);
-                this.rightUpper.rotation.set(-swing, 0, 0);
-                const elbow = 0.3 + Math.abs(swing) * 0.4;
+                // Arm pump against the legs, elbows bent near 90° at full speed
+                this.leftUpper.rotation.set(s * amp * 1.15, 0, -0.08);
+                this.rightUpper.rotation.set(-s * amp * 1.15, 0, 0.08);
+                const elbow = -(0.55 + 0.75 * amp + 0.25 * Math.abs(s));
                 this.leftLower.rotation.set(elbow, 0, 0);
-                this.rightLower.rotation.set(-elbow, 0, 0);
+                this.rightLower.rotation.set(elbow, 0, 0);
             }
-        } else if (GAME_STATE === 'GETTING_UP') {
-            let swing = Math.sin(clock.getElapsedTime() * 10) * 0.5;
-            this.leftUpper.rotation.set(swing, 0, 0); this.rightUpper.rotation.set(-swing, 0, 0);
-            this.leftLower.rotation.set(0, 0, 0); this.rightLower.rotation.set(0, 0, 0);
-            this.leftLeg.rotation.x = -swing; this.rightLeg.rotation.x = swing;
         } else {
-            this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1); this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
+            // Standing: an athletic stance (knees soft, a little forward at the waist), breathing
+            const ease = (o, v) => { o.rotation.x = THREE.MathUtils.lerp(o.rotation.x, v, 0.12); };
+            const breathe = Math.sin(clock.elapsedTime * 2.2 + (this.mind ? this.mind.react * 20 : 0));
+            ease(this.leftLeg, -0.12); ease(this.rightLeg, -0.12);
+            ease(this.leftKnee, 0.24); ease(this.rightKnee, 0.24);
+            ease(this.spine, 0.1);
+            ease(this.leftAnkle, -0.12); ease(this.rightAnkle, -0.12);   // feet flat under bent knees
+            ease(this.neck, -0.06); ease(this.leftWrist, 0); ease(this.rightWrist, 0);
+            this.spine.rotation.y = THREE.MathUtils.lerp(this.spine.rotation.y, 0, 0.12);
+            this.spine.rotation.z = THREE.MathUtils.lerp(this.spine.rotation.z, 0, 0.12);
+            this.spine.position.y = this.spineY - 0.04 + 0.012 * breathe;
             if (isCarrying) {
                 this.applyArmPose(TUCKED_RIGHT_UPPER_ARM_ROTATION, TUCKED_RIGHT_LOWER_ARM_ROTATION,
                                   TUCKED_LEFT_UPPER_ARM_ROTATION,  TUCKED_LEFT_LOWER_ARM_ROTATION);
@@ -4865,7 +5004,7 @@ function updateEmotes(dt) {
     const p = tdCam && tdCam.scorer;
     if (!p || !p.emote) return;
     const e = p.emote;
-    e.t += dt;
+    e.t += dt; e.dt = dt;
     poseEmote(p, e);
     if (e.ballVel) {   // the dropped ball bounces a couple of times and rolls to a stop
         e.ballVel.y -= 30 * dt;
@@ -4877,7 +5016,8 @@ function updateEmotes(dt) {
         // Back on his feet, arms down, then the replay and the extra point
         p.emote = null;
         p.group.quaternion.copy(yawPitchQuat(e.yaw, 0)); p.group.position.y = 0;
-        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg].forEach(o => o.rotation.set(0, 0, 0));
+        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg, p.leftKnee, p.rightKnee, p.leftAnkle, p.rightAnkle, p.leftWrist, p.rightWrist, p.neck, p.spine].forEach(o => o && o.rotation.set(0, 0, 0));
+        if (p.spine) p.spine.position.y = p.spineY;
         tdCam = null; startReplay(triggerExtraPoint);
     }
 }
@@ -4889,7 +5029,7 @@ function aimArm(p, upper, lower, elbow, hand) {
         const d = target.clone().sub(o.position).normalize();
         o.rotation.set(Math.atan2(-d.z, -d.y), 0, Math.asin(THREE.MathUtils.clamp(d.x, -1, 1)));
     };
-    aim(upper, elbow);
+    aim(upper, p.spineHasArms ? elbow.clone().sub(p.spine.position) : elbow);   // (shoulders hang off the spine joint at the hips)
     p.group.updateMatrixWorld(true);
     aim(lower, upper.worldToLocal(p.group.localToWorld(hand.clone())));   // the forearm, in the upper arm's space
 }
@@ -4900,53 +5040,86 @@ function poseEmote(p, e) {
     const t = e.t, R = p.rightUpper.rotation, Rl = p.rightLower.rotation, L = p.leftUpper.rotation, Ll = p.leftLower.rotation;
     const lift = (y, pitch = 0, yawOff = 0, roll = 0) => { p.group.position.y = y; p.group.quaternion.copy(yawPitchQuat(e.yaw + yawOff, pitch, roll)); };
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    // Every joint, every dance: the spine sways and twists, knees and ankles take the bounce, the head
+    // bobs on the beat, wrists flick and the fingers (up close) do their part
+    const spine = (x, y, z, drop = 0) => { p.spine.rotation.set(x, y, z); p.spine.position.y = p.spineY - drop; };
+    const knees = (l, r) => { p.leftKnee.rotation.set(l, 0, 0); p.rightKnee.rotation.set(r, 0, 0); };
+    const ankles = (l, r) => { p.leftAnkle.rotation.set(l, 0, 0); p.rightAnkle.rotation.set(r, 0, 0); };
+    const head = (x, y, z = 0) => p.neck.rotation.set(x, y, z);
+    const wrists = (l, r, lz = 0, rz = 0) => { p.leftWrist.rotation.set(l, 0, lz); p.rightWrist.rotation.set(r, 0, rz); };
+    const hands = (cl, cr, spread = 0) => p.poseFingers(e.dt || 0.016, cl, cr, spread);
     if (e.name === 'griddy') {
-        // The Griddy: hopping heel taps (one heel out in front, then the other), arms pumping like
-        // he's running, and every couple of seconds both hands come up to his eyes as "goggles"
-        const s = Math.sin(t * 10), goggles = (t % 2.0) > 1.4;
+        // The Griddy: hopping heel taps (one heel out in front, then the other) on bent knees, arms
+        // pumping like he's running, and every couple of seconds both hands up to his eyes as "goggles"
+        const s = Math.sin(t * 10), c = Math.cos(t * 10), goggles = (t % 2.0) > 1.4;
         lift(0.1 * Math.abs(s));
-        p.leftLeg.rotation.set(-0.6 * Math.max(0, s), 0, 0.05); p.rightLeg.rotation.set(-0.6 * Math.max(0, -s), 0, -0.05);
+        p.leftLeg.rotation.set(-0.7 * Math.max(0, s) + 0.1, 0, 0.06); p.rightLeg.rotation.set(-0.7 * Math.max(0, -s) + 0.1, 0, -0.06);
+        knees(0.25 + 0.5 * Math.max(0, -s), 0.25 + 0.5 * Math.max(0, s));            // the standing leg bends, the tapping one straightens
+        ankles(-0.6 * Math.max(0, s), -0.6 * Math.max(0, -s));                         // heel down, toe up on the tap
+        spine(0.18, 0.18 * s, 0.06 * c, 0.05);
+        head(-0.1 + 0.08 * Math.abs(c), -0.15 * s);
         if (goggles) {
             aimArm(p, p.rightUpper, p.rightLower, V(0.42, 2.0, 0.35), V(0.1, 2.58, 0.36));
             aimArm(p, p.leftUpper, p.leftLower, V(-0.42, 2.0, 0.35), V(-0.1, 2.58, 0.36));
+            wrists(-0.6, -0.6); hands(0.55, 0.55, 0.2);                               // fingers ring his eyes
+            head(-0.15, 0);
         } else {
-            R.set(-0.9 * s - 0.2, 0, 0.18); Rl.set(-1.3, 0, 0);       // arms swing opposite the legs
+            R.set(-0.9 * s - 0.2, 0, 0.18); Rl.set(-1.3, 0, 0);                      // arms swing opposite the legs
             L.set(0.9 * s - 0.2, 0, -0.18); Ll.set(-1.3, 0, 0);
+            wrists(0.3 * s, -0.3 * s); hands(0.9, 0.9);
         }
     } else if (e.name === 'scuba') {
-        // The Scuba (h5wk's "Scuba Juke"): one hand pinching his nose like he's going under, the other
-        // waving back and forth in front of him, knees knocking in and out on the beat
+        // The Scuba: one hand pinching his nose like he's going under, the other waving in front of
+        // him, knees knocking in and out, a wobble down through the hips
         const s = Math.sin(t * 8), wave = Math.sin(t * 6);
         lift(-0.05 * Math.abs(s));
         aimArm(p, p.rightUpper, p.rightLower, V(0.36, 2.02, 0.42), V(0.04, 2.5, 0.34));
         aimArm(p, p.leftUpper, p.leftLower, V(-0.42, 1.72, 0.42), V(-0.05 + 0.38 * wave, 1.86 + 0.05 * Math.cos(t * 12), 0.66));
-        p.leftLeg.rotation.set(-0.12, 0, -0.14 * s); p.rightLeg.rotation.set(-0.12, 0, 0.14 * s);   // knees in, knees out
+        p.leftLeg.rotation.set(-0.15, 0, -0.16 * s); p.rightLeg.rotation.set(-0.15, 0, 0.16 * s);   // knees in, knees out
+        knees(0.45, 0.45); ankles(-0.25, -0.25);
+        spine(0.12, 0.08 * wave, 0.1 * s, 0.1);
+        head(0.15, 0.1 * wave, -0.08 * s);                                              // eyes shut, going under
+        wrists(0.5 * wave, -0.4, 0, 0.3); hands(0.15, 0.95, 0.6);                       // flat waving hand, pinching fingers
     } else if (e.name === 'scenario') {
-        // Scenario (the Fortnite emote, from iKON's "LOVE SCENARIO" choreography): a bouncy step side to
-        // side, both arms swinging together like a pendulum the other way, head and shoulders easy
+        // Scenario: a bouncy step side to side, both arms swinging together like a pendulum the
+        // other way, hips rolling, head easy
         const beat = t * 4.2, s = Math.sin(beat), step = Math.sin(beat / 2);
-        lift(0.06 * Math.abs(s), 0, 0.12 * step, 0.08 * step);
+        lift(0.06 * Math.abs(s), 0, 0.12 * step, 0.04 * step);
         p.group.position.x = e.start.x + Math.cos(e.yaw) * 0.25 * step; p.group.position.z = e.start.z - Math.sin(e.yaw) * 0.25 * step;
-        p.leftLeg.rotation.set(-0.25 * Math.max(0, step), 0, 0.12 * step); p.rightLeg.rotation.set(-0.25 * Math.max(0, -step), 0, 0.12 * step);
+        p.leftLeg.rotation.set(-0.3 * Math.max(0, step), 0, 0.12 * step); p.rightLeg.rotation.set(-0.3 * Math.max(0, -step), 0, 0.12 * step);
+        knees(0.2 + 0.35 * Math.abs(s) + 0.3 * Math.max(0, step), 0.2 + 0.35 * Math.abs(s) + 0.3 * Math.max(0, -step));
+        ankles(-0.1, -0.1);
+        spine(0.06, -0.12 * step, -0.12 * step, 0.06 * Math.abs(s));
         R.set(-0.35, 0, 0.2 - 0.75 * step); Rl.set(-0.35, 0, 0);
         L.set(-0.35, 0, -0.2 - 0.75 * step); Ll.set(-0.35, 0, 0);
+        head(0.05 * s, 0.2 * step, 0.12 * step);
+        wrists(0, 0, -0.4 * step, -0.4 * step); hands(0.3, 0.3, 0.5);
     } else if (e.name === 'whop') {
         // The Wop: on each beat he drops into his knees and dips a shoulder, the other arm swinging
         // across his body — then the same thing to the other side
         const beat = t * Math.PI * 2 * 1.1, dip = Math.abs(Math.sin(beat / 2)), side = Math.sign(Math.sin(beat / 2)) || 1;
-        lift(-0.18 * dip, 0, 0.18 * side * dip, 0.22 * side * dip);
-        p.leftLeg.rotation.set(-0.35 * dip, 0, 0.08); p.rightLeg.rotation.set(-0.35 * dip, 0, -0.08);
+        lift(-0.12 * dip, 0, 0.18 * side * dip);
+        p.leftLeg.rotation.set(-0.4 * dip, 0, 0.1); p.rightLeg.rotation.set(-0.4 * dip, 0, -0.1);
+        knees(0.75 * dip, 0.75 * dip); ankles(-0.35 * dip, -0.35 * dip);               // down into the knees
+        spine(0.15 * dip, 0.25 * side * dip, 0.28 * side * dip, 0.05 * dip);
         if (side > 0) { L.set(-0.9 * dip, 0, 0.9 * dip); Ll.set(-0.6, 0, 0); R.set(0.3 * dip, 0, 0.25); Rl.set(-0.3, 0, 0); }   // left arm across
         else          { R.set(-0.9 * dip, 0, -0.9 * dip); Rl.set(-0.6, 0, 0); L.set(0.3 * dip, 0, -0.25); Ll.set(-0.3, 0, 0); } // right arm across
+        head(0.1 * dip, -0.3 * side * dip, -0.15 * side * dip);
+        wrists(-0.5 * dip, -0.5 * dip); hands(0.85, 0.85);
     } else if (e.name === 'worm') {
-        // The Worm: down on his chest, a ripple runs from chest to hips to feet — as the chest touches
-        // the hips rise and the heels snap up — inching forward; back up at the end
+        // The Worm: down on his chest, a ripple runs from chest to hips to feet — the chest touches,
+        // the hips rise, the knees fold and the heels snap up — inching forward; back up at the end
         const down = Math.min(1, t / 0.35) * Math.min(1, (EMOTE_TIME - t) / 0.35);
-        const w = Math.sin(t * 7);
-        lift(0.42 * down + 0.18 * Math.max(0, w) * down, (Math.PI / 2 + 0.3 * w) * down);
-        p.leftLeg.rotation.set(0.9 * Math.max(0, w) * down, 0, 0); p.rightLeg.rotation.set(0.9 * Math.max(0, w) * down, 0, 0);
+        const w = Math.sin(t * 7), w2 = Math.sin(t * 7 - 1.2);
+        lift(0.42 * down + 0.16 * Math.max(0, w) * down, (Math.PI / 2 + 0.25 * w) * down);
+        spine(-0.35 * w * down, 0, 0);                                                  // chest and hips take turns
+        p.leftLeg.rotation.set(0.6 * Math.max(0, w2) * down, 0, 0); p.rightLeg.rotation.set(0.6 * Math.max(0, w2) * down, 0, 0);
+        knees(1.2 * Math.max(0, w2) * down, 1.2 * Math.max(0, w2) * down);              // heels snap up
+        ankles(0.6 * down, 0.6 * down);
         R.set(-Math.PI * 0.6 * down - 0.4 * Math.max(0, -w), 0, 0.35); Rl.set(-0.9 * down, 0, 0);      // hands push off the turf
         L.set(-Math.PI * 0.6 * down - 0.4 * Math.max(0, -w), 0, -0.35); Ll.set(-0.9 * down, 0, 0);
+        wrists(1.0 * down, 1.0 * down); hands(0.1, 0.1, 0.6);
+        head(-0.6 * down, 0);                                                           // looking forward, not at the grass
         const fwd = new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw));
         p.group.position.x = e.start.x + fwd.x * 0.5 * t * down; p.group.position.z = e.start.z + fwd.z * 0.5 * t * down;
     }
@@ -6973,7 +7146,8 @@ function finishTeamCelebration() {
         p.pinDown = false; p.kneel = false;
         if (isFalling(p)) startRise(p, p.group.position.z + 1);
         else { p.group.position.y = 0; p.group.quaternion.copy(yawPitchQuat(p.yaw || 0, 0)); }
-        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg].forEach(o => o.rotation.set(0, 0, 0));
+        [p.rightUpper, p.rightLower, p.leftUpper, p.leftLower, p.rightLeg, p.leftLeg, p.leftKnee, p.rightKnee, p.leftAnkle, p.rightAnkle, p.leftWrist, p.rightWrist, p.neck, p.spine].forEach(o => o && o.rotation.set(0, 0, 0));
+        if (p.spine) p.spine.position.y = p.spineY;
     });
     if (C.ball) attachBallToCarrier(C.star);
     GAME_STATE = C.prev;
@@ -9577,10 +9751,21 @@ function animate() {
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
         updateTdCam(dt); updateEmotes(dt);
     }
-    updateChallengeButton(); updateCrunchTime(); updateChants(dt);
+    updateChallengeButton(); updateCrunchTime(); updateChants(dt); updateFingerDetail();
     if (GAME_STATE === 'REPLAY') updateReplay(dt);
     else { recordReplayFrame(dt); keepPlayersOnField(); }
     renderer.render(scene, camera);
+}
+
+// Fingers only where you can see them: players within ~13 units of the camera, on high graphics
+// (a few at a time — a dancing scorer, a catch on a close camera), so the field stays cheap to draw
+function updateFingerDetail() {
+    if (!PLAYER_MODEL) return;
+    const on = graphicsLevel === 'high', cam = camera.position;
+    [players.offense, players.defense, droneSimPlayers, ko ? koAll() : null].forEach(list => list && list.forEach(p => {
+        // (a dancing scorer always gets them: one man is cheap, even on low graphics)
+        if (p && p.setFingerDetail) p.setFingerDetail((on || !!p.emote || !!p.emoteWait) && p.group.visible && p.group.position.distanceToSquared(cam) < 169);
+    }));
 }
 
 // Kick units that never got cleaned up: a kickoff or punt return you quit out of (or the clock ran out
