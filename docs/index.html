@@ -3276,7 +3276,7 @@ function buildStadium() {
         const geo = new THREE.ExtrudeGeometry(shape, { depth: top, bevelEnabled: false, curveSegments: 10 });
         const tier = new THREE.Mesh(geo, i % 2 ? standMat : stepMat);
         tier.rotation.x = -Math.PI / 2; // extrude upward; the shape is symmetric so the mirror doesn't matter
-        scene.add(tier);
+        scene.add(tier); (buildStadium.tiers || (buildStadium.tiers = [])).push(tier);   // (kept so the stands can be hidden — see startEasterEgg)
 
         // One row of fans along each tier's tread, facing the field
         const perim = 4 * (hx - r) + 4 * (hz - r) + 2 * Math.PI * r;
@@ -5342,14 +5342,61 @@ function triggerDive(carrier) {
 // Jump, then dive, right on the logo at midfield (once a game): the stadium goes up in flames,
 // everything goes black... and you're in an endless white room, and a guy in a grey hoodie and
 // black shorts is sprinting straight at you. Then you're back on the field like nothing happened.
-const EGG_BOOM = 2.2, EGG_BLACK = 1.0, EGG_ROOM = 3.8;
+const EGG_BOOM = 2.8, EGG_BLACK = 0.9, EGG_ROOM = 1.75;
 function startEasterEgg() {
     eggUsed = true;
     const fade = document.getElementById('egg-fade');
-    easterEgg = { t: 0, prev: GAME_STATE, booms: [], inRoom: false, camPos: camera.position.clone(), camQuat: camera.quaternion.clone(), fade };
+    easterEgg = { t: 0, prev: GAME_STATE, booms: [], debris: [], inRoom: false, camPos: camera.position.clone(), camQuat: camera.quaternion.clone(), fade,
+                  jumbos: scenery ? scenery.jumbos.map(J => ({ g: J.g, pos: J.g.position.clone(), quat: J.g.quaternion.clone(), vel: new THREE.Vector3(0, 30 + Math.random() * 15, -Math.sign(J.g.position.z) * -30), spin: (Math.random() - 0.5) * 3 })) : [] };
     GAME_STATE = 'EASTER_EGG';
     document.body.classList.add('egg-on');
-    sfxHit(2); sfxWhistle();
+    // The stands come apart: hide the bowl and the crowd, and throw chunks of it everywhere
+    (buildStadium.tiers || []).forEach(m => { m.visible = false; });
+    if (crowd) [crowd.body, crowd.head, crowd.arms].forEach(m => { m.visible = false; });
+    const concrete = [new THREE.MeshLambertMaterial({ color: 0x1a1d24 }), new THREE.MeshLambertMaterial({ color: 0x2b3038 }), new THREE.MeshLambertMaterial({ color: 0x4a4f58 })];
+    const fans = [MY_TEAM.color, currentOpponent ? currentOpponent.color : '#888888', '#ffffff'].map(c => new THREE.MeshLambertMaterial({ color: c }));
+    const chunkGeo = new THREE.BoxGeometry(1, 1, 1);
+    const n = graphicsLevel === 'low' ? 110 : 220;
+    for (let i = 0; i < n; i++) {
+        const tier = Math.floor(Math.random() * BOWL_TIERS), a = Math.random() * Math.PI * 2;
+        const person = i % 4 === 0;
+        const m = new THREE.Mesh(chunkGeo, person ? fans[i % 3] : concrete[i % 3]);
+        const rx = BOWL_HX + tier * BOWL_STEP, rz = BOWL_HZ + tier * BOWL_STEP;
+        m.position.set(Math.cos(a) * rx, Math.random() * (tier + 1) * BOWL_RISE, Math.sin(a) * rz);
+        if (person) m.scale.set(0.6, 1.2, 0.4); else m.scale.set(2 + Math.random() * 7, 1 + Math.random() * 3, 2 + Math.random() * 6);
+        const out = new THREE.Vector3(m.position.x / rx, 0, m.position.z / rz).normalize();
+        m.userData = { vel: out.multiplyScalar(18 + Math.random() * 40).add(new THREE.Vector3(0, 20 + Math.random() * 38, 0)),
+                       spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8), delay: Math.random() * 0.5 };
+        m.visible = false; scene.add(m); easterEgg.debris.push(m);
+    }
+    sfxHit(2.5); sfxTone(1.6, 70, 25, 0.9, 'sawtooth'); sfxNoise(1.8, 'lowpass', 500, 0.7, 0.9);   // the blast
+}
+// Debris flies, spins and comes down (it lands where it lands)
+function updateEggDebris(dt) {
+    const E = easterEgg;
+    E.debris.forEach(m => {
+        const u = m.userData;
+        if (u.delay > 0) { u.delay -= dt; if (u.delay <= 0) m.visible = true; return; }
+        if (m.position.y <= 0 && u.vel.y <= 0) return;
+        u.vel.y -= 30 * dt; m.position.addScaledVector(u.vel, dt);
+        m.rotation.x += u.spin.x * dt; m.rotation.y += u.spin.y * dt; m.rotation.z += u.spin.z * dt;
+        if (m.position.y < 0) { m.position.y = 0; u.vel.set(0, 0, 0); }
+    });
+    E.jumbos.forEach(J => { J.vel.y -= 30 * dt; J.g.position.addScaledVector(J.vel, dt); J.g.rotateX(J.spin * dt); });
+}
+// Put the stadium back like nothing happened
+function restoreEggStadium() {
+    const E = easterEgg;
+    E.debris.forEach(m => scene.remove(m)); E.debris = [];
+    E.booms.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }); E.booms = [];
+    (buildStadium.tiers || []).forEach(m => { m.visible = true; });
+    if (crowd) [crowd.body, crowd.head, crowd.arms].forEach(m => { m.visible = true; });
+    E.jumbos.forEach(J => { J.g.position.copy(J.pos); J.g.quaternion.copy(J.quat); });
+}
+function sfxScream() {
+    if (!sfxOn()) return;
+    sfxTone(0.7, 820, 1500, 0.8, 'sawtooth'); sfxTone(0.7, 1240, 2100, 0.5, 'square');
+    sfxNoise(0.75, 'bandpass', 2600, 1.5, 0.9);
 }
 function eggFireball() {
     const E = easterEgg;
@@ -5380,6 +5427,7 @@ function buildEggRoom() {
     box(0.48, 0.14, 0.48, hair, 0, 0.22, -0.01, head);
     box(0.62, 0.62, 0.36, hoodie, 0, 0.02, -0.17, head);           // the hood, up
     box(0.08, 0.06, 0.02, M(0x222222), -0.1, 0.05, 0.235, head); box(0.08, 0.06, 0.02, M(0x222222), 0.1, 0.05, 0.235, head);   // eyes
+    const mouth = box(0.16, 0.04, 0.02, M(0x1a0505), 0, -0.13, 0.235, head);   // opens wide at the end
     const limb = (x, y, upMat, loMat, upLen, loLen, w, parent) => {
         const up = new THREE.Group(); up.position.set(x, y, 0); parent.add(up);
         box(w, upLen, w, upMat, 0, -upLen / 2, 0, up);
@@ -5392,47 +5440,62 @@ function buildEggRoom() {
     box(0.92, 0.42, 0.52, shorts, 0, 0.92, 0, body);                // shorts
     const legL = limb(-0.24, 0.95, shorts, skin, 0.5, 0.48, 0.3, body), legR = limb(0.24, 0.95, shorts, skin, 0.5, 0.48, 0.3, body);
     box(0.3, 0.16, 0.46, shoe, 0, -0.52, 0.08, legL.lo); box(0.3, 0.16, 0.46, shoe, 0, -0.52, 0.08, legR.lo);   // sneakers
-    guy.position.set(0, 0, -48);
+    guy.position.set(0, 0, -20);
     room.add(guy);
-    const cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
-    cam.position.set(0, 1.9, 6); cam.lookAt(0, 1.6, -10);
-    return { room, cam, guy, body, head, armL, armR, legL, legR };
+    const cam = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 200);
+    cam.position.set(0, 2.3, 6); cam.lookAt(0, 2.3, -10);
+    return { room, cam, guy, body, head, mouth, armL, armR, legL, legR };
 }
 function updateEasterEgg(dt) {
     const E = easterEgg; E.t += dt;
     const t = E.t, fade = E.fade;
     if (t < EGG_BOOM) {
-        // The stadium goes up: fireballs all around the bowl, the ground shaking, a white flash
-        for (let i = 0; i < 4; i++) if (Math.random() < 0.7) eggFireball();
-        camera.position.copy(E.camPos).add(new THREE.Vector3((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 2.2));
-        fade.style.background = '#fff'; fade.style.opacity = String(Math.max(0, 0.85 - t * 2));
+        // The stadium blows apart: a white flash, fireballs all around the bowl, the stands in
+        // pieces flying out over the city — the camera pulls up and back to take it all in, shaking
+        for (let i = 0; i < 4; i++) if (Math.random() < (t < 1.2 ? 0.8 : 0.35)) eggFireball();
+        updateEggDebris(dt);
+        const pull = THREE.MathUtils.smoothstep(t, 0, 0.9), shake = 2.6 * Math.max(0.2, 1 - t / EGG_BOOM);
+        camera.position.copy(E.camPos).lerp(new THREE.Vector3(0, 70, 260), pull)
+            .add(new THREE.Vector3((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
+        if (pull > 0.05) camera.lookAt(0, 25 * pull, 0);
+        fade.style.background = '#fff'; fade.style.opacity = String(Math.max(0, 0.95 - t * 2.2));
+        if (Math.random() < 0.08) sfxHit(1.5 + Math.random());
     } else if (t < EGG_BOOM + EGG_BLACK) {
-        fade.style.background = '#000'; fade.style.opacity = String(Math.min(1, (t - EGG_BOOM) / 0.4));
+        updateEggDebris(dt);
+        fade.style.background = '#000'; fade.style.opacity = String(Math.min(1, (t - EGG_BOOM) / 0.3));
     } else if (t < EGG_BOOM + EGG_BLACK + EGG_ROOM) {
         if (!E.inRoom) {
             E.inRoom = true; Object.assign(E, buildEggRoom());
-            E.booms.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); }); E.booms = [];
+            restoreEggStadium();
             camera.position.copy(E.camPos); camera.quaternion.copy(E.camQuat);
             E.cam.aspect = window.innerWidth / window.innerHeight; E.cam.updateProjectionMatrix();
         }
-        const u = t - EGG_BOOM - EGG_BLACK;
-        fade.style.background = '#000'; fade.style.opacity = String(Math.max(0, 1 - u / 0.8));
-        // He sprints straight at you, all out
-        E.guy.position.z = Math.min(4.2, -48 + u * 15);
-        const ph = u * 13, s = Math.sin(ph);
-        E.legL.up.rotation.x = s * 0.95; E.legR.up.rotation.x = -s * 0.95;
-        E.legL.lo.rotation.x = 0.4 + 0.9 * Math.max(0, -s); E.legR.lo.rotation.x = 0.4 + 0.9 * Math.max(0, s);
-        E.armL.up.rotation.x = -s * 0.9; E.armR.up.rotation.x = s * 0.9;
-        E.armL.lo.rotation.x = -1.4; E.armR.lo.rotation.x = -1.4;
-        E.body.position.y = 0.12 * Math.abs(Math.cos(ph)); E.body.rotation.x = 0.18;
-        E.head.rotation.x = -0.15;
-        if (u > EGG_ROOM - 0.5) { fade.style.opacity = String(Math.min(1, (u - (EGG_ROOM - 0.5)) / 0.4)); }   // he's right in your face — black
+        const u = t - EGG_BOOM - EGG_BLACK, FACE = 0.4;   // the last FACE seconds: right in your face
+        fade.style.background = '#000'; fade.style.opacity = String(Math.max(0, 1 - u / 0.2));
+        // He's already coming, flat out, and he doesn't stop until he's in your face
+        const arrive = 5.3;
+        E.guy.position.z = Math.min(arrive, -20 + u * 24);
+        const ph = u * 19, s = Math.sin(ph), there = E.guy.position.z >= arrive;
+        E.legL.up.rotation.x = s * 1.1; E.legR.up.rotation.x = -s * 1.1;
+        E.legL.lo.rotation.x = 0.4 + 1.0 * Math.max(0, -s); E.legR.lo.rotation.x = 0.4 + 1.0 * Math.max(0, s);
+        E.armL.up.rotation.x = there ? -2.2 : -s * 1.1; E.armR.up.rotation.x = there ? -2.2 : s * 1.1;   // at the end, arms up, grabbing at you
+        E.armL.lo.rotation.x = there ? -0.3 : -1.4; E.armR.lo.rotation.x = there ? -0.3 : -1.4;
+        E.body.position.y = there ? 0.15 : 0.14 * Math.abs(Math.cos(ph)); E.body.rotation.x = there ? -0.05 : 0.22;
+        E.head.rotation.x = there ? 0.12 : -0.15;
+        if (there) {
+            if (!E.screamed) { E.screamed = true; E.faceAt = u; sfxScream(); }
+            E.mouth.scale.set(1.6, 4.5, 1); E.mouth.position.y = -0.16;
+            E.cam.position.set((Math.random() - 0.5) * 0.12, 2.3 + (Math.random() - 0.5) * 0.12, 6);   // shaking
+            if (u - E.faceAt > FACE) { fade.style.opacity = '1'; E.t = EGG_BOOM + EGG_BLACK + EGG_ROOM; }   // smash cut to black
+        }
     } else {
-        // ...and back to the game, like nothing happened
+        // ...a beat of black, then back to the game like nothing happened
         const u = t - EGG_BOOM - EGG_BLACK - EGG_ROOM;
-        if (E.inRoom) { E.inRoom = false; GAME_STATE = E.prev; document.body.classList.remove('egg-on'); flashBanner('...WHAT WAS THAT?', 1800); }
-        fade.style.opacity = String(Math.max(0, 1 - u / 0.8));
-        if (u > 0.8) { fade.style.opacity = '0'; easterEgg = null; }
+        if (E.inRoom) { E.inRoom = false; fade.style.opacity = '1'; }
+        if (u < 0.7) return;
+        if (GAME_STATE === 'EASTER_EGG') { GAME_STATE = E.prev; document.body.classList.remove('egg-on'); flashBanner('...WHAT WAS THAT?', 1800); }
+        fade.style.opacity = String(Math.max(0, 1 - (u - 0.7) / 0.8));
+        if (u > 1.5) { fade.style.opacity = '0'; easterEgg = null; }
         return;
     }
     // Fireballs swell and burn out
