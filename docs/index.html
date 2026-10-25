@@ -5423,8 +5423,20 @@ function triggerDive(carrier) {
     const startPos = carrier.group.position.clone();
     const endPos   = startPos.clone().addScaledVector(lunge, 6);
 
+    // Diving into a wall of bodies (your own line, theirs, a pile) gets you nowhere: he slams into
+    // them and bounces back short of where he left the ground — no gain
+    const wall = players.offense.concat(players.defense).filter(p => p !== carrier).map(p => {
+        const rel = p.group.position.clone().sub(startPos).setY(0), along = rel.dot(lunge);
+        return { along, side: rel.sub(lunge.clone().multiplyScalar(along)).length() };
+    }).filter(w => w.along > 0.3 && w.along < 6.5 && w.side < 1.7).sort((a, b) => a.along - b.along)[0];
+
     // duration 0.45s: fast explosive dive
     diveAnim = { carrier, lunge, yaw, startPos: startPos.clone(), endPos: endPos.clone(), elapsed: 0, duration: 0.45 };
+    if (wall) {
+        diveAnim.wallPos = startPos.clone().addScaledVector(lunge, Math.max(0.2, wall.along - 1.1));
+        diveAnim.endPos = startPos.clone().addScaledVector(lunge, -1.6);   // knocked back
+        diveAnim.stuffed = true; diveAnim.duration = 0.6;
+    }
     if (egg) startEasterEgg();
 }
 
@@ -10849,8 +10861,14 @@ function animate() {
             da.elapsed += dt;
             const t    = Math.min(1, da.elapsed / da.duration);
             const ease = 1 - Math.pow(1 - t, 2); // ease-out quad: fast launch, slows on turf
-            // XZ: linear (straight glide, no deceleration)
-            da.carrier.group.position.lerpVectors(da.startPos, da.endPos, t);
+            // XZ: linear (straight glide, no deceleration) — or, into a wall of bodies: up to it, then bounced back
+            if (da.stuffed) {
+                if (t < 0.4) da.carrier.group.position.lerpVectors(da.startPos, da.wallPos, t / 0.4);
+                else {
+                    if (!da.hitWall) { da.hitWall = true; sfxHit(1.3); flashBanner('STUFFED!', 900); }
+                    da.carrier.group.position.lerpVectors(da.wallPos, da.endPos, 1 - Math.pow(1 - (t - 0.4) / 0.6, 2));
+                }
+            } else da.carrier.group.position.lerpVectors(da.startPos, da.endPos, t);
 
             // Y: two-phase — straight glide for first 55%, then ease-in fall
             const FALL_START = 0.55;
@@ -10870,7 +10888,8 @@ function animate() {
                 da.carrier.group.updateMatrixWorld(true);
                 da.carrier.group.position.y = -new THREE.Box3().setFromObject(da.carrier.group).min.y;
                 // Head tip is ~2.45 units ahead of group origin along the dive direction
-                const landZ = da.endPos.z + da.lunge.z * 2.45;
+                // (bounced back off a wall of bodies: no gain — the ball's down where he left the ground)
+                const landZ = da.stuffed ? da.startPos.z : da.endPos.z + da.lunge.z * 2.45;
                 const isTD  = landZ < -100;
                 // Now release the ball from the carrier's hand and place it at the head tip
                 detachBallToScene();
