@@ -119,6 +119,7 @@
         #coin-toss.hidden { display: none; }
         #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
         #kick-choice.hidden { display: none; }
+        #online-wait { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 120; background: rgba(0, 34, 68, 0.95); border: 4px solid #ffcc00; color: #ffcc00; padding: 24px 30px; font-size: 0.9rem; text-align: center; line-height: 1.6; box-shadow: 6px 6px 0 #000; }
         #p2-hint { position: fixed; left: 16px; bottom: 16px; z-index: 60; background: rgba(122, 28, 42, 0.9); border: 2px solid #ff3344; color: #fff; padding: 8px 10px; font-size: 0.5rem; pointer-events: none; }
         #achv-toast { position: fixed; top: 20px; right: 20px; z-index: 300; background: #002244; border: 3px solid #ffcc00; color: #fff; padding: 12px 16px; font-size: 0.7rem; box-shadow: 4px 4px 0 #000; pointer-events: none; }
         #egg-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 400; }
@@ -447,6 +448,7 @@
                     <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🏆</span>BRACKET</button>
                     <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
                     <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
+                    <button class="tile" onclick="openOnline()"><span class="ti">🌐</span>ONLINE</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -467,6 +469,21 @@
             <div id="roster-team" class="stats-head" style="margin-bottom:6px;"></div>
             <div id="roster-list"></div>
             <button class="btn-retro" onclick="closeInfoScreen('roster-screen')">BACK TO MENU</button>
+        </div>
+
+        <!-- Online play with a join code (see ONLINE) -->
+        <div id="online-screen" class="menu hidden">
+            <h1 style="font-size:2rem;">ONLINE</h1>
+            <div class="panel" style="width:min(520px,92vw); display:flex; flex-direction:column; gap:14px; align-items:center;">
+                <div style="font-size:0.6rem; color:#cde; line-height:2; text-align:center;">PLAY A FRIEND ON ANOTHER COMPUTER. YOU HOST AND PLAY YOUR TEAM; YOUR FRIEND IS PLAYER 2 — A DEFENDER ON YOUR DRIVES, THE BALL CARRIER ON THEIRS.</div>
+                <button class="btn-retro" onclick="hostOnline()">HOST A GAME</button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input id="online-code" maxlength="5" placeholder="CODE" style="font-family:'Press Start 2P',monospace; font-size:1rem; width:8em; text-transform:uppercase; padding:10px; text-align:center; border:3px solid #ffcc00; background:#001a33; color:#fff;">
+                    <button class="btn-retro" onclick="joinOnline()">JOIN</button>
+                </div>
+                <div id="online-status" style="font-size:0.7rem; color:#ffcc00; line-height:2; text-align:center; white-space:pre-line;"></div>
+            </div>
+            <button class="btn-retro" style="background:#444;" onclick="closeOnline()">BACK TO MENU</button>
         </div>
 
         <!-- The offseason: awards, re-signing, free agency (the rookie draft has its own screen) -->
@@ -814,6 +831,7 @@
 
     <div id="egg-fade"></div>
     <div id="achv-toast" class="hidden"></div>
+    <div id="online-wait" class="hidden">CONNECTED! YOU'RE PLAYER 2<br><br><span style="font-size:0.55rem; color:#cde;">WAITING FOR THE HOST TO START A GAME...<br><br>ARROWS / WASD MOVE · SHIFT SPRINT · Q OR / SWITCH · ESC LEAVE</span></div>
     <div id="p2-hint" class="hidden">PLAYER 2 (RED RING): ARROWS MOVE · RIGHT SHIFT SPRINT · / SWITCH</div>
     <div id="kick-choice" class="hidden">
         <h1 style="font-size:1.8rem; color:#ffcc00; text-shadow:4px 4px 0 #e31837; margin-bottom:8px;">KICKOFF</h1>
@@ -1138,6 +1156,7 @@ let oppQB = null;     // the opposing QB's brain for this game (newOppQB)
 let easterEgg = null, eggUsed = false;   // ??? (startEasterEgg) — once a game
 let walkout = null;   // the pre-game run out of the tunnel (startWalkout)
 let p2 = { on: false, ctrl: null, ring: null };   // a second player on the same keyboard (see TWO PLAYERS)
+let net = null;   // online play: { role: 'host' | 'guest', peer, conn, ... } (see ONLINE)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1728,12 +1747,14 @@ function toggleTwoPlayer() {
     const b = document.getElementById('btn-2p'); if (b) b.innerText = `PLAYERS: ${p2.on ? 2 : 1}`;
 }
 function p2Dir(view) {
-    const x = (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0), y = (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0);
+    const R = net && net.role === 'host' && net.conn ? (p2.remote || {}) : null;   // online: Player 2's keys come over the network
+    const x = R ? (R.r ? 1 : 0) - (R.l ? 1 : 0) : (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0);
+    const y = R ? (R.u ? 1 : 0) - (R.d ? 1 : 0) : (keys['ArrowUp'] ? 1 : 0) - (keys['ArrowDown'] ? 1 : 0);
     if (!x && !y) return null;
     // Your drives: the camera looks down the field (−Z); their drives: it looks back up it (+Z)
     return (view === 'dp' ? new THREE.Vector3(-x, 0, y) : new THREE.Vector3(x, 0, -y)).normalize();
 }
-const p2Sprint = () => !!keys['ShiftRight'];
+const p2Sprint = () => net && net.role === 'host' && net.conn ? !!(p2.remote && p2.remote.s) : !!keys['ShiftRight'];
 // Your drives: Player 2's defender
 function p2Control(p, dt) {
     const d = p2Dir('offense');
@@ -1773,6 +1794,194 @@ function updateP2(dt) {
     p2.ring.visible = !!who;
     if (who) p2.ring.position.set(who.group.position.x, 0.07, who.group.position.z);
     const hint = document.getElementById('p2-hint'); if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+}
+
+// ─── ONLINE ──────────────────────────────────────────────────────────────────
+// Play a friend on another computer with a join code. The host runs the whole game exactly as
+// normal; the friend is Player 2 (see TWO PLAYERS) and their keys travel to the host. The host
+// streams the scene back ~20 times a second — every player's position, pose and limbs, the ball,
+// the camera — plus the scoreboard and messages a few times a second, and the friend's screen
+// just draws that, smoothing between updates. Peer to peer through PeerJS (loaded only when you
+// open ONLINE): the code is the host's PeerJS id, so there's no server of our own to run.
+const NET_PREFIX = 'fantasticfb-', NET_HZ = 20;
+const NET_LIMBS = ['rightUpper', 'rightLower', 'leftUpper', 'leftLower', 'rightLeg', 'leftLeg', 'leftKnee', 'rightKnee', 'spine', 'neck'];
+const NET_STRIDE = 8 + NET_LIMBS.length * 2;   // id, position, quaternion, then x/z of each joint
+function loadPeerJS() {
+    if (window.Peer) return Promise.resolve();
+    return loadPeerJS.p || (loadPeerJS.p = new Promise((ok, fail) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js';
+        s.integrity = 'sha512-iFU+yF1keEaLDC9HEwPfLMSRaS0unBHE14GEgx6pQKJXjp5v0tvX8xpfp2lgJ62XEjbYp/M5C3CAmej/PWXMyA==';
+        s.crossOrigin = 'anonymous'; s.referrerPolicy = 'no-referrer';
+        s.onload = ok; s.onerror = () => { loadPeerJS.p = null; fail(new Error('load')); };
+        document.head.appendChild(s);
+    }));
+}
+function netStatus(text) { const el = document.getElementById('online-status'); if (el) el.innerText = text; }
+function openOnline() {
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('online-screen').classList.remove('hidden');
+    netStatus(net && net.role === 'host' ? (net.conn ? 'YOUR FRIEND IS CONNECTED — GO PICK YOUR GAME' : `YOUR CODE: ${net.code}`) : 'HOST A GAME AND SEND YOUR FRIEND THE CODE, OR JOIN WITH THEIRS');
+}
+function closeOnline() { closeInfoScreen('online-screen'); }
+async function hostOnline() {
+    if (net && net.role === 'host') { openOnline(); return; }
+    netStatus('CONNECTING...');
+    try { await loadPeerJS(); } catch (e) { netStatus('COULDN\'T LOAD ONLINE PLAY (YOUR NETWORK MAY BLOCK IT)'); return; }
+    const ALPH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', code = Array.from({ length: 5 }, () => ALPH[Math.floor(Math.random() * ALPH.length)]).join('');
+    const peer = new Peer(NET_PREFIX + code);
+    net = { role: 'host', peer, code, conn: null, ids: new Map(), nextId: 1, live: new Set(), t: 0, hudT: 0 };
+    peer.on('open', () => netStatus(`YOUR CODE: ${code}\nTELL YOUR FRIEND TO PICK JOIN AND TYPE IT IN`));
+    peer.on('error', e => { netStatus(e.type === 'unavailable-id' ? 'THAT CODE WAS TAKEN — TRY HOST AGAIN' : `CONNECTION PROBLEM (${e.type})`); if (!net.conn) { peer.destroy(); net = null; } });
+    peer.on('connection', conn => {
+        if (net.conn) { conn.close(); return; }   // one friend at a time
+        conn.on('open', () => {
+            net.conn = conn; p2.on = true; p2.remote = {};
+            net.live = new Set();   // send them everybody fresh
+            netStatus('YOUR FRIEND IS CONNECTED — GO PICK YOUR GAME'); flashBanner('FRIEND CONNECTED! THEY\'RE PLAYER 2', 2000);
+            netSendHello();
+        });
+        conn.on('data', m => {
+            if (!m) return;
+            if (m.t === 'in') p2.remote = m;
+            else if (m.t === 'sw') p2Switch();
+        });
+        conn.on('close', () => { if (net) { net.conn = null; } p2.remote = null; flashBanner('YOUR FRIEND DISCONNECTED', 2000); });
+    });
+}
+function netSendHello() {
+    if (!net || net.role !== 'host' || !net.conn) return;
+    net.live = new Set();
+    net.conn.send({ t: 'hello', home: MY_TEAM.id, opp: currentOpponent ? currentOpponent.id : null, uh: isUserHome, wx: weather || null });
+}
+// Everybody on the field right now (whatever the game is doing)
+function onlineActors() {
+    const set = new Set(), add = arr => arr && arr.forEach(p => { if (p && p.group && p.group.parent) set.add(p); });
+    add(players.offense); add(players.defense); add(droneSimPlayers);
+    if (ko) add(koAll());
+    if (walkout) add(walkout.men);
+    return [...set];
+}
+function netHostTick(dt) {
+    if (!net || net.role !== 'host' || !net.conn || !net.conn.open) return;
+    net.t += dt; net.hudT += dt;
+    const inGame = !['MENU', 'MATCHUP', 'SIMULATING', 'GAME_OVER'].includes(GAME_STATE);
+    if (net.t >= 1 / NET_HZ) {
+        net.t = 0;
+        const actors = inGame ? onlineActors() : [];
+        actors.forEach(p => { if (!net.ids.has(p)) net.ids.set(p, net.nextId++); });
+        const ids = actors.map(p => net.ids.get(p));
+        const spawn = actors.filter(p => !net.live.has(net.ids.get(p))).map(p => [net.ids.get(p), p.team, p.role, String(p.number)]);
+        const gone = [...net.live].filter(id => !ids.includes(id));
+        if (spawn.length || gone.length) { net.conn.send({ t: 'cast', add: spawn, rm: gone }); spawn.forEach(s => net.live.add(s[0])); gone.forEach(id => net.live.delete(id)); }
+        // [inGame, camera pos + quat (1–7), ball pos + quat (8–14), Player 2's ring x/z (15–16), count (17)] then each actor from 18
+        const a = new Float32Array(18 + actors.length * NET_STRIDE);
+        const bw = ballWorld(), ring = p2.ring && p2.ring.visible ? p2.ring.position : null;
+        a.set([inGame ? 1 : 0, camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w, ...bw,
+               ring ? ring.x : 1e6, ring ? ring.z : 1e6, actors.length]);
+        actors.forEach((p, i) => {
+            const o = 18 + i * NET_STRIDE, g = p.group;
+            a.set([ids[i], g.position.x, g.position.y, g.position.z, g.quaternion.x, g.quaternion.y, g.quaternion.z, g.quaternion.w], o);
+            NET_LIMBS.forEach((k, j) => { const r = p[k] ? p[k].rotation : null; a[o + 8 + j * 2] = r ? r.x : 0; a[o + 9 + j * 2] = r ? r.z : 0; });
+        });
+        net.conn.send({ t: 'snap', d: a.buffer });
+    }
+    if (net.hudT >= 0.25) {
+        net.hudT = 0;
+        const txt = id => { const el = document.getElementById(id); return el ? el.innerText : ''; };
+        const shown = id => { const el = document.getElementById(id); return !!el && !el.classList.contains('hidden'); };
+        net.conn.send({ t: 'hud', inGame, s: [scoreOff, scoreDef, currentQuarter, gameTime, currentDown, yardsToGo], ids: ['score-off', 'score-def', 'game-clock', 'down-distance', 'scoreboard-off-name', 'scoreboard-opp-name', 'timeout-display', 'instructions', 'quarter-break-text', 'commentary'].map(id => [id, txt(id), shown(id)]) });
+    }
+}
+async function joinOnline() {
+    const code = (document.getElementById('online-code').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length < 5) { netStatus('TYPE THE 5-LETTER CODE YOUR FRIEND SEES'); return; }
+    netStatus('CONNECTING...');
+    try { await loadPeerJS(); } catch (e) { netStatus('COULDN\'T LOAD ONLINE PLAY (YOUR NETWORK MAY BLOCK IT)'); return; }
+    const peer = new Peer();
+    net = { role: 'guest', peer, conn: null, actors: new Map(), prev: null, cur: null, inGame: false, sent: '' };
+    peer.on('error', e => netStatus(e.type === 'peer-unavailable' ? 'NO GAME WITH THAT CODE — CHECK IT AND TRY AGAIN' : `CONNECTION PROBLEM (${e.type})`));
+    peer.on('open', () => {
+        const conn = peer.connect(NET_PREFIX + code, { reliable: true });
+        net.conn = conn;
+        conn.on('open', enterGuestMode);
+        conn.on('data', onGuestData);
+        conn.on('close', () => { flashBanner('THE HOST LEFT', 2500); setTimeout(() => location.reload(), 2500); });
+    });
+}
+// The friend's side: no game of their own, just the host's field, drawn
+function enterGuestMode() {
+    document.querySelectorAll('.menu').forEach(m => m.classList.add('hidden'));
+    players.offense.concat(players.defense).forEach(p => scene.remove(p.group)); players = { offense: [], defense: [] };
+    GAME_STATE = 'ONLINE_GUEST';
+    document.getElementById('online-wait').classList.remove('hidden');
+    detachBallToScene(); ball.velocity = null;
+    if (!net.ring) { net.ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.12, 6, 24), new THREE.MeshBasicMaterial({ color: 0xff3344 })); net.ring.rotation.x = Math.PI / 2; scene.add(net.ring); }
+}
+function onGuestData(m) {
+    if (!m) return;
+    if (m.t === 'hello') {
+        setMyTeam(m.home); currentOpponent = m.opp ? teamById(m.opp) : NFL_TEAMS[0]; isUserHome = m.uh;
+        const home = isUserHome ? MY_TEAM : currentOpponent;
+        endzoneHome.material.map = createEndzoneTexture(home.name, home.color, '#ffffff'); endzoneDef.material.map = createEndzoneTexture(home.name, home.color, '#ffffff');
+        colorCrowd(home, isUserHome ? currentOpponent : MY_TEAM, 'mixed');
+        if (m.wx) { weather = m.wx; applyWeather(); }
+        net.actors.forEach(p => scene.remove(p.group)); net.actors.clear();
+    } else if (m.t === 'cast') {
+        (m.rm || []).forEach(id => { const p = net.actors.get(id); if (p) { scene.remove(p.group); net.actors.delete(id); } });
+        (m.add || []).forEach(([id, team, role, num]) => {
+            if (net.actors.has(id)) return;
+            const p = new Player(0, 0, team, role, num, isUserHome, currentOpponent);
+            p.group.position.set(0, -50, 0);   // out of sight until its first snapshot
+            net.actors.set(id, p);
+        });
+    } else if (m.t === 'snap') {
+        const d = new Float32Array(m.d), idx = new Map();
+        for (let i = 0, n = d[17]; i < n; i++) idx.set(d[18 + i * NET_STRIDE], 18 + i * NET_STRIDE);
+        net.prev = net.cur; net.cur = { at: performance.now(), d, idx };
+    } else if (m.t === 'hud') {
+        net.inGame = m.inGame;
+        if (m.s) [scoreOff, scoreDef, currentQuarter, gameTime, currentDown, yardsToGo] = m.s;   // (for the jumbotrons)
+        document.getElementById('online-wait').classList.toggle('hidden', m.inGame);
+        document.getElementById('scoreboard').classList.toggle('hidden', !m.inGame);
+        m.ids.forEach(([id, text, shown]) => {
+            const el = document.getElementById(id); if (!el) return;
+            if (el.innerText !== text) el.innerText = text;
+            if (id === 'instructions' || id === 'commentary') el.classList.toggle('hidden', !shown);
+            if (id === 'quarter-break-text') document.getElementById('quarter-break').classList.toggle('hidden', !shown);
+        });
+    }
+}
+// Each frame on the friend's screen: blend from the last snapshot to the newest one
+function netGuestTick() {
+    if (!net || net.role !== 'guest' || !net.cur) return;
+    const C = net.cur, P = net.prev || C, span = Math.max(16, C.at - P.at), u = Math.min(1, (performance.now() - C.at) / span);
+    const L = (a, b) => a + (b - a) * u, q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion();
+    const pose = (obj, pa, pi, ca, ci) => {   // position at [i], quaternion at [i+3] in each array
+        obj.position.set(L(pa[pi], ca[ci]), L(pa[pi + 1], ca[ci + 1]), L(pa[pi + 2], ca[ci + 2]));
+        q0.set(pa[pi + 3], pa[pi + 4], pa[pi + 5], pa[pi + 6]); q1.set(ca[ci + 3], ca[ci + 4], ca[ci + 5], ca[ci + 6]);
+        obj.quaternion.slerpQuaternions(q0, q1, u);
+    };
+    pose(camera, P.d, 1, C.d, 1);
+    pose(ball, P.d, 8, C.d, 8);
+    net.ring.visible = C.d[15] < 1e5;
+    if (net.ring.visible) net.ring.position.set(C.d[15], 0.07, C.d[16]);
+    C.idx.forEach((ci, id) => {
+        const p = net.actors.get(id); if (!p) return;
+        const pi = P.idx.has(id) ? P.idx.get(id) : ci, pd = P.idx.has(id) ? P.d : C.d;
+        pose(p.group, pd, pi + 1, C.d, ci + 1);
+        NET_LIMBS.forEach((k, j) => { if (!p[k]) return; p[k].rotation.x = L(pd[pi + 8 + j * 2], C.d[ci + 8 + j * 2]); p[k].rotation.z = L(pd[pi + 9 + j * 2], C.d[ci + 9 + j * 2]); });
+    });
+}
+// The friend's keys: arrows or WASD to move, SHIFT to sprint, Q or / to switch, ESC to leave
+function guestKeys(e) {
+    if (e.code === 'Escape' && e.type === 'keydown') { if (confirm('Leave the online game?')) location.reload(); return; }
+    if (!net.conn || !net.conn.open) return;
+    if (e.type === 'keydown' && !e.repeat && (e.code === 'KeyQ' || e.code === 'Slash')) { net.conn.send({ t: 'sw' }); return; }
+    const k = c => !!keys[c];
+    const st = { t: 'in', u: k('ArrowUp') || k('KeyW'), d: k('ArrowDown') || k('KeyS'), l: k('ArrowLeft') || k('KeyA'), r: k('ArrowRight') || k('KeyD'), s: k('ShiftLeft') || k('ShiftRight') };
+    const key = JSON.stringify(st);
+    if (key !== net.sent) { net.sent = key; net.conn.send(st); }
 }
 
 // ─── ACHIEVEMENTS ────────────────────────────────────────────────────────────
@@ -2767,6 +2976,7 @@ function closeSchedule() { document.getElementById('schedule-screen').classList.
 function openMatchupScreen() {
     if(!audioCtx) initAudio();
     try { p2.on = localStorage.getItem('ff-2p') === '1'; } catch (e) {}
+    if (net && net.role === 'host' && net.conn) p2.on = true;   // online: your friend is Player 2
     const b2 = document.getElementById('btn-2p'); if (b2) b2.innerText = `PLAYERS: ${p2.on ? 2 : 1}`;
     // Season over: the rookie draft first, then the new season
     if (seasonPhase !== 'regular' && seasonPhase !== 'playoffs') { openOffseason(); return; }   // awards, re-signing, the draft, free agency
@@ -5554,6 +5764,7 @@ function startGame() {
     gameStats = newStatLine();
     qtrScores = { off: [0,0,0,0,0], def: [0,0,0,0,0] };
     timeoutsOff = 3; timeoutsOpp = 3; pendingQuarterEnd = false; updateTimeoutDisplay();
+    netSendHello();   // online: the friend's screen gets today's teams and weather
 
     startWalkout(openCoinToss);
 }
@@ -7538,6 +7749,7 @@ function updateHookLadder(dt) {
 }
 
 function checkInputs(e) {
+    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') { guestKeys(e); return; }   // online friend: their keys go to the host
     if (walkout && e.type === 'keydown' && (e.code === 'Space' || e.code === 'Enter')) { endWalkout(); return; }   // skip the walkout
     if (GAME_STATE === 'KICK_CHOICE' && e.type === 'keydown' && (e.code === 'KeyK' || e.code === 'KeyO')) { chooseKick(e.code === 'KeyO'); return; }
     if (e.code === 'KeyB' && e.type === 'keydown' && !e.repeat) { cycleCamera(); return; }
@@ -7601,6 +7813,7 @@ function onMouseMove(e) {
     }
 }
 function onMouseDown(e) {
+    if (net && net.role === 'guest' && GAME_STATE === 'ONLINE_GUEST') return;
     if (walkout) { endWalkout(); return; }
     if (GAME_STATE === 'REPLAY') { endReplay(); return; }
     if (performance.now() < trickThrowLockUntil || trickPitch) return; // still carrying out the fake
@@ -11306,7 +11519,7 @@ function animate() {
         }
     }
 
-    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'KICK_CHOICE' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
+    if (GAME_STATE !== 'PAUSED' && GAME_STATE !== 'MENU' && GAME_STATE !== 'SIMULATING' && GAME_STATE !== 'MATCHUP' && GAME_STATE !== 'GAME_OVER' && GAME_STATE !== 'QUARTER_BREAK' && GAME_STATE !== 'HALFTIME' && GAME_STATE !== 'COIN_TOSS' && GAME_STATE !== 'EASTER_EGG' && GAME_STATE !== 'WALKOUT' && GAME_STATE !== 'KICK_CHOICE' && GAME_STATE !== 'ONLINE_GUEST' && GAME_STATE !== 'EXTRA_POINT' && GAME_STATE !== 'FIELD_GOAL' && GAME_STATE !== 'KICKOFF' && GAME_STATE !== 'PUNT' && GAME_STATE !== 'TIMEOUT' && GAME_STATE !== 'KICKOFF_RETURN' && GAME_STATE !== 'INT_RETURN' && GAME_STATE !== 'FG_BLOCK' && GAME_STATE !== 'REPLAY' && GAME_STATE !== 'DEFENSE' && GAME_STATE !== 'DRONE_SIM' && GAME_STATE !== 'DRONE_EXIT' && GAME_STATE !== 'XP_ANIM' && GAME_STATE !== 'CELEBRATE') {
         if ((GAME_STATE === 'PRE_SNAP' && !isRunPlay) || (GAME_STATE === 'PLAY' && !ball.velocity && players.offense[0].group.position.z >= lineOfScrimmageZ)) {
             let startPos = new THREE.Vector3(players.offense[0].group.position.x, 2.0, players.offense[0].group.position.z);
             // Same plan as the real throw: out of range, the line (and the landing circle) stop short and turn red
@@ -11412,6 +11625,7 @@ function animate() {
     if (walkout) updateWalkout(dt);
     applyCameraMode(dt);
     updateP2(dt);
+    netHostTick(dt); netGuestTick();
     if (easterEgg && easterEgg.inRoom) renderer.render(easterEgg.room, easterEgg.cam);
     else renderer.render(scene, camera);
 }
