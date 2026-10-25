@@ -467,11 +467,12 @@
                     <div id="menu-goals"></div>
                 </div>
                 <div class="tab-pane" data-pane="team">
-                    <div class="tile-grid two">
+                    <div class="tile-grid three">
                         <button class="tile" onclick="openRoster()"><span class="ti">🏈</span>ROSTER<span id="roster-badge" class="badge hidden">0</span></button>
                         <button class="tile" onclick="openStats()"><span class="ti">📊</span>STATS</button>
                         <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
                         <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
+                        <button class="tile" onclick="openTeamLook()"><span class="ti">🎨</span>TEAM LOOK</button>
                     </div>
                 </div>
                 <div class="tab-pane" data-pane="modes">
@@ -1209,6 +1210,7 @@ let p2 = { on: false, ctrl: null, ring: null };   // a second player on the same
 let net = null;   // online play: { role: 'host' | 'guest', peer, conn, ... } (see ONLINE)
 let pro = null;   // a Be a Pro game in progress (see BE A PRO)
 let practice = null;   // a practice drill in progress (see PRACTICE)
+let teamLook = null;   // your custom team name and colors, or null for the real team's look (see TEAM LOOK)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1889,6 +1891,46 @@ function updateP2(dt) {
     } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
 }
 
+// ─── TEAM LOOK (custom team) ─────────────────────────────────────────────────
+// Rename your team and repaint it: the name (on the banner and in your end zones) and the jersey
+// and helmet colors (jerseys, pants, helmets, the score bug, the crowd). Kept with your save; the
+// team's abbreviation stays the same so the schedule and standings don't change.
+const LOOK_SWATCHES = ['#004c54', '#002244', '#0b162a', '#203731', '#125740', '#4f2683', '#241773', '#97233f', '#a71930', '#e31837', '#d50a0a', '#fb4f14', '#ffb612', '#ffcc00', '#a5acaf', '#101820', '#ffffff', '#0085ca', '#00338d', '#69be28'];
+function applyTeamLook() { if (teamLook) Object.assign(MY_TEAM, teamLook); }
+function openTeamLook() {
+    const base = ALL_TEAMS.find(t => t.id === MY_TEAM.id) || MY_TEAM;
+    openTeamLook.draft = { name: MY_TEAM.name, color: MY_TEAM.color, helmet: MY_TEAM.helmet, base };
+    renderTeamLook();
+}
+function renderTeamLook() {
+    const D = openTeamLook.draft;
+    const sw = key => LOOK_SWATCHES.map(c => `<button onclick="openTeamLook.draft.${key}='${c}'; renderTeamLook();" style="width:26px; height:26px; background:${c}; border:3px solid ${D[key] === c ? '#ffcc00' : '#000'}; cursor:pointer;"></button>`).join('')
+        + `<input type="color" value="${D[key]}" onchange="openTeamLook.draft.${key}=this.value; renderTeamLook();" style="width:34px; height:30px; border:none; background:none; cursor:pointer;">`;
+    const preview = `<div style="display:flex; gap:22px; align-items:flex-end; justify-content:center; margin:6px 0 14px;">
+        <div style="width:70px; height:56px; border-radius:30px 30px 10px 10px; background:${D.helmet}; border:4px solid #000; box-shadow:4px 4px 0 #000; position:relative;"><div style="position:absolute; right:-10px; top:22px; width:26px; height:6px; background:#aaa; border:2px solid #000;"></div></div>
+        <div style="width:110px; height:110px; background:${D.color}; border:4px solid #000; box-shadow:4px 4px 0 #000; display:flex; align-items:center; justify-content:center; color:${D.color.toLowerCase() === '#ffffff' ? '#000' : '#fff'}; font-size:2rem; clip-path:polygon(20% 0, 80% 0, 100% 20%, 85% 32%, 85% 100%, 15% 100%, 15% 32%, 0 20%);">${roster ? roster.QB.num : 1}</div>
+        <div style="width:150px; height:56px; background:${D.color}; border:4px solid #000; box-shadow:4px 4px 0 #000; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.8rem;">${D.name}</div></div>`;
+    showOffseason('TEAM LOOK', `<div class="panel" style="width:min(620px,94vw); display:flex; flex-direction:column; gap:12px; align-items:center;">
+        ${preview}
+        <div style="display:flex; gap:8px; align-items:center;"><span style="font-size:0.6rem;">${MY_TEAM.id}</span>
+        <input id="look-name" maxlength="12" value="${D.name}" oninput="openTeamLook.draft.name=this.value.toUpperCase().replace(/[^A-Z0-9 .'-]/g,'').slice(0,12); renderTeamLookSoon();" style="font-family:'Press Start 2P',monospace; font-size:0.8rem; width:11em; padding:8px; text-transform:uppercase; border:3px solid #ffcc00; background:#001a33; color:#fff;"></div>
+        <div class="stats-head">JERSEY</div><div style="display:flex; flex-wrap:wrap; gap:5px; justify-content:center;">${sw('color')}</div>
+        <div class="stats-head">HELMET</div><div style="display:flex; flex-wrap:wrap; gap:5px; justify-content:center;">${sw('helmet')}</div></div>`,
+        [['SAVE LOOK', 'saveTeamLook()'], ['RESET TO REAL TEAM', 'resetTeamLook()'], ['BACK TO MENU', "hideOffseason(); showOnly('main-menu');"]]);
+    const inp = document.getElementById('look-name'); if (inp && renderTeamLook.focus) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+function renderTeamLookSoon() { clearTimeout(renderTeamLook.t); renderTeamLook.t = setTimeout(() => { renderTeamLook.focus = true; renderTeamLook(); renderTeamLook.focus = false; }, 400); }
+function saveTeamLook() {
+    const D = openTeamLook.draft;
+    teamLook = { name: (D.name || D.base.name).trim() || D.base.name, color: D.color, helmet: D.helmet };
+    applyTeamLook(); saveSeason(); updateMenuUI();
+    flashBanner(`SAVED: ${MY_TEAM.id} ${MY_TEAM.name}`, 1400);
+    hideOffseason(); showOnly('main-menu');
+}
+function resetTeamLook() {
+    teamLook = null; setMyTeam(MY_TEAM.id); saveSeason(); updateMenuUI(); openTeamLook();
+}
+
 // ─── MAIN MENU TABS ──────────────────────────────────────────────────────────
 function setMenuTab(t) {
     try { localStorage.setItem('ff-menu-tab', t); } catch (e) {}
@@ -2258,7 +2300,8 @@ async function hostOnline() {
 function netSendHello(withWx = true) {
     if (!net || net.role !== 'host' || !net.conn) return;
     net.live = new Set();
-    net.conn.send({ t: 'hello', home: MY_TEAM.id, opp: currentOpponent ? currentOpponent.id : null, uh: isUserHome, wx: withWx ? weather || null : null });
+    const look = t => t ? { name: t.name, color: t.color, helmet: t.helmet } : null;
+    net.conn.send({ t: 'hello', home: MY_TEAM.id, opp: currentOpponent ? currentOpponent.id : null, homeLook: look(MY_TEAM), oppLook: look(currentOpponent), uh: isUserHome, wx: withWx ? weather || null : null });
 }
 // Everybody on the field right now (whatever the game is doing)
 function onlineActors() {
@@ -2314,7 +2357,7 @@ async function joinOnline() {
     peer.on('open', () => {
         const conn = peer.connect(NET_PREFIX + code, { reliable: true });
         net.conn = conn;
-        conn.on('open', () => { conn.send({ t: 'ghello', team: MY_TEAM.id, roster: roster || null, bench: bench || null }); enterGuestMode(); });   // your team and players come with you
+        conn.on('open', () => { conn.send({ t: 'ghello', team: MY_TEAM.id, look: { name: MY_TEAM.name, color: MY_TEAM.color, helmet: MY_TEAM.helmet }, roster: roster || null, bench: bench || null }); enterGuestMode(); });   // your team and players come with you
         conn.on('data', onGuestData);
         conn.on('close', () => { flashBanner('THE HOST LEFT', 2500); setTimeout(() => location.reload(), 2500); });
     });
@@ -2332,7 +2375,8 @@ function enterGuestMode() {
 function onGuestData(m) {
     if (!m) return;
     if (m.t === 'hello') {
-        setMyTeam(m.home); currentOpponent = m.opp ? teamById(m.opp) : NFL_TEAMS[0]; isUserHome = m.uh;
+        setMyTeam(m.home); if (m.homeLook) Object.assign(MY_TEAM, m.homeLook);
+        currentOpponent = { ...(m.opp ? teamById(m.opp) : NFL_TEAMS[0]), ...(m.oppLook || {}) }; isUserHome = m.uh;
         const home = isUserHome ? MY_TEAM : currentOpponent;
         endzoneHome.material.map = createEndzoneTexture(home.name, home.color, '#ffffff'); endzoneDef.material.map = createEndzoneTexture(home.name, home.color, '#ffffff');
         colorCrowd(home, isUserHome ? currentOpponent : MY_TEAM, 'mixed');
@@ -3254,11 +3298,12 @@ function startNewSeason() {
 
 // Whole franchise state, so a season survives closing the page (and for the Drive save)
 function getSaveData() {
-    return { v: 2, team: MY_TEAM.id, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, customPlays, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
+    return { v: 2, team: MY_TEAM.id, teamLook, credits, bench, hallOfFame, awardHistory, rivals, seasonGoals, rivalWins, customPlays, myRecord, currentWeek, league, seasonPhase, playoffs, seasonStats, careerStats, records, career, roster,
              seasonSchedule: seasonSchedule.map(g => ({ week: g.week, isBye: g.isBye, result: g.result, opp: g.opp ? g.opp.id : null })) };
 }
 function applySaveData(d) {
     setMyTeam(d.team || 'PHI');   // saves from before team select were all the Eagles
+    teamLook = d.teamLook || null; applyTeamLook();   // your custom name and colors
     myRecord = d.myRecord; currentWeek = d.currentWeek; league = d.league; seasonPhase = d.seasonPhase; playoffs = d.playoffs;
     // Saves from the 19-team league: the 13 teams added since join with a record that matches the weeks played
     allTeams().forEach(t => { if (!league[t.id]) { const g = Math.max(0, currentWeek - 2); const w = Math.round(g * Math.random()); league[t.id] = { w, l: g - w, t: 0, rating: 60 + Math.random() * 30 }; } });
@@ -3294,6 +3339,7 @@ function migrateOldSave() {
 
 // A brand-new franchise for whichever team MY_TEAM is now
 function startFreshSave() {
+    teamLook = null;
     myRecord = { w: 0, l: 0, t: 0 };
     currentWeek = 1; seasonSchedule.length = 0;
     seasonStats = newStatLine(); careerStats = newStatLine();
@@ -3667,7 +3713,7 @@ function openMatchupScreen() {
 
     if (net && net.role === 'host' && net.conn && net.guestInfo) {
         // Online: your friend's team, at your place
-        currentOpponent = { ...(teamById(net.guestInfo.team) || NFL_TEAMS[0]) }; isUserHome = true;
+        currentOpponent = { ...(teamById(net.guestInfo.team) || NFL_TEAMS[0]), ...(net.guestInfo.look || {}) }; isUserHome = true;   // (in their own colors)
     } else if (seasonPhase === 'playoffs') {
         // Higher seed hosts
         currentOpponent = teamById(playoffs.opp);
