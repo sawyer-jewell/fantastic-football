@@ -117,6 +117,16 @@
         /* Halftime overlay */
         #coin-toss { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.6); color: #fff; pointer-events: auto; }
         #coin-toss.hidden { display: none; }
+        /* Main menu tabs */
+        .menu-tabs { display: flex; gap: 6px; }
+        .menu-tab { flex: 1; font-family: "Press Start 2P", monospace; font-size: 0.55rem; padding: 11px 4px; background: rgba(0, 20, 40, 0.85); color: #9ab; border: 3px solid rgba(255, 255, 255, 0.25); cursor: pointer; box-shadow: 3px 3px 0 #000; }
+        .menu-tab:hover { color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+        .menu-tab.on { background: var(--team, #004c54); color: #fff; border-color: #ffcc00; transform: translateY(-2px); }
+        .tab-pane { display: none; flex-direction: column; gap: 12px; align-items: stretch; min-height: 210px; }
+        .tab-pane.on { display: flex; }
+        .tile-grid.two { grid-template-columns: repeat(2, 1fr); }
+        .tile-grid.three { grid-template-columns: repeat(3, 1fr); }
+        .tile-grid.two .tile { padding: 22px 6px; }
         #kick-choice { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 165; background: rgba(0,0,0,0.55); color: #fff; pointer-events: auto; }
         #kick-choice.hidden { display: none; }
         #online-wait { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 120; background: rgba(0, 34, 68, 0.95); border: 4px solid #ffcc00; color: #ffcc00; padding: 24px 30px; font-size: 0.9rem; text-align: center; line-height: 1.6; box-shadow: 6px 6px 0 #000; }
@@ -439,25 +449,46 @@
                     <div class="tb-name" id="tb-name">PHI EAGLES</div>
                     <div class="tb-chips"><span class="chip" id="tb-record">0-0</span><span class="chip hidden" id="tb-status"></span><span class="chip chip-credit" id="tb-credits">0 CREDITS</span></div>
                 </div>
-                <button id="btn-play" class="btn-retro btn-play" onclick="openMatchupScreen()">PLAY WEEK 1</button>
-                <div id="next-game" class="next-game"></div>
-                <div class="tile-grid">
-                    <button class="tile" onclick="openSchedule()"><span class="ti">📅</span>SCHEDULE</button>
-                    <button class="tile" onclick="openStandings()"><span class="ti">🏆</span>STANDINGS</button>
-                    <button class="tile" onclick="openRoster()"><span class="ti">🏈</span>ROSTER<span id="roster-badge" class="badge hidden">0</span></button>
-                    <button class="tile" onclick="openStats()"><span class="ti">📊</span>STATS</button>
-                    <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
-                    <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
-                    <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🏆</span>BRACKET</button>
-                    <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
-                    <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
-                    <button class="tile" onclick="openOnline()"><span class="ti">🌐</span>ONLINE</button>
-                    <button class="tile" onclick="openBeAPro()"><span class="ti">🌟</span>BE A PRO</button>
-                    <button class="tile" onclick="openPractice()"><span class="ti">🎯</span>PRACTICE</button>
-                    <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
+                <!-- The menu in tabs: your season, your team, other ways to play, and the rest -->
+                <div class="menu-tabs">
+                    <button class="menu-tab" data-tab="season" onclick="setMenuTab('season')">🏈 SEASON</button>
+                    <button class="menu-tab" data-tab="team" onclick="setMenuTab('team')">👥 TEAM</button>
+                    <button class="menu-tab" data-tab="modes" onclick="setMenuTab('modes')">🎮 MODES</button>
+                    <button class="menu-tab" data-tab="more" onclick="setMenuTab('more')">⚙️ MORE</button>
                 </div>
-                <div id="menu-goals"></div>
-                <button class="link-btn" onclick="openSaveSelect()">⇄ SWITCH SAVE</button>
+                <div class="tab-pane" data-pane="season">
+                    <button id="btn-play" class="btn-retro btn-play" onclick="openMatchupScreen()">PLAY WEEK 1</button>
+                    <div id="next-game" class="next-game"></div>
+                    <div class="tile-grid three">
+                        <button class="tile" onclick="openSchedule()"><span class="ti">📅</span>SCHEDULE</button>
+                        <button class="tile" onclick="openStandings()"><span class="ti">🏆</span>STANDINGS</button>
+                        <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🗂️</span>BRACKET</button>
+                    </div>
+                    <div id="menu-goals"></div>
+                </div>
+                <div class="tab-pane" data-pane="team">
+                    <div class="tile-grid two">
+                        <button class="tile" onclick="openRoster()"><span class="ti">🏈</span>ROSTER<span id="roster-badge" class="badge hidden">0</span></button>
+                        <button class="tile" onclick="openStats()"><span class="ti">📊</span>STATS</button>
+                        <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
+                        <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
+                    </div>
+                </div>
+                <div class="tab-pane" data-pane="modes">
+                    <div class="tile-grid two">
+                        <button class="tile" onclick="openBeAPro()"><span class="ti">🌟</span>BE A PRO</button>
+                        <button class="tile" onclick="openPractice()"><span class="ti">🎯</span>PRACTICE</button>
+                        <button class="tile" onclick="openOnline()"><span class="ti">🌐</span>ONLINE</button>
+                        <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
+                    </div>
+                </div>
+                <div class="tab-pane" data-pane="more">
+                    <div class="tile-grid two">
+                        <button class="tile" onclick="openAchievements()"><span class="ti">🎖️</span>ACHIEVEMENTS</button>
+                        <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
+                    </div>
+                    <button class="link-btn" onclick="openSaveSelect()">⇄ SWITCH SAVE</button>
+                </div>
             </div>
         </div>
 
@@ -480,7 +511,7 @@
         <div id="online-screen" class="menu hidden">
             <h1 style="font-size:2rem;">ONLINE</h1>
             <div class="panel" style="width:min(520px,92vw); display:flex; flex-direction:column; gap:14px; align-items:center;">
-                <div style="font-size:0.6rem; color:#cde; line-height:2; text-align:center;">PLAY A FRIEND ON ANOTHER COMPUTER. YOU HOST AND PLAY YOUR TEAM; YOUR FRIEND IS PLAYER 2 — A DEFENDER ON YOUR DRIVES, THE BALL CARRIER ON THEIRS.</div>
+                <div style="font-size:0.6rem; color:#cde; line-height:2; text-align:center;">PLAY A FRIEND ON ANOTHER COMPUTER, YOUR TEAM AGAINST THEIRS. WHOEVER HAS THE BALL PLAYS OFFENSE, THE OTHER PLAYS DEFENSE — SAME CONTROLS AS A NORMAL GAME. U / I / O / P QUICK CHAT.</div>
                 <button class="btn-retro" onclick="hostOnline()">HOST A GAME</button>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <input id="online-code" maxlength="5" placeholder="CODE" style="font-family:'Press Start 2P',monospace; font-size:1rem; width:8em; text-transform:uppercase; padding:10px; text-align:center; border:3px solid #ffcc00; background:#001a33; color:#fff;">
@@ -1857,6 +1888,14 @@ function updateP2(dt) {
         document.body.classList.toggle('net-def', matchDefending('host'));
     } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
 }
+
+// ─── MAIN MENU TABS ──────────────────────────────────────────────────────────
+function setMenuTab(t) {
+    try { localStorage.setItem('ff-menu-tab', t); } catch (e) {}
+    document.querySelectorAll('.menu-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('on', p.dataset.pane === t));
+}
+function restoreMenuTab() { let t = 'season'; try { t = localStorage.getItem('ff-menu-tab') || 'season'; } catch (e) {} setMenuTab(t); }
 
 // ─── PRACTICE ────────────────────────────────────────────────────────────────
 // Drills between games, each with a best score and coaching credits for doing well:
@@ -3339,6 +3378,7 @@ function pickTeam(id) {
 
 
 function updateMenuUI() {
+    if (!document.querySelector('.menu-tab.on')) restoreMenuTab();   // the tab you were on last
     const rank = league[MY_TEAM.id] ? standings().indexOf(MY_TEAM.id) + 1 : 0;
     const status = {
         regular:    rank && myRecord.w + myRecord.l + myRecord.t > 0 ? `#${rank} IN LEAGUE` : '',
