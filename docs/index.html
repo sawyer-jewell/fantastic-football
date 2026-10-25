@@ -2254,24 +2254,76 @@ function proTick(dt) {
             selectPlay(call); flashBanner(`COACH CALLS: ${PLAY_NAMES[call] || call.toUpperCase()}`, 1000);
         }
     } else if (GAME_STATE === 'PRE_SNAP') {
-        if ((pro.autoT += dt) > 1.3) { pro.autoT = 0; pro.qbT = 0; pro.callFor = false; snapBall(); }
+        if ((pro.autoT += dt) > 1.3) { pro.autoT = 0; pro.qbT = 0; pro.callFor = false; pro.read = null; snapBall(); }
     } else pro.autoT = 0;
-    // The QB's read: you if you called for it and you're open, otherwise whoever's most open
-    if (GAME_STATE === 'PLAY' && !isRunPlay && !ball.velocity && !handoffPending && !trickPitch && activeReceiver !== players.offense[0]) {
-        pro.qbT += dt;
-        const wrs = players.offense.filter(p => p.role === 'WR');
-        const open = p => Math.min(...players.defense.map(d => d.group.position.distanceTo(p.group.position)));
-        const me = pro.ctrl, meOpen = me && me.role === 'WR' && open(me) > 2.4;
-        let target = null;
-        if (pro.callFor && pro.qbT > 0.8 && meOpen) target = me;
-        else if (pro.qbT > 3.0) target = wrs.filter(p => p !== me || meOpen).sort((a, b) => open(b) - open(a))[0] || wrs[0];
-        if (target) {
-            const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(target.group.quaternion).setY(0).normalize();
-            passTarget.copy(target.group.position).addScaledVector(fwd, 5 + target.currentMoveSpeed * 0.5); passTarget.y = 0;
-            pro.aiThrow = true; try { onMouseDown({}); } finally { pro.aiThrow = false; }
-            if (target === me) flashBanner('HERE IT COMES!', 800);
-            pro.callFor = false;
-        }
+    if (GAME_STATE === 'PLAY' && !isRunPlay && !ball.velocity && !handoffPending && !trickPitch && activeReceiver !== players.offense[0]) proQBRead(dt);
+}
+// Your QB in a pro game, reading the field like a real one. Every game he has his own style (a
+// gunslinger pushes it downfield, a game manager takes what's there). After his drop he works a
+// progression, one receiver at a time about every half second: is he open, and is the lane to
+// where he's going clear of defenders? He throws to the first one that is, putting the ball out
+// in front where the receiver is headed. If you call for it (SPACE) and you're open, you're his
+// first look. He feels the rush: slides away from it in the pocket, gets it out quicker when
+// someone's close, and with a man in his face and nobody open he throws it away, not into a sack.
+function proQBRead(dt) {
+    const qb = players.offense[0]; if (!qb) return;
+    pro.qbT += dt;
+    const R = pro.read || (pro.read = { aggr: pro.qbAggr ?? (pro.qbAggr = 0.3 + Math.random() * 0.7), order: null, idx: 0, next: 0.85 });
+    const wrs = players.offense.filter(p => p.role === 'WR' && !isFalling(p)), me = pro.ctrl;
+    if (!R.order) R.order = wrs.slice().sort(() => Math.random() - 0.5);   // this play's progression
+    const D = players.defense.filter(d => !isFalling(d) && !d.pancake);
+    const open = p => Math.min(...D.map(d => d.group.position.distanceTo(p.group.position)));
+    const lead = p => {   // where to put it: ahead of him, more the faster and farther he's going
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(p.group.quaternion).setY(0).normalize();
+        const dist = qb.group.position.distanceTo(p.group.position), t = Math.min(2.4, dist / 30);
+        return p.group.position.clone().addScaledVector(fwd, 2 + p.currentMoveSpeed * t).setY(0);
+    };
+    const laneClear = to => {   // nobody standing in the way of the throw
+        const a = qb.group.position.clone().setY(0), ab = to.clone().sub(a), L2 = ab.lengthSq() || 1;
+        return !D.some(d => { const ap = d.group.position.clone().setY(0).sub(a), u = THREE.MathUtils.clamp(ap.dot(ab) / L2, 0.15, 1); return a.clone().addScaledVector(ab, u).distanceTo(d.group.position.clone().setY(0)) < 1.6; });
+    };
+    const throwTo = (p, why) => {
+        const spot = lead(p), d = qb.group.position.distanceTo(spot);
+        passPower = THREE.MathUtils.clamp(0.25 + d / 70, 0.3, 0.95);   // more on it the deeper it goes
+        passTarget.copy(spot);
+        pro.aiThrow = true; try { onMouseDown({}); } finally { pro.aiThrow = false; }
+        if (p === me) flashBanner('HERE IT COMES!', 800);
+        pro.callFor = false; pro.read = null;
+    };
+    // The rush: how close is the nearest man, and from where
+    const rusher = D.reduce((a, d) => (!a || d.group.position.distanceTo(qb.group.position) < a.group.position.distanceTo(qb.group.position)) ? d : a, null);
+    const heat = rusher ? rusher.group.position.distanceTo(qb.group.position) : 99;
+    if (heat < 4.5 && pro.qbT > 0.4) {   // slide away from him, staying behind the line
+        const away = qb.group.position.clone().sub(rusher.group.position).setY(0).normalize();
+        const spot = qb.group.position.clone().addScaledVector(away, 2.5); spot.z = Math.max(spot.z, lineOfScrimmageZ + 2);
+        spot.x = THREE.MathUtils.clamp(spot.x, -SIDELINE_X + 6, SIDELINE_X - 6);
+        steerTo(qb, spot, 6.5, dt); qb.group.lookAt(qb.group.position.x, 0, qb.group.position.z - 10);
+    }
+    const need = THREE.MathUtils.clamp(3.2 - R.aggr * 0.7 - pro.qbT * 0.35 - (heat < 4 ? 0.8 : 0), 1.4, 3.2);   // how open is open enough (less picky as time runs out or the rush closes)
+    const good = p => p && wrs.includes(p) && open(p) >= need && laneClear(lead(p));
+    // You called for it and you're open: you're the read
+    if (pro.callFor && pro.qbT > 0.6 && me && me.role === 'WR' && good(me)) { throwTo(me); return; }
+    // Under real pressure: best open man now, or throw it away
+    if (heat < 2.4 && pro.qbT > 0.5) {
+        const best = wrs.filter(p => laneClear(lead(p))).sort((a, b) => open(b) - open(a))[0];
+        if (best && open(best) > 1.5) { throwTo(best); return; }
+        const side = qb.group.position.x >= 0 ? 1 : -1;   // out of bounds, nowhere near anybody
+        passPower = 0.7; passTarget.set(side * (SIDELINE_X + 12), 0, lineOfScrimmageZ - 8);
+        pro.aiThrow = true; try { onMouseDown({}); } finally { pro.aiThrow = false; }
+        flashBanner('THROWN AWAY', 800); pro.callFor = false; pro.read = null;
+        return;
+    }
+    // The progression
+    if (pro.qbT >= R.next) {
+        const p = R.order[R.idx % R.order.length];
+        if (good(p)) { throwTo(p); return; }
+        R.idx++; R.next = pro.qbT + 0.45 - R.aggr * 0.1;
+    }
+    // Out of time: the most open man with a clear lane, or away
+    if (pro.qbT > 2.9 + R.aggr * 0.4) {
+        const best = wrs.filter(p => laneClear(lead(p))).sort((a, b) => open(b) - open(a))[0];
+        if (best) throwTo(best);
+        else { passPower = 0.7; passTarget.set((qb.group.position.x >= 0 ? 1 : -1) * (SIDELINE_X + 12), 0, lineOfScrimmageZ - 8); pro.aiThrow = true; try { onMouseDown({}); } finally { pro.aiThrow = false; } flashBanner('THROWN AWAY', 800); pro.read = null; }
     }
 }
 // WASD for your pro on his route (nothing pressed: he runs the route he was given)
