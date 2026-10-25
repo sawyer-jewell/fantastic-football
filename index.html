@@ -585,6 +585,7 @@
                 <div><span>T</span> Call Timeout</div>
                 <div><span>Escape</span> Pause</div>
                 <div><span>H</span> No-Huddle</div>
+                <div><span>M</span> Send the slot in motion (before the snap)</div>
                 <div><span>R</span> Pitch (Hook &amp; Ladder)</div>
                 <div><span>C</span> Challenge the last play (red flag)</div>
                 <div><span>Ball Carrier</span> Q Juke · F Spin · X Stiff-Arm · SPACE Hurdle · G Celebrate (inside the 20)</div>
@@ -4418,6 +4419,63 @@ class Player {
         }
     }
 
+    // ─── STANCES ───
+    // Before the snap everybody gets down in his position's stance, easing into it and breathing:
+    // linemen in a three-point (tackles and guards, the TE too) or four-point (the DTs), hips low and
+    // a hand in the turf; receivers staggered in a two-point, the back hands-on-thighs, the QB in
+    // the gun with his hands out for the snap, linebackers coiled with their hands up, corners
+    // staggered and ready to pedal, safeties loose. The body drops so the bent legs keep the feet
+    // on the turf.
+    poseStance(dt) {
+        const r = this.role, def = this.team === 'defense';
+        const S = def ? (r === 'DL' ? (Math.abs(this.group.position.x) < 3 ? 'dt' : 'de') : r === 'LB' ? 'lb' : r === 'CB' ? 'cb' : 'saf')
+                      : (r === 'OL' ? 'ol' : r === 'TE' ? 'ol' : r === 'WR' ? 'wr' : r === 'RB' ? 'rb' : 'qb');
+        // [thighL, thighR, kneeL, kneeR, spine, neck, upperR, lowerR, upperL, lowerL, armSpreadZ]
+        const P = {
+            ol:  [-0.95, -0.75, 1.35, 1.15, 1.05, -0.85, -1.35, -0.05, -0.75, -0.6, 0.15],
+            dt:  [-0.85, -0.85, 1.2, 1.2, 1.25, -0.95, -1.5, 0, -1.5, 0, 0.12],
+            de:  [-0.95, -0.55, 1.3, 1.0, 1.1, -0.85, -1.35, -0.05, -0.6, -0.8, 0.2],
+            wr:  [-0.45, 0.2, 0.55, 0.35, 0.42, -0.3, 0.25, -0.75, -0.35, -0.85, 0.1],
+            rb:  [-0.6, -0.6, 0.9, 0.9, 0.75, -0.55, -0.85, -0.15, -0.85, -0.15, 0.25],
+            qb:  [-0.3, -0.3, 0.45, 0.45, 0.32, -0.25, -0.95, -0.7, -0.95, -0.7, 0.1],
+            lb:  [-0.5, -0.5, 0.75, 0.75, 0.6, -0.5, -0.55, -1.25, -0.55, -1.25, 0.25],
+            cb:  [-0.5, 0.15, 0.7, 0.45, 0.5, -0.4, -0.25, -1.0, -0.25, -1.0, 0.15],
+            saf: [-0.25, -0.25, 0.4, 0.4, 0.3, -0.25, 0.1, -0.9, 0.1, -0.9, 0.2],
+        }[S];
+        const k = 1 - Math.exp(-8 * Math.min(dt || 0.016, 0.1)), L = (o, ax, v) => { o.rotation[ax] += (v - o.rotation[ax]) * k; };
+        const breathe = Math.sin(clock.elapsedTime * 2.4 + (this.mind ? this.mind.react * 20 : 0));
+        L(this.leftLeg, 'x', P[0]); L(this.rightLeg, 'x', P[1]); L(this.leftLeg, 'z', 0.08); L(this.rightLeg, 'z', -0.08);
+        L(this.leftKnee, 'x', P[2]); L(this.rightKnee, 'x', P[3]);
+        L(this.leftAnkle, 'x', -(P[0] + P[2]) * 0.9); L(this.rightAnkle, 'x', -(P[1] + P[3]) * 0.9);   // feet flat on the turf
+        L(this.spine, 'x', P[4] + 0.02 * breathe); L(this.spine, 'y', 0); L(this.spine, 'z', 0);
+        L(this.neck, 'x', P[5]); L(this.neck, 'y', 0);
+        L(this.rightUpper, 'x', P[6]); L(this.rightUpper, 'z', P[10]); L(this.rightLower, 'x', P[7]);
+        L(this.leftUpper, 'x', P[8]); L(this.leftUpper, 'z', -P[10]); L(this.leftLower, 'x', P[9]);
+        L(this.leftWrist, 'x', S === 'ol' || S === 'dt' || S === 'de' ? 0.9 : 0); L(this.rightWrist, 'x', S === 'ol' || S === 'dt' || S === 'de' ? 0.9 : 0);   // knuckles down
+        // Lower the whole body by however much the bent legs shortened him
+        const legH = (th, kn) => 0.55 * Math.cos(th) + 0.55 * Math.cos(th + kn);
+        const drop = (1.1 - (legH(this.leftLeg.rotation.x, this.leftKnee.rotation.x) + legH(this.rightLeg.rotation.x, this.rightKnee.rotation.x)) / 2) * this.group.scale.y;
+        this.group.position.y = -Math.max(0, drop); this.inStance = true;
+        this.spine.position.y = this.spineY - 0.02 + 0.008 * breathe;
+        if (this.fingersOn) this.poseFingers(dt, S === 'ol' || S === 'dt' || S === 'de' ? 0.3 : 0.45, S === 'ol' || S === 'dt' || S === 'de' ? 0.3 : 0.45, 0.4);
+    }
+
+    // Locked up with the man across from him: hands in his chest, elbows in, leaning into him low,
+    // feet churning in short choppy steps
+    poseEngaged(dt) {
+        const f = this.blockFoe;
+        f.group.updateMatrixWorld();
+        this.reachArmsToward(f.group.localToWorld(new THREE.Vector3(0, 1.55, 0)));
+        this.rightLower.rotation.x = -0.75; this.leftLower.rotation.x = -0.75;
+        const chop = Math.sin(clock.elapsedTime * 15 + (this.mind ? this.mind.react * 30 : 0));
+        this.spine.rotation.x = THREE.MathUtils.lerp(this.spine.rotation.x, 0.55, 0.25); this.spine.rotation.z = 0.06 * chop;
+        this.spine.position.y = this.spineY - 0.1;
+        this.leftLeg.rotation.x = -0.45 - 0.25 * Math.max(0, chop); this.rightLeg.rotation.x = -0.45 - 0.25 * Math.max(0, -chop);
+        this.leftKnee.rotation.x = 0.7 + 0.25 * Math.max(0, chop); this.rightKnee.rotation.x = 0.7 + 0.25 * Math.max(0, -chop);
+        this.neck.rotation.x = -0.5;
+        if (this.fingersOn) this.poseFingers(dt, 0.75, 0.75, 0.6);   // grabbing jersey
+    }
+
     // Just after the catch. Toe-tap: both feet dragged along the turf to stay in bounds — toes
     // pointed, legs trailing, leaning back toward the field, ball held up high. Otherwise he pulls
     // the ball down from where he caught it into the tuck (one hand, or both).
@@ -4535,6 +4593,11 @@ class Player {
             }
             return;
         }
+
+        // Before the snap: down in his stance (unless he's the man in motion)
+        const preSnap = GAME_STATE === 'PRE_SNAP' || GAME_STATE === 'PLAYBOOK' || (GAME_STATE === 'DEFENSE' && dp && dp.phase === 'presnap');
+        if (preSnap && !this.inMotion && this.currentMoveSpeed < 0.1 && this.leftKnee) { this.poseStance(dt); return; }
+        if (this.inStance) { this.inStance = false; if (!this.isJumping && !isFalling(this)) this.group.position.y = 0; }   // out of the stance at the snap
 
         // QB throw animation — highest priority, overrides everything.
         if (this.throwTimer > 0) {
@@ -4698,6 +4761,20 @@ class Player {
                 this.rightLower.rotation.x = THREE.MathUtils.lerp(this.rightLower.rotation.x, 0, 0.1);
             }
         }
+        // Backpedaling (a DB keeping his eyes on the QB as he gives ground): short quick steps going
+        // backward, low hips, chest over his toes, arms pumping small
+        if (this.backpedal && this.currentMoveSpeed > 0.1 && this.leftKnee) {
+            const ph = this.gaitPhase || 0, s = Math.sin(ph * 1.3);
+            this.leftLeg.rotation.x = -0.35 + 0.4 * s; this.rightLeg.rotation.x = -0.35 - 0.4 * s;
+            this.leftKnee.rotation.x = 0.75 + 0.35 * Math.max(0, -s); this.rightKnee.rotation.x = 0.75 + 0.35 * Math.max(0, s);
+            this.spine.rotation.x = 0.4; this.spine.rotation.z = 0; this.spine.position.y = this.spineY - 0.12;
+            this.leftUpper.rotation.set(-0.3 - 0.35 * s, 0, -0.15); this.rightUpper.rotation.set(-0.3 + 0.35 * s, 0, 0.15);
+            this.leftLower.rotation.x = -1.35; this.rightLower.rotation.x = -1.35;
+            this.neck.rotation.x = -0.35;
+        }
+        // Engaged with a blocker (or blocking): hands on him, low, driving
+        if (this.blockFoe && !this.blockFoe.pancake && !isFalling(this.blockFoe) && this.leftKnee
+            && (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH' || GAME_STATE === 'DEFENSE')) this.poseEngaged(dt);
         // Lost a step (juked, broken off, beaten on a cut): he stumbles — lurching forward, arms out
         if (this.stunTimer > 0.15 && this.leftKnee) {
             const s = Math.min(1, this.stunTimer / 0.6);
@@ -4713,6 +4790,13 @@ class Player {
         if (this.emoteWait) { this.currentMoveSpeed = 0; this.animateLimbs(dt); return; }
         if (GAME_STATE === 'TACKLED') return;
         if (this.catchDive) return; // layout dive is driven by updateCatchDives
+        if (this.pancake) { updatePancake(this, dt); return; }   // flat on his back for a moment
+        if (this.inMotion && GAME_STATE === 'PRE_SNAP') { stepMotion(this, dt); this.animateLimbs(dt); return; }
+        if (GAME_STATE === 'PRE_SNAP' && this.team === 'defense' && this.targetPlayer && this.targetPlayer.inMotion && defScheme === 'man') {
+            // Man coverage: he goes across with the man in motion (that's your tell)
+            const m = this.targetPlayer.group.position;
+            steerTo(this, new THREE.Vector3(m.x, 0, this.group.position.z), 6.5, dt); this.animateLimbs(dt); return;
+        }
         if (GAME_STATE === 'WALKOFF') {
             // Both teams walk to opposite sidelines after a fumble — each man at his own pace, starting
             // when he starts, drifting a little up or down the field, not in one line
@@ -4988,7 +5072,13 @@ class Player {
                 }
                 if (this.stunTimer > 0) { this.stunTimer -= dt; actualPlayerSpeed *= 0.2; }
                 if (isCovDB && this.covBreakDelay > 0) { this.covBreakDelay -= dt; actualPlayerSpeed *= 0.3; }
-                this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul;
+                // A DB giving ground early in the play backpedals, eyes on the QB, before he turns and runs
+                this.backpedal = isCovDB && !ball.velocity && dir.z < -0.35 && (this.pedalT = (this.pedalT || 0) + dt) < 1.3;
+                if (this.backpedal) {
+                    this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * 0.85 * dt);
+                    turnToward(this, new THREE.Vector3(0, 0, 1), dt, 10);   // facing the offense
+                    this.currentMoveSpeed = actualPlayerSpeed * speedMul * 0.85;
+                } else { this.group.position.addScaledVector(dir, actualPlayerSpeed * speedMul * dt); this.group.lookAt(this.group.position.clone().add(dir)); this.currentMoveSpeed = actualPlayerSpeed * speedMul; }
             }
         }
 
@@ -5113,7 +5203,7 @@ class Player {
             const ladderGrace = hookLadder && ((hookLadder.catcher === this && hookLadder.phase === 'trail' && hookLadder.t < 0.45) || (hookLadder.trailer === this && hookLadder.phase === 'pitch'));   // nobody tackles the trailer while the pitch is in the air
             if (this.group.position.z > -99 && GAME_STATE !== 'TOUCHDOWN' && !ladderGrace) { // no tackles during TD celebration or in end zone
                 players.defense.forEach(d => {
-                    if (!(d.brokeUntil > performance.now()) && d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
+                    if (!d.pancake && !(d.brokeUntil > performance.now()) && d.group.position.distanceTo(this.group.position) < (d.engagedNow ? 1.0 : 1.8)) { // a blocked man can only grab a runner right next to him
                         if (this.isJumping && this.group.position.y > d.group.position.y + 0.8) {
                             if (Math.random() < 0.15) triggerTackle(this, d, "FUMBLE! LOST BALL.");
                         } else if (GAME_STATE === 'POST_CATCH' && !d.engagedNow && cpuHitStickFromFront(this, d)) {
@@ -6777,7 +6867,7 @@ function selectPlay(playType) {
     drawRouteLines(routes, 0x00ff00);
 
     trajectoryLine.visible = true; landingMarker.visible = true; document.getElementById('hang-time-ui').classList.remove('hidden');
-    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "Q/E: POWER | SPACE: SNAP";
+    document.getElementById('vertical-power-meter').classList.remove('hidden'); document.getElementById('instructions').innerText = (formName ? formName + '  ·  ' : '') + "Q/E: POWER | M: MOTION | SPACE: SNAP";
     GAME_STATE = 'PRE_SNAP';
 }
 
@@ -6785,6 +6875,8 @@ function snapBall() {
     if (GAME_STATE !== 'PRE_SNAP') return;
     if (!isTwoPointAttempt && Math.random() < 0.015) { falseStart(); return; }
     players.offense.concat(players.defense).forEach(p => { p.showboat = null; p.showboatHint = false; p.catchStyle = null; p.catchFlourish = null; });
+    startPancake.left = 1;   // one pancake a play, at most
+    motionAtSnap();
     flagOnPlay = null; piSpotZ = null; ball.userData.dropped = false; ball.userData.inHands = false; ball.userData.batChecked = false; ball.userData.bobble = false; ball.userData.bobbleUntil = 0; replayFrames = [];
     if (!isTwoPointAttempt && Math.random() < 0.02) { flagOnPlay = { type: 'offside' }; throwFlag(-2, lineOfScrimmageZ - 1); } // free play!
     sfxHut();
@@ -7074,6 +7166,7 @@ function checkInputs(e) {
     if (e.code === 'KeyF' && GAME_STATE === 'DEFENSE' && e.type === 'keydown' && !e.repeat) { if (!tryPickTiming()) hitStick(); return; }
     if (e.code === 'KeyR' && hookLadder && e.type === 'keydown' && !e.repeat) { pitchHookLadder(); return; }   // hook and ladder pitch
     if (e.code === 'Space' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown') snapBall();
+    if (e.code === 'KeyM' && GAME_STATE === 'PRE_SNAP' && e.type === 'keydown' && !e.repeat) startMotion();
     if (e.code === 'Space' && (GAME_STATE === 'EXTRA_POINT' || GAME_STATE === 'FIELD_GOAL' || GAME_STATE === 'KICKOFF' || GAME_STATE === 'PUNT') && e.type === 'keydown') attemptExtraPointKick();
     if (e.code === 'KeyE' && GAME_STATE === 'POST_CATCH' && e.type === 'keydown') divePending = true;
     if (GAME_STATE === 'POST_CATCH' && e.type === 'keydown' && !e.repeat && activeReceiver) {   // ball carrier moves
@@ -8998,6 +9091,7 @@ function startLiveDefensePlay(down, toGo, onDone) {
     dp = { kind, play, L, off, def, qb: off[0], rb: off[1], carrier: null, phase: 'presnap', t: 0, onDone, offSkill, side: rbSide,
            holeX: [-3.6, -1.2, 1.2, 3.6][Math.floor(Math.random() * 4)], thrown: false, target: null, nextRead: 1.0, ended: false };
     setControlled(def[5]); // middle linebacker
+    startPancake.left = 1;
     def.concat(off).forEach(d => { d.hitStun = 0; d.intHold = 0; d.intShed = false; d.laneDir = null; d.dAir = false; });
     off.forEach(o => { o.dStam = Math.min(100, (o.dStam ?? 100) + 20); }); // a breather in the huddle — not all of it back
     detachBallToScene(); ball.velocity = null; ball.position.set(0, 0.3, L);
@@ -9269,7 +9363,9 @@ function updateDefensePlay(dt) {
     const c = P.carrier;
     const lead = c ? c.group.position.clone().addScaledVector(c.group.position.clone().sub(c.dPrevPos || c.group.position), 6) : null;
     if (c) c.dPrevPos = c.group.position.clone();
+    if (P.phase === 'live') markLineEngagements(ol, P.def, P.kind === 'run', dt, ctrl);
     P.def.forEach((d, i) => {
+        if (d.pancake) { updatePancake(d, dt); return; }
         if (!ai(d)) { d.animateLimbs(dt); return; }
         const role = d.role;
         const blocked = ol.some(o => o.group.position.distanceTo(d.group.position) < 1.8) && d.dShed > 0;
@@ -9299,7 +9395,7 @@ function updateDefensePlay(dt) {
             : (d === ctrl && c !== qb ? 1.6 : 1.45) * (d.rating && d.rating.tackle ? tackleFactor(d.rating.tackle) : 1);
         // (easy: your teammates can't sack him before he's had his 3 seconds after you were shown his target — you still can)
         const holdsForHint = d => P.planned && !P.thrown && c === qb && d !== ctrl && t < 3.25; // (his throw check comes every 0.15 s)
-        const tackler = P.def.find(d => !isFalling(d) && !d.dHeld && !(d.hitStun > 0) && !(d === ctrl && P.hitStick) && !holdsForHint(d) && d.group.position.distanceTo(c.group.position) < reach(d));
+        const tackler = P.def.find(d => !isFalling(d) && !d.dHeld && !d.pancake && !(d.hitStun > 0) && !(d === ctrl && P.hitStick) && !holdsForHint(d) && d.group.position.distanceTo(c.group.position) < reach(d));
         if (tackler) {
             const mine = tackler === ctrl, sack = c === qb && !P.thrown && P.kind === 'pass';
             if (mine) { if (sack) gameStats.defSacks++; else gameStats.tkl++; }
@@ -10821,6 +10917,7 @@ function animate() {
             }
         }
 
+        if (GAME_STATE === 'PLAY' || GAME_STATE === 'POST_CATCH') markLineEngagements(players.offense.filter(o => o.role === 'OL' || (isRunPlay && o.role === 'TE')), players.defense, isRunPlay, dt);
         players.offense.forEach(p => p.update(dt)); players.defense.forEach(p => p.update(dt)); updateBallPhysics(dt);
         updateTdCam(dt); updateEmotes(dt);
     }
@@ -10876,6 +10973,76 @@ function retargetPass() {
         if (l < bestLate - 0.3) { best = p; bestLate = l; }
     });
     if (best !== targetedReceiver) { targetedReceiver = best; best.cutBurstTimer = Math.max(best.cutBurstTimer || 0, 0.6); }
+}
+
+// ─── LINE PLAY ───────────────────────────────────────────────────────────────
+// Every frame of a play, each blocker locks onto the closest defender in front of him (and that
+// defender onto him), so both get their hands on each other and drive (see poseEngaged). On run
+// plays a blocker who stays on his man long enough sometimes finishes him: a pancake, flat on his
+// back for a moment — at most one a play.
+function markLineEngagements(blockers, defenders, run, dt, keepUp) {
+    defenders.forEach(d => { d.blockFoe = null; });
+    blockers.forEach(o => {
+        o.blockFoe = null;
+        if (isFalling(o) || o.pancake) return;
+        let best = null, bestD = 2.1;
+        defenders.forEach(d => { if (d.pancake || isFalling(d)) return; const dd = o.group.position.distanceTo(d.group.position); if (dd < bestD) { bestD = dd; best = d; } });
+        if (!best) { o.engageT = 0; return; }
+        o.engageT = o.engageFoe === best ? (o.engageT || 0) + dt : 0; o.engageFoe = best;
+        o.blockFoe = best; if (!best.blockFoe) best.blockFoe = o;
+        if (run && o.role === 'OL' && o.engageT > 0.6 && best !== keepUp && best !== activeReceiver && (startPancake.left || 0) > 0 && Math.random() < 0.02) startPancake(best, o);
+    });
+}
+function startPancake(p, by) {
+    startPancake.left = (startPancake.left || 0) - 1;
+    const push = p.group.position.clone().sub(by.group.position).setY(0);
+    if (push.lengthSq() < 0.01) push.set(0, 0, -1);
+    push.normalize();
+    const yaw = Math.atan2(-push.x, -push.z);   // facing his blocker, going over backward
+    const q1 = yawPitchQuat(yaw, -Math.PI / 2, (Math.random() - 0.5) * 0.4);
+    p.pancake = { t: 0, q0: p.group.quaternion.clone(), q1, rest: restHeight(p, q1), push: push.multiplyScalar(4) };
+    p.rag = null; p.blockFoe = null; p.currentMoveSpeed = 0;
+    if (p.team === 'defense' && GAME_STATE !== 'DEFENSE') { flashBanner('PANCAKE!', 900); if (Math.random() < 0.6) commentate(pick([`${nameOf(by)} PANCAKES HIS MAN!`, `PANCAKE BLOCK! HE PUT HIM ON HIS BACK!`])); }
+    sfxHit(0.9);
+}
+function updatePancake(p, dt) {
+    const k = p.pancake; k.t += dt;
+    const fl = Math.min(1, k.t / 0.45), fall = fl * fl;
+    p.group.quaternion.slerpQuaternions(k.q0, k.q1, fall);
+    p.group.position.y = k.rest * fall;
+    p.group.position.addScaledVector(k.push, dt * Math.max(0, 1 - k.t / 0.45));
+    if (fl >= 1 && !k.landed) { k.landed = true; ragLand(p, 1.2); }
+    poseFallLimbs(p, false, 'bighit', dt, fl < 1 ? 1 : 0);
+    p.currentMoveSpeed = 0;
+    if (k.t > 1.7) { p.pancake = null; startRise(p, p.group.position.z + 10); }
+}
+
+// ─── PRE-SNAP MOTION (M) ─────────────────────────────────────────────────────
+// Before the snap on a pass play, M sends the slot in motion across the formation behind the line.
+// Snap it while he's moving and he gets a running start; his route shifts over with him. In man
+// coverage the man covering him follows him across — that's how you know.
+function startMotion() {
+    if (GAME_STATE !== 'PRE_SNAP' || isRunPlay) return;
+    const p = players.offense[3];
+    if (!p || p.inMotion || p.motionDone) return;
+    p.inMotion = { x0: p.group.position.x, toX: p.group.position.x < 0 ? 7 : -7, z: lineOfScrimmageZ + 1.4 };
+    showLadderPrompt('MOTION!  SPACE: SNAP');
+}
+function stepMotion(p, dt) {
+    const m = p.inMotion;
+    if (steerTo(p, new THREE.Vector3(m.toX, 0, m.z), 6.5, dt) < 0.1) {
+        p.inMotion = null; p.motionDone = { x0: m.x0 };   // set at his new spot
+        p.group.lookAt(p.group.position.x, 0, p.group.position.z - 10);
+    }
+}
+// At the snap: the man in motion's route moves over with him, and he's already moving
+function motionAtSnap() {
+    const p = players.offense[3];
+    if (!p || !(p.inMotion || p.motionDone)) return;
+    const x0 = (p.inMotion || p.motionDone).x0, dx = p.group.position.x - x0;
+    if (p.route && p.route.length) p.route = p.route.map(pt => new THREE.Vector3(THREE.MathUtils.clamp(pt.x + dx, -SIDELINE_X + 3, SIDELINE_X - 3), 0, pt.z));
+    if (p.inMotion) p.cutBurstTimer = Math.max(p.cutBurstTimer || 0, 0.8);
+    p.inMotion = null; p.motionDone = null;
 }
 
 // ─── SPECIAL CATCHES ─────────────────────────────────────────────────────────
