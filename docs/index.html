@@ -443,6 +443,7 @@
                     <button class="tile" onclick="openChallenges()"><span class="ti">⭐</span>CHALLENGES</button>
                     <button class="tile" onclick="openPlaybookEditor()"><span class="ti">📋</span>MY PLAYBOOK</button>
                     <button class="tile" onclick="playoffs ? openBracket() : flashBanner('THE BRACKET IS SET WHEN THE REGULAR SEASON ENDS', 1600)"><span class="ti">🏆</span>BRACKET</button>
+                    <button class="tile" onclick="openTrades()"><span class="ti">🔁</span>TRADES</button>
                     <button class="tile" onclick="openSettings()"><span class="ti">⚙️</span>SETTINGS</button>
                 </div>
                 <div id="menu-goals"></div>
@@ -1709,6 +1710,75 @@ function signFreeAgent(i) {
     flashBanner(`SIGNED ${f.p.name}`, 1200);
     renderFreeAgency();
 }
+// ─── TRADES ──────────────────────────────────────────────────────────────────
+// Put any of your players (starter or backup) on the block and three teams call with an offer of
+// one of theirs at the same spot. Some offers are fair, some a steal for you, some a fleecing —
+// look at the stars, the age and the contract. The new man has to fit under the cap. Trades are
+// open until the deadline after week 9 and close for the playoffs; the offers are new every week.
+const TRADE_DEADLINE = 9;
+function tradesOpen() { return seasonPhase === 'regular' && currentWeek <= TRADE_DEADLINE; }
+function tradeValue(p, slot) { return starRating(p, slot) * (p.age <= 26 ? 1.15 : p.age >= 31 ? 0.8 : 1) - Math.max(0, (p.salary || 0) - salaryFor(p, slot)) * 0.15; }
+function openTrades() {
+    if (!roster) return;
+    if (!tradesOpen()) { flashBanner(seasonPhase === 'regular' ? `THE TRADE DEADLINE PASSED (WEEK ${TRADE_DEADLINE}) — TRADES REOPEN NEXT SEASON` : 'NO TRADES DURING THE PLAYOFFS', 2200); return; }
+    ensureFranchise();
+    if (!openTrades.offers || openTrades.week !== currentWeek) { openTrades.offers = {}; openTrades.week = currentWeek; }
+    openTrades.shop = null;
+    renderTrades();
+}
+function shopPlayer(slot, who) {
+    const key = slot + '|' + who, mine = who === 'starter' ? roster[slot] : bench[slot];
+    if (!openTrades.offers[key]) {
+        const teams = NFL_TEAMS.slice().sort(() => Math.random() - 0.5).slice(0, 3), v = tradeValue(mine, slot);
+        openTrades.offers[key] = teams.map((t, i) => {
+            // Ratings around what he's worth to them: one about even, one a little either way, one wild
+            const swing = [0, Math.random() < 0.5 ? 0.6 : -0.6, (Math.random() - 0.5) * 2.4][i];
+            const base = THREE.MathUtils.clamp(55 + (v + swing) * 8, 50, 92);
+            const p = genPlayer(slot, base, 22, 33); giveContract(p, slot, false);
+            return { team: t.id, p, done: false };
+        });
+    }
+    openTrades.shop = key;
+    renderTrades();
+}
+function acceptTrade(i) {
+    const [slot, who] = openTrades.shop.split('|'), o = openTrades.offers[openTrades.shop][i];
+    const mine = who === 'starter' ? roster[slot] : bench[slot];
+    if (capUsed() - (mine.salary || 0) + o.p.salary > SALARY_CAP) { flashBanner('NOT ENOUGH CAP ROOM', 1200); return; }
+    o.p.num = freeNumber(slot);
+    if (who === 'starter') roster[slot] = o.p; else bench[slot] = o.p;
+    // Their side: they get your guy (a better player makes them a little better)
+    const L = league[o.team]; if (L) L.rating = THREE.MathUtils.clamp(L.rating + (starRating(mine, slot) - starRating(o.p, slot)) * 1.2, 50, 95);
+    openTrades.offers[openTrades.shop] = null; openTrades.shop = null;
+    flashBanner(`TRADED ${mine.name} TO ${o.team} FOR ${o.p.name}`, 2200);
+    saveSeason(); renderTrades();
+}
+function renderTrades() {
+    const head = `<div class="stats-head">CAP ${money(capUsed())} / ${money(SALARY_CAP)} · DEADLINE AFTER WEEK ${TRADE_DEADLINE} (${TRADE_DEADLINE - currentWeek + 1} ${TRADE_DEADLINE - currentWeek + 1 === 1 ? 'WEEK' : 'WEEKS'} LEFT)</div>`;
+    const card = (slot, who) => {
+        const p = who === 'starter' ? roster[slot] : bench[slot], on = openTrades.shop === slot + '|' + who;
+        return `<div class="pcard" style="${on ? 'border-color:#ffcc00;' : ''}"><div class="pcard-top"><span class="pcard-pos">${SLOT_LABEL[slot]}${who === 'backup' ? ' (B)' : ''}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
+            <div class="pcard-age">AGE ${p.age} · ${money(p.salary || 0)} × ${p.years || 1} YRS${p.injury > 0 ? ` · <span style="color:#ff5a6e;">HURT ${p.injury} WK</span>` : ''}</div>
+            <button class="up-btn" onclick="shopPlayer('${slot}','${who}')">${on ? 'ON THE BLOCK' : 'SHOP HIM'}</button></div>`;
+    };
+    let offers = '';
+    if (openTrades.shop) {
+        const [slot, who] = openTrades.shop.split('|'), mine = who === 'starter' ? roster[slot] : bench[slot];
+        offers = `<div class="stats-head" style="margin-top:14px;">OFFERS FOR ${mine.name} (${SLOT_LABEL[slot]} ${starsText(starRating(mine, slot))}, AGE ${mine.age}, ${money(mine.salary || 0)})</div><div class="roster-grid" style="width:min(1000px,96vw);">` +
+            (openTrades.offers[openTrades.shop] || []).map((o, i) => {
+                const p = o.p, fits = capUsed() - (mine.salary || 0) + p.salary <= SALARY_CAP;
+                const bars = SLOT_RATINGS[slot].map(k => `<div class="rbar"><span>${RATING_NAMES[k]}</span><div class="rbar-track"><div class="rbar-fill" style="width:${p[k]}%; background:${ratingColor(p[k])};"></div></div><span>${p[k]}</span><span></span></div>`).join('');
+                return `<div class="pcard"><div class="pcard-top"><span class="pcard-pos">${o.team}</span><span class="pcard-name">${p.name}</span><span class="pcard-stars">${starsText(starRating(p, slot))}</span></div>
+                    <div class="pcard-age">AGE ${p.age} · ${money(p.salary)} × ${p.years} YRS</div>${bars}
+                    <button class="btn-retro draft-pick" ${fits ? '' : 'disabled style="background:#333;"'} onclick="acceptTrade(${i})">${fits ? 'ACCEPT TRADE' : 'NO CAP ROOM'}</button></div>`;
+            }).join('') + '</div>';
+    }
+    const mineGrid = `<div class="roster-grid" style="width:min(1000px,96vw);">${ALL_SLOTS.flatMap(s => [card(s, 'starter'), card(s, 'backup')]).join('')}</div>`;
+    showOffseason('TRADES', head + offers + `<div class="stats-head" style="margin-top:14px;">YOUR TEAM — PUT SOMEONE ON THE BLOCK</div>` + mineGrid,
+        [['BACK TO MENU', "hideOffseason(); showOnly('main-menu'); updateMenuUI();"]]);
+    document.getElementById('offseason-screen').scrollTop = 0;
+}
+
 function finishOffseason() {
     hideOffseason();
     startNewSeason();
