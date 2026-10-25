@@ -617,9 +617,16 @@
             </div>
             <div class="diff-row" style="margin-top:8px;">
                 <span>COMMENTARY VOICE</span>
-                <button class="diff-btn" data-voice="on" onclick="setVoice(true)">ON</button>
-                <button class="diff-btn" data-voice="off" onclick="setVoice(false)">OFF</button>
+                <button class="diff-btn" data-voice="ai" onclick="setVoice('ai')" title="A real-sounding AI voice that runs in the game (63 MB, downloaded once)">AI (HUMAN)</button>
+                <button class="diff-btn" data-voice="browser" onclick="setVoice('browser')">BROWSER</button>
+                <button class="diff-btn" data-voice="off" onclick="setVoice('off')">OFF</button>
             </div>
+            <div class="diff-row" style="margin-top:8px;">
+                <span>AI COLOR ANALYST (+63 MB)</span>
+                <button class="diff-btn" data-analyst="on" onclick="setAnalyst(true)">ON</button>
+                <button class="diff-btn" data-analyst="off" onclick="setAnalyst(false)">OFF</button>
+            </div>
+            <div id="voice-status" style="font-size:0.5rem; color:#00ff88; margin-top:6px; text-align:center;"></div>
             <div class="diff-row" style="margin-top:8px;">
                 <span>PLAY-BY-PLAY</span>
                 <select id="voice-pbp" onchange="setBoothVoice('pbp', this.value)" style="font-family:'Press Start 2P',monospace; font-size:0.5rem; max-width:220px; padding:6px; background:#001a33; color:#fff; border:2px solid #ffcc00;"></select>
@@ -3040,16 +3047,129 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 function nameOf(p) { return p ? (jerseyName(p.team, p.role, p.number) || `#${p.number}`) : ''; }
 // The booth, out loud: every call is spoken in the browser's own voice (no downloads), a newer
 // call cutting off an older one. Settings → COMMENTARY VOICE turns it off; muting the game does too.
-function voiceOn() {
-    if (voiceOn.v == null) { try { voiceOn.v = localStorage.getItem('ff-voice') !== 'off'; } catch (e) { voiceOn.v = true; } }
-    return voiceOn.v;
+// Which voice calls the game: 'ai' (a real-sounding AI voice that runs in the game), 'browser'
+// (the computer's own text-to-speech) or 'off'
+function voiceMode() {
+    if (voiceMode.v == null) { let s = null; try { s = localStorage.getItem('ff-voice'); } catch (e) {} voiceMode.v = s === 'off' ? 'off' : s === 'browser' ? 'browser' : 'ai'; }
+    return voiceMode.v;
 }
-function setVoice(on) {
-    voiceOn.v = on;
-    try { localStorage.setItem('ff-voice', on ? 'on' : 'off'); } catch (e) {}
-    document.querySelectorAll('[data-voice]').forEach(b => b.classList.toggle('active', (b.dataset.voice === 'on') === on));
-    if (!on && window.speechSynthesis) speechSynthesis.cancel();
+function voiceOn() { return voiceMode() !== 'off'; }
+function setVoice(mode) {
+    if (mode === true) mode = 'ai'; else if (mode === false) mode = 'off';
+    voiceMode.v = mode;
+    try { localStorage.setItem('ff-voice', mode); } catch (e) {}
+    document.querySelectorAll('[data-voice]').forEach(b => b.classList.toggle('active', b.dataset.voice === mode));
+    if (mode !== 'browser' && window.speechSynthesis) speechSynthesis.cancel();
+    if (mode !== 'ai') aiStop();
+    if (mode === 'ai') aiVoiceLoad();
+    aiVoiceStatus();
 }
+function analystOn() { try { return localStorage.getItem('ff-ai-analyst') === 'on'; } catch (e) { return false; } }
+function setAnalyst(on) {
+    try { localStorage.setItem('ff-ai-analyst', on ? 'on' : 'off'); } catch (e) {}
+    document.querySelectorAll('[data-analyst]').forEach(b => b.classList.toggle('active', (b.dataset.analyst === 'on') === on));
+    if (on && voiceMode() === 'ai') aiVoiceLoad();
+    aiVoiceStatus();
+}
+
+// ─── AI VOICE ────────────────────────────────────────────────────────────────
+// A neural text-to-speech voice (Piper "Ryan", a natural American male) that runs right in the
+// game: about 63 MB downloaded once (kept on the computer after that), then it works offline. The
+// color analyst ("Joe") is a second, optional 63 MB voice. The model runs in a background worker
+// so the game never stutters; each line takes about half a second to say. Lines are queued in
+// order; a new play-by-play call cuts off whatever's still waiting. If the download is blocked,
+// the browser's voice takes over.
+const AI_HF = 'https://huggingface.co/diffusionstudio/piper-voices/resolve/main';
+const AI_MODELS = { pbp: 'en/en_US/ryan/medium/en_US-ryan-medium.onnx', color: 'en/en_US/joe/medium/en_US-joe-medium.onnx' };
+const AI_PHONEMIZE = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize';
+const aiVoice = { state: {}, sess: {}, cfg: {}, ort: null, phon: null, phonResolve: null, queue: [], busy: false, src: null, pct: {} };
+// The model file, from the computer's cache when it's been downloaded before
+async function aiFetchModel(role) {
+    const url = `${AI_HF}/${AI_MODELS[role]}`;
+    let cache = null; try { cache = await caches.open('ff-ai-voice'); } catch (e) {}
+    const hit = cache && await cache.match(url);
+    if (hit) { aiVoice.pct[role] = 100; return await hit.arrayBuffer(); }
+    const res = await fetch(url); if (!res.ok) throw new Error('download ' + res.status);
+    const total = +(res.headers.get('Content-Length') || 63000000), reader = res.body.getReader(), parts = []; let got = 0;
+    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; aiVoice.pct[role] = Math.min(99, Math.round(got / total * 100)); aiVoiceStatus(); }
+    const blob = new Blob(parts);
+    if (cache) { try { await cache.put(url, new Response(blob)); } catch (e) {} }
+    aiVoice.pct[role] = 100;
+    return await blob.arrayBuffer();
+}
+async function aiVoiceLoad() {
+    const roles = ['pbp'].concat(analystOn() ? ['color'] : []);
+    for (const role of roles) {
+        if (aiVoice.state[role] === 'loading' || aiVoice.state[role] === 'ready') continue;
+        aiVoice.state[role] = 'loading'; aiVoiceStatus();
+        try {
+            if (!aiVoice.ort) {
+                aiVoice.ort = await import('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/+esm');
+                aiVoice.ort.env.wasm.wasmPaths = 'https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.18.0/';
+                aiVoice.ort.env.wasm.proxy = true; aiVoice.ort.env.wasm.numThreads = 1;   // inference in a worker: no hitches in the game
+            }
+            if (!aiVoice.phon) {   // the text → speech-sounds step (espeak), one instance reused for every line
+                const ph = await import('https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/piper-DeOu3H9E.js');
+                aiVoice.phon = await ph.createPiperPhonemize({
+                    print: l => { const r = aiVoice.phonResolve; aiVoice.phonResolve = null; if (r) r(JSON.parse(l).phoneme_ids); },
+                    printErr: () => {}, noExitRuntime: true,
+                    locateFile: f => f.endsWith('.wasm') ? AI_PHONEMIZE + '.wasm' : f.endsWith('.data') ? AI_PHONEMIZE + '.data' : f,
+                });
+            }
+            aiVoice.cfg[role] = await (await fetch(`${AI_HF}/${AI_MODELS[role]}.json`)).json();
+            aiVoice.sess[role] = await aiVoice.ort.InferenceSession.create(await aiFetchModel(role));
+            aiVoice.state[role] = 'ready';
+            if (role === 'pbp') flashBanner('🎙️ THE COMMENTATOR\'S VOICE IS READY', 1500);
+        } catch (e) {
+            aiVoice.state[role] = 'failed';
+            if (role === 'pbp') flashBanner('THE AI VOICE COULDN\'T DOWNLOAD — USING THE BROWSER VOICE', 2200);
+        }
+        aiVoiceStatus();
+    }
+}
+function aiVoiceStatus() {
+    const el = document.getElementById('voice-status'); if (!el) return;
+    const s = r => aiVoice.state[r] === 'ready' ? 'READY' : aiVoice.state[r] === 'loading' ? `DOWNLOADING ${aiVoice.pct[r] || 0}%` : aiVoice.state[r] === 'failed' ? 'BLOCKED (USING BROWSER VOICE)' : 'NOT DOWNLOADED YET';
+    el.innerText = voiceMode() !== 'ai' ? '' : `AI PLAY-BY-PLAY: ${s('pbp')}${analystOn() ? ` · AI ANALYST: ${s('color')}` : ''}`;
+}
+// Say it like a broadcast: team abbreviations as names, stat shorthand spelled out
+function aiSpeakable(text) {
+    let t = String(text);
+    allTeams().forEach(tm => { t = t.replace(new RegExp(`\\b${tm.id}\\b`, 'g'), tm.name.charAt(0) + tm.name.slice(1).toLowerCase()); });
+    return t.replace(/#(\d+)/g, 'number $1').replace(/\bYDS?\b/gi, 'yards').replace(/\bTDS?\b/g, 'touchdown').replace(/\bINTS?\b/g, 'interception').replace(/\bQB\b/g, 'quarterback').replace(/\bWR\b/g, 'receiver').replace(/\bRB\b/g, 'running back');
+}
+function aiSay(text, role, excited) {
+    if (aiVoice.state[role] !== 'ready') { if (!aiVoice.state[role]) aiVoiceLoad(); return false; }
+    if (role === 'pbp') { aiVoice.queue = []; if (aiVoice.src) { try { aiVoice.src.stop(); } catch (e) {} aiVoice.src = null; } }   // the newest call wins
+    aiVoice.queue.push({ text: aiSpeakable(text), role, excited, at: performance.now() });
+    aiPump();
+    return true;
+}
+async function aiPump() {
+    if (aiVoice.busy) return;
+    const item = aiVoice.queue.shift(); if (!item) return;
+    aiVoice.busy = true;
+    try {
+        const ort = aiVoice.ort, cfg = aiVoice.cfg[item.role];
+        const ids = await new Promise(res => { aiVoice.phonResolve = res; aiVoice.phon.callMain(['-l', cfg.espeak.voice, '--input', JSON.stringify([{ text: item.text }]), '--espeak_data', '/espeak-ng-data']); });
+        const inf = cfg.inference, pace = item.excited ? 0.84 : item.role === 'color' ? 1.0 : 0.92;   // big plays come faster, with more life
+        const out = await aiVoice.sess[item.role].run({ input: new ort.Tensor('int64', ids, [1, ids.length]), input_lengths: new ort.Tensor('int64', [ids.length]),
+            scales: new ort.Tensor('float32', [item.excited ? 0.75 : inf.noise_scale, inf.length_scale * pace, inf.noise_w]) });
+        const pcm = out.output.data;
+        if (performance.now() - item.at < 6000 && voiceMode() === 'ai' && !isMuted) {   // still timely: play it
+            if (!audioCtx) initAudio();
+            const buf = audioCtx.createBuffer(1, pcm.length, cfg.audio.sample_rate); buf.copyToChannel(pcm instanceof Float32Array ? pcm : Float32Array.from(pcm), 0);
+            const src = audioCtx.createBufferSource(), gain = audioCtx.createGain(); gain.gain.value = 1.1;
+            src.buffer = buf; src.connect(gain); gain.connect(audioCtx.destination);
+            aiVoice.src = src;
+            await new Promise(res => { src.onended = res; src.start(); });
+            if (aiVoice.src === src) aiVoice.src = null;
+        }
+    } catch (e) {}
+    aiVoice.busy = false;
+    aiPump();
+}
+function aiStop() { aiVoice.queue = []; if (aiVoice.src) { try { aiVoice.src.stop(); } catch (e) {} aiVoice.src = null; } }
 // A two-man booth: the play-by-play voice calls it, and now and then the color analyst (a
 // different voice, slower and lower) follows with his take. The most natural-sounding voices on the
 // computer are picked first (the "Natural" / "Neural" / "Online" ones sound far less robotic than
@@ -3083,15 +3203,22 @@ function sayAs(role, text) {
     speechSynthesis.speak(u);
 }
 function speakLine(text) {
-    if (!voiceOn() || isMuted || !window.speechSynthesis) return;
+    if (!voiceOn() || isMuted) return;
     const raw = String(text).replace(/<[^>]*>/g, '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim();
     if (!raw) return;
     // Sentence case reads like a person talking instead of a robot reading capitals; "..." becomes a beat
-    const line = raw.toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\.\.\./g, ', ');
+    const line = aiSpeakable(raw).toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\.\.\./g, ', ');
+    const cat = /touchdown/i.test(raw) ? 'td' : /intercept|picked/i.test(raw) ? 'pick' : /sack/i.test(raw) ? 'sack' : /fumble/i.test(raw) ? 'fumble' : /hit|boom|laid|pancake/i.test(raw) ? 'hit' : /!/.test(raw) ? 'big' : null;
+    const take = cat && Math.random() < (cat === 'big' ? 0.2 : 0.5) ? ANALYST[cat][Math.floor(Math.random() * ANALYST[cat].length)] : null;   // the analyst's take, right after
+    if (voiceMode() === 'ai' && aiVoice.state.pbp !== 'failed') {
+        aiSay(line, 'pbp', /touchdown|intercept|picked|fumble|sack|boom|unstoppable/i.test(raw));   // (silent until the voice has downloaded)
+        if (take && analystOn()) aiSay(take, 'color');
+        return;
+    }
+    if (!window.speechSynthesis) return;
     speechSynthesis.cancel();
     sayAs('pbp', line);
-    const cat = /touchdown/i.test(raw) ? 'td' : /intercept|picked/i.test(raw) ? 'pick' : /sack/i.test(raw) ? 'sack' : /fumble/i.test(raw) ? 'fumble' : /hit|boom|laid|pancake/i.test(raw) ? 'hit' : /!/.test(raw) ? 'big' : null;
-    if (cat && Math.random() < (cat === 'big' ? 0.2 : 0.5)) { const a = ANALYST[cat]; sayAs('color', a[Math.floor(Math.random() * a.length)]); }   // the analyst's take, right after
+    if (take) sayAs('color', take);
 }
 function fillVoiceSelects() {
     const vs = boothVoices();
@@ -3103,6 +3230,12 @@ function fillVoiceSelects() {
 }
 function setBoothVoice(role, name) { try { localStorage.setItem(role === 'color' ? 'ff-voice-color' : 'ff-voice-pbp', name); } catch (e) {} }
 function testBooth() {
+    if (voiceMode() === 'ai' && aiVoice.state.pbp === 'ready') {
+        aiSay('Hurts drops back, he has time... he fires deep... caught! Touchdown, Eagles!', 'pbp', true);
+        if (analystOn()) aiSay(ANALYST.td[Math.floor(Math.random() * ANALYST.td.length)], 'color');
+        return;
+    }
+    if (voiceMode() === 'ai') { flashBanner('THE AI VOICE IS STILL DOWNLOADING...', 1200); aiVoiceLoad(); return; }
     if (!window.speechSynthesis) return;
     speechSynthesis.cancel();
     sayAs('pbp', 'Hurts drops back, he has time... he fires deep... caught! Touchdown, Eagles!');
@@ -3802,7 +3935,7 @@ function openRoster() {
     document.getElementById('main-menu').classList.add('hidden');
     document.getElementById('roster-screen').classList.remove('hidden');
 }
-function openSettings() { updateDifficultyButtons(); setVoice(voiceOn()); fillVoiceSelects(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
+function openSettings() { updateDifficultyButtons(); setVoice(voiceMode()); setAnalyst(analystOn()); fillVoiceSelects(); document.getElementById('main-menu').classList.add('hidden'); document.getElementById('settings-screen').classList.remove('hidden'); }
 
 // League table; the red line marks the playoff cut (top 8)
 function openStandings() {
@@ -4012,7 +4145,7 @@ function sfxHut() {
 function toggleAudio() {
     if(!audioCtx) initAudio();
     isMuted = !isMuted;
-    if(isMuted) { audioCtx.suspend(); if (window.speechSynthesis) speechSynthesis.cancel(); document.getElementById('btn-mute').innerText = "UNMUTE AUDIO"; document.getElementById('btn-mute').style.background = "#e31837"; } 
+    if(isMuted) { audioCtx.suspend(); if (window.speechSynthesis) speechSynthesis.cancel(); aiStop(); document.getElementById('btn-mute').innerText = "UNMUTE AUDIO"; document.getElementById('btn-mute').style.background = "#e31837"; } 
     else { audioCtx.resume(); document.getElementById('btn-mute').innerText = "MUTE AUDIO"; document.getElementById('btn-mute').style.background = "#444"; }
 }
 
@@ -6635,6 +6768,7 @@ class Player {
  */
 function startGame() {
     if (net && net.role === 'host' && net.conn && net.guestInfo) startMatch();   // online head to head
+    if (voiceMode() === 'ai') aiVoiceLoad();   // the commentator's voice downloads in the background (once)
     gameInjuries = []; challengesLeft = 2; challengeable = null; lastSnap = null;
     if(musicInterval) clearInterval(musicInterval);
     if(menuPlayerModel) scene.remove(menuPlayerModel.group);
