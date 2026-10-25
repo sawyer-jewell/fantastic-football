@@ -1211,6 +1211,7 @@ let net = null;   // online play: { role: 'host' | 'guest', peer, conn, ... } (s
 let pro = null;   // a Be a Pro game in progress (see BE A PRO)
 let practice = null;   // a practice drill in progress (see PRACTICE)
 let teamLook = null;   // your custom team name and colors, or null for the real team's look (see TEAM LOOK)
+let refs = [];   // the officiating crew on the field (see REFS)
 let blimpGroup2 = null;
 let droneAngle = 0;
 let droneSimTimer = null;
@@ -1889,6 +1890,74 @@ function updateP2(dt) {
         if (show && hint.innerText !== matchDefensePrompt()) hint.innerText = matchDefensePrompt();
         document.body.classList.toggle('net-def', matchDefending('host'));
     } else if (hint) hint.classList.toggle('hidden', !(p2.on && who));
+}
+
+// ─── REFS ────────────────────────────────────────────────────────────────────
+// Three officials work every play on your drives: the referee (white cap) behind the offense,
+// the line judge on the sideline at the line of scrimmage, the back judge deep. They walk to
+// their spots each snap and signal the calls: touchdown and good kicks (both arms up), first down
+// (pointing the way the offense is going), incomplete and no good (arms waving across), a flag
+// (the throw), a turnover (pointing the other way) and timeouts (arms crossed over the head).
+const REF_STATES = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH', 'TACKLED', 'GETTING_UP', 'TOUCHDOWN', 'WALKOFF', 'INT_RETURN', 'TIMEOUT', 'FIELD_GOAL', 'EXTRA_POINT', 'XP_ANIM']);
+function makeRef(white) {
+    const g = new THREE.Group();
+    const stripes = refs.stripeTex || (refs.stripeTex = sceneryTexture((c, w, h) => { for (let x = 0; x < w; x += 16) { c.fillStyle = (x / 16) % 2 ? '#111' : '#f4f4f4'; c.fillRect(x, 0, 16, h); } }, 64, 16));
+    const shirt = new THREE.MeshLambertMaterial({ map: stripes }), black = new THREE.MeshLambertMaterial({ color: 0x1a1a1a }), skin = new THREE.MeshLambertMaterial({ color: 0xc68642 });
+    const box = (w, h, d, m, x, y, z, parent = g) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); parent.add(b); return b; };
+    box(0.72, 0.85, 0.4, shirt, 0, 1.45, 0);
+    box(0.7, 0.35, 0.42, black, 0, 0.95, 0);                    // black pants (knickers)
+    box(0.42, 0.42, 0.42, skin, 0, 2.1, 0);
+    box(0.46, 0.14, 0.5, new THREE.MeshLambertMaterial({ color: white ? 0xffffff : 0x111111 }), 0, 2.35, 0.03);   // cap
+    const leg = x => { const l = new THREE.Group(); l.position.set(x, 0.85, 0); g.add(l); box(0.24, 0.85, 0.24, black, 0, -0.42, 0, l); return l; };
+    const arm = x => { const a = new THREE.Group(); a.position.set(x, 1.82, 0); g.add(a); box(0.2, 0.75, 0.2, shirt, 0, -0.37, 0, a); box(0.17, 0.17, 0.17, skin, 0, -0.8, 0, a); return a; };
+    const r = { g, legL: leg(-0.18), legR: leg(0.18), armL: arm(-0.46), armR: arm(0.46), home: new THREE.Vector3(), sig: null, t: 0, phase: Math.random() * 6 };
+    scene.add(g); return r;
+}
+function placeRefs(L) {
+    if (!refs.length) { refs.push(makeRef(true), makeRef(false), makeRef(false)); refs.forEach(r => r.g.position.set(0, 0, L)); }
+    refs[0].home.set(9, 0, L + 11); refs[1].home.set(SIDELINE_X - 1.5, 0, L); refs[2].home.set(-7, 0, L - 34);
+}
+function refSignal(kind) {
+    if (!refs.length) return;
+    const who = kind === 'first' ? [0, 1] : kind === 'flag' ? [0] : kind === 'incomplete' || kind === 'nogood' ? [0, 2] : [0, 1, 2];
+    who.forEach(i => { refs[i].sig = kind; refs[i].t = 0; });
+}
+// The call that goes with how a play ended
+function refCall(msg, finalZ) {
+    if (/TOUCHDOWN/.test(msg)) refSignal('td');
+    else if (/INCOMPLETE|OUT OF BOUNDS|BATTED/.test(msg) && !/RUN/.test(msg)) refSignal('incomplete');
+    else if (/FUMBLE|INTERCEPT|PICK/.test(msg)) refSignal('turnover');
+    else if (finalZ != null && !isTwoPointAttempt && finalZ <= lineOfScrimmageZ - yardsToGo * 2) refSignal('first');
+}
+function updateRefs(dt) {
+    if (!refs.length) return;
+    const on = REF_STATES.has(GAME_STATE) && !practice && !(net && net.role === 'guest');
+    refs.forEach((r, i) => {
+        r.g.visible = on; if (!on) return;
+        const p = r.g.position, to = r.home.clone().sub(p).setY(0), d = to.length();
+        let speed = 0;
+        if (d > 0.3 && !r.sig) { speed = Math.min(d * 2, 5); p.addScaledVector(to.normalize(), speed * dt); }
+        // Face the play (the line judge looks across the field; the others up and down it); turn to point a call
+        let yaw = i === 1 ? -Math.PI / 2 : i === 0 ? Math.PI : 0;
+        if (speed > 0.5) yaw = Math.atan2(to.x, to.z);
+        if (r.sig === 'first') yaw = Math.PI; else if (r.sig === 'turnover') yaw = 0;   // pointing down the field the right way
+        r.g.rotation.y += Math.atan2(Math.sin(yaw - r.g.rotation.y), Math.cos(yaw - r.g.rotation.y)) * Math.min(1, dt * 6);
+        const s = Math.sin((r.phase += dt * (speed > 0.5 ? 9 : 2)));
+        r.legL.rotation.x = speed > 0.5 ? 0.5 * s : 0; r.legR.rotation.x = speed > 0.5 ? -0.5 * s : 0;
+        let L = { x: speed > 0.5 ? -0.4 * s : 0, z: 0.08 }, R = { x: speed > 0.5 ? 0.4 * s : 0, z: -0.08 };
+        if (r.sig) {
+            r.t += dt;
+            const k = Math.min(1, r.t / 0.2), w = Math.sin(r.t * 11);
+            if (r.sig === 'td') { L = { x: 0, z: -3.0 * k }; R = { x: 0, z: 3.0 * k }; }
+            else if (r.sig === 'first' || r.sig === 'turnover') { R = { x: -1.55 * k, z: 0 }; }
+            else if (r.sig === 'incomplete' || r.sig === 'nogood') { L = { x: -1.5 * k, z: (-0.2 + 0.9 * w) * k }; R = { x: -1.5 * k, z: (0.2 - 0.9 * w) * k }; }
+            else if (r.sig === 'flag') { R = { x: -2.8 * Math.sin(Math.min(1, r.t / 0.5) * Math.PI) , z: 0 }; }
+            else if (r.sig === 'timeout') { L = { x: 0, z: (-2.5 - 0.35 * w) * k }; R = { x: 0, z: (2.5 + 0.35 * w) * k }; }
+            if (r.t > 2.2) r.sig = null;
+        }
+        r.armL.rotation.x += (L.x - r.armL.rotation.x) * Math.min(1, dt * 14); r.armL.rotation.z += (L.z - r.armL.rotation.z) * Math.min(1, dt * 14);
+        r.armR.rotation.x += (R.x - r.armR.rotation.x) * Math.min(1, dt * 14); r.armR.rotation.z += (R.z - r.armR.rotation.z) * Math.min(1, dt * 14);
+    });
 }
 
 // ─── TEAM LOOK (custom team) ─────────────────────────────────────────────────
@@ -6916,6 +6985,7 @@ function updateEasterEgg(dt) {
 
 function triggerTDCelebration(scorer) {
     if (practice && practice.kind === 'run') { practiceRunEnd(GOAL_LINE_Z, true); return; }   // the Gauntlet: made it
+    refSignal('td');
     if (GAME_STATE === 'TACKLED' || GAME_STATE === 'TOUCHDOWN') return;
     // Reaching the end zone on a 2-point try (running or diving) is a conversion, not a TD
     if (isTwoPointAttempt) {
@@ -7474,6 +7544,7 @@ function updateScoreboard() {
 
 function handlePlayResult(msg, finalZ) {
     if (practice && practice.kind === 'run') { practiceRunEnd(finalZ, false); return; }   // the Gauntlet: brought down
+    if (GAME_STATE !== 'WALKOFF') refCall(msg, finalZ);   // the officials signal it
     if (GAME_STATE !== 'WALKOFF') sfxWhistle();
     // After a fumble, briefly drop into WALKOFF so players walk to the sideline
     // before the formation resets. Other play results skip straight through.
@@ -7586,6 +7657,7 @@ function updateTdCam(dt) {
 // (flagOnPlay, piSpotZ and flagMeshes are declared with the globals before init().)
 
 function throwFlag(x, z) {
+    refSignal('flag');
     const f = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), new THREE.MeshLambertMaterial({ color: 0xffd400, emissive: 0x332200 }));
     f.position.set(x, 3, z); f.userData.vy = 4; scene.add(f); flagMeshes.push(f);
 }
@@ -7869,7 +7941,7 @@ function pickDefScheme() {
 }
 
 function setupFormation() {
-    clearFlags();
+    clearFlags(); placeRefs(lineOfScrimmageZ);   // the officials to their spots for this snap
     clearKickLeftovers();   // a kick that never finished (quit mid-return, clock ran out) leaves no one behind
     updateScoreboard();
     players.offense.forEach(p => scene.remove(p.group)); players.defense.forEach(p => scene.remove(p.group));
@@ -9061,6 +9133,7 @@ function startKickAnim(isGood, spotZ, isFieldGoal) {
 // After a field goal: kickoff (or the win in overtime) when good; when missed the
 // opponent takes over at the spot of the kick, but no worse than their own 20.
 function finishFieldGoal(good) {
+    refSignal(good ? 'td' : 'nogood');
     document.getElementById('instructions').classList.add('hidden');
     gameStats.fgAtt++; if (good) gameStats.fgMade++; creditPlayer('K', 'fga'); if (good) creditPlayer('K', 'fgm');
     if (good && currentQuarter === OT_QUARTER) { endOvertimeWith(`FIELD GOAL!\n${MY_TEAM.id} WINS IN OVERTIME!`); return; }
@@ -12033,6 +12106,7 @@ function clearCheerleaders() {
 // while you pick the play and get set; let it hit zero and it's delay of game.
 
 function callTimeout() {
+    if (timeoutsOff > 0 && ['PLAYBOOK', 'PRE_SNAP', 'TACKLED', 'GETTING_UP'].includes(GAME_STATE)) refSignal('timeout');
     if (timeoutsOff <= 0) return;
     const validStates = new Set(['PLAYBOOK', 'PRE_SNAP', 'PLAY', 'POST_CATCH']);
     if (!validStates.has(GAME_STATE)) return;
@@ -12391,7 +12465,7 @@ function animate() {
     if (walkout) updateWalkout(dt);
     if (matchOn()) { net.ecam = [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w]; net.camSwapped = true; }   // the offense's camera, for whoever has the ball (restored next frame under any override)
     applyCameraMode(dt);
-    proTick(dt); proCamera(dt); practiceTick(dt);
+    proTick(dt); proCamera(dt); practiceTick(dt); updateRefs(dt);
     updateP2(dt);
     netHostTick(dt); netGuestTick();
     // Online match, you're on defense: the defense camera, and none of their offense's aiming lines
